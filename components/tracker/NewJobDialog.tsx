@@ -39,7 +39,7 @@ function AlreadyChecked({
   const where = app.triage === "skipped" ? "marked as not applying" : app.triage === "checked" ? "under Checked jobs" : `in your applications (${app.stage})`;
   return (
     <div className="mt-4 rounded-2xl bg-accent-soft/60 p-5" role="status">
-      <p className="font-semibold tracking-display">You already checked this position</p>
+      <p className="font-semibold tracking-display">Already checked</p>
       <p className="mt-1 text-sm text-muted">
         {app.role || "This job"}
         {app.company ? ` at ${app.company}` : ""}, on {when}
@@ -95,6 +95,7 @@ export default function NewJobDialog({
   const [master, setMaster] = useState("");
   const [profile, setProfile] = useState<Profile | null>(null);
   const [geo, setGeo] = useState<GeoIndex | null>(null);
+  const [moving, setMoving] = useState(false);
 
   // Her Profile (work authorization, degree) and the place names, for the free re-check below.
   useEffect(() => {
@@ -172,6 +173,18 @@ export default function NewJobDialog({
     return { ...(fresh ?? next), id: next.id };
   };
 
+  /** "Add to applications" / "Not applying" from the result view, guarded against double clicks. */
+  const move = async (next: Application & { id: number }) => {
+    if (!app || moving) return;
+    setMoving(true);
+    try {
+      const stored = await persist(next);
+      setApp({ ...app, ...stored });
+    } finally {
+      setMoving(false);
+    }
+  };
+
   const autoStarted = useRef(false);
   useEffect(() => {
     if (autoAnalyze && initialUrl && !autoStarted.current) {
@@ -187,26 +200,35 @@ export default function NewJobDialog({
         <div className="grid gap-5">
           {app.checkedBefore ? (
             <Notice kind="info">
-              You checked this position before, on {new Date(app.checkedBefore).toLocaleDateString(undefined, { month: "short", day: "numeric" })}. It&apos;s
-              updated with this check instead of added twice.
+              Checked before, on {new Date(app.checkedBefore).toLocaleDateString(undefined, { month: "short", day: "numeric" })}. Updated, not added twice.
             </Notice>
           ) : app.triage === "checked" ? (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-paper px-5 py-4 text-sm">
-              <p className="max-w-md text-muted">
-                Saved under <span className="font-medium text-ink">Checked jobs</span>. It joins your applications when you add it, tailor a
-                resume for it, or apply.
+              <p className="text-muted">
+                Saved under <span className="font-medium text-ink">Checked jobs</span>.
               </p>
               <div className="flex flex-wrap gap-2">
-                <Button onClick={async () => setApp({ ...app, ...(await persist(trackJob(app))) })}>Add to applications</Button>
-                <Button variant="secondary" onClick={async () => setApp({ ...app, ...(await persist(skipJob(app))) })}>
+                <Button disabled={moving} onClick={() => move(trackJob(app))}>
+                  Add to applications
+                </Button>
+                <Button variant="secondary" disabled={moving} onClick={() => move(skipJob(app))}>
                   Not applying
                 </Button>
               </div>
             </div>
           ) : app.triage === "skipped" ? (
-            <Notice kind="info">You marked this job as not applying. It stays under Checked jobs.</Notice>
+            <div role="status">
+              <Notice kind="info">
+                Marked as not applying.{" "}
+                <button type="button" disabled={moving} onClick={() => move({ ...app, triage: "checked" })} className="font-medium text-accent hover:underline">
+                  Undo
+                </button>
+              </Notice>
+            </div>
           ) : (
-            <Notice kind="ok">Updated in your applications.</Notice>
+            <div role="status">
+              <Notice kind="ok">In your applications.</Notice>
+            </div>
           )}
           <ScoreCard result={toStoredBreakdown(live)} />
           <MustHavesPanel onChange={setPrefs} />
@@ -220,12 +242,12 @@ export default function NewJobDialog({
               onSaved={(id) => setApp((a) => (a ? { ...a, tailoredResumeId: id, triage: undefined, tailorDraft: undefined } : a))}
               notStartedReason={
                 live.decision.canApply
-                  ? "Tailors your resume to this job's keywords and skills, using only what's in your experience."
-                  : "This job fails one of your must-haves. You can still tailor a resume if you want to apply anyway."
+                  ? "Written only from your experience."
+                  : "This job fails a must-have. You can still tailor a resume for it."
               }
             />
           </div>
-          <div className="flex justify-end">
+          <div className="flex justify-end border-t border-black/[0.06] pt-5">
             <Button variant="secondary" onClick={onClose}>
               Done
             </Button>
@@ -237,7 +259,7 @@ export default function NewJobDialog({
 
   return (
     <Modal title={initialMode === "paste" && initialUrl ? "Paste the job description" : "Add a job"} onClose={onClose}>
-      <div className="mb-5 inline-flex rounded-full bg-black/[0.05] p-1 text-sm">
+      <div className="mb-5 inline-flex rounded-full bg-black/[0.05] p-1 text-sm" role="group" aria-label="How to add the job">
         {(["link", "paste"] as Mode[]).map((m) => (
           <button
             key={m}
@@ -246,7 +268,7 @@ export default function NewJobDialog({
             aria-pressed={mode === m}
             className={`rounded-full px-4 py-1.5 font-medium transition ${mode === m ? "bg-white text-ink shadow-soft" : "text-muted hover:text-ink"}`}
           >
-            {m === "link" ? "From a link" : "Paste the description"}
+            {m === "link" ? "Link" : "Paste text"}
           </button>
         ))}
       </div>
@@ -255,10 +277,7 @@ export default function NewJobDialog({
         <Field label={mode === "link" ? "Job posting link" : "Job posting link (optional)"} value={url} onChange={setUrl} placeholder="https://..." />
         {mode === "paste" && <TextArea label="Job description" value={jdText} onChange={setJdText} rows={10} />}
         {mode === "link" && (
-          <p className="text-xs leading-relaxed text-muted">
-            Works for most company career pages, Greenhouse and Lever. Pages built with JavaScript (Workday, Ashby, Apple, LinkedIn)
-            can&apos;t be read automatically; paste those instead. Reading and scoring costs about 1 to 2¢.
-          </p>
+          <p className="text-xs leading-relaxed text-muted">Workday, Ashby and LinkedIn pages can&apos;t be read from a link. Paste their text instead.</p>
         )}
       </div>
 
@@ -268,7 +287,7 @@ export default function NewJobDialog({
 
       {previous && <AlreadyChecked app={previous} onOpen={onOpenExisting} onCheckAgain={() => analyze(true)} />}
 
-      {step && <Spinner label={step} />}
+      <div aria-live="polite">{step && <Spinner label={step} />}</div>
       {error && (
         <Notice kind="error">
           {error.message}
@@ -284,7 +303,8 @@ export default function NewJobDialog({
         </Notice>
       )}
 
-      <div className="mt-5 flex justify-end gap-3">
+      <div className="mt-5 flex flex-wrap items-center justify-end gap-3 border-t border-black/[0.06] pt-5">
+        <span className="mr-auto text-[13px] text-muted">About 1 to 2¢</span>
         <Button variant="secondary" onClick={onClose}>
           Cancel
         </Button>

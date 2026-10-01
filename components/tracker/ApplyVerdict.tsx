@@ -28,9 +28,10 @@ function StatusIcon({ status }: { status: FilterResult["status"] }) {
     );
   }
   return (
-    <span aria-label="Not stated" className="flex h-3.5 w-3.5 items-center justify-center text-[11px] font-semibold text-muted">
-      ?
-    </span>
+    <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 text-muted" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="Not stated">
+      <path d="M6 6.2a2 2 0 1 1 2.6 1.9c-.4.2-.6.5-.6.9v.6" />
+      <path d="M8 11.8h.01" />
+    </svg>
   );
 }
 
@@ -97,7 +98,7 @@ function SkillRow({ label, have, gap }: { label: string; have: string[]; gap: st
   );
 }
 
-const MissingCaption = () => <p className="text-xs text-muted">Struck through: not in your experience yet.</p>;
+const MissingCaption = () => <p className="text-xs text-muted">Struck through: not in your experience.</p>;
 
 /** The headline for a job: a match percentage, a verdict, and the must-haves behind it. */
 export default function ApplyVerdict({
@@ -150,9 +151,7 @@ export default function ApplyVerdict({
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <p className="text-[13px] font-medium text-ink">Your must-haves</p>
             {unclear > 0 && (
-              <p className="text-xs text-muted">
-                ? = unclear: not stated in the posting, or not set in your Profile or Preferences. Check {unclear === 1 ? "it" : "these"} before applying.
-              </p>
+              <p className="text-xs text-muted">Dashed = not stated or not set. Check before applying.</p>
             )}
           </div>
           <ul className="mt-3 flex flex-wrap gap-2">
@@ -175,12 +174,12 @@ export default function ApplyVerdict({
         <div className="grid gap-2.5 border-t border-black/[0.06] px-6 py-4">
           <SkillRow label="Mentioned" have={skills.required.have} gap={skills.required.gap} />
           {skills.required.gap.length > 0 && <MissingCaption />}
-          <p className="text-xs text-muted">The posting doesn&apos;t list required skills separately, so this counts every technology it mentions.</p>
+          <p className="text-xs text-muted">Counts every technology the posting mentions.</p>
         </div>
       )}
       {skills?.basis === "keywords" && (
         <p className="border-t border-black/[0.06] px-6 py-4 text-xs leading-relaxed text-muted">
-          The posting doesn&apos;t list specific skills, so this compares its wording with your experience. Treat it as a rough guide.
+          No skills listed, so this compares wording. A rough guide only.
         </p>
       )}
     </section>

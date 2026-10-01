@@ -27,16 +27,13 @@ export default function MustHavesPanel({ onChange }: { onChange: (prefs: Prefere
 
   return (
     <details className="group rounded-2xl bg-paper p-4">
-      <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-medium">
+      <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg text-sm font-medium focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent/25">
         <span>
-          My must-haves <span className="font-normal text-muted">({on} of {MUST_HAVE_FILTERS.length} on)</span>
+          My must-haves <span className="font-normal text-muted">{on} of {MUST_HAVE_FILTERS.length} on</span>
         </span>
         <span className="text-xs text-muted group-open:hidden">Edit</span>
       </summary>
-      <p className="mt-2 text-xs leading-relaxed text-muted">
-        If a job fails any must-have that&apos;s on, it&apos;s marked &quot;Don&apos;t apply&quot;. Changes are saved and re-check this job instantly
-        (no AI cost). Work authorization and degree come from your Profile.
-      </p>
+      <p className="mt-2 text-xs text-muted">Failing one means &quot;Don&apos;t apply&quot;. Changes save and re-check for free.</p>
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         {MUST_HAVE_FILTERS.map((f) => (
           <label key={f.key} className="flex items-center gap-2 text-sm">

@@ -22,6 +22,7 @@ import ResumePreview from "../resumes/ResumePreview";
 import TailorDialog, { TAILOR_COST_HINT } from "../tailor/TailorDialog";
 import NewJobDialog from "./NewJobDialog";
 import ScoreCard from "./ScoreCard";
+import DeleteJobMessage from "./DeleteJobMessage";
 import { CompanyMark, STAGE_STYLE } from "./StageBadge";
 
 const opts = (values: readonly string[]) => values.map((v) => ({ value: v, label: v }));
@@ -51,6 +52,7 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [downloadNote, setDownloadNote] = useState<string | null>(null);
   const [rechecking, setRechecking] = useState(false);
+  const [saving, setSaving] = useState(false);
   const isNew = initial.id === undefined;
   const breakdown = readBreakdown(app);
   // Scored from a page shell instead of the posting: the verdict would be about nothing, so hide it.
@@ -76,8 +78,16 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
       setTab("details");
       return;
     }
-    await saveApplication({ ...app, company: app.company.trim(), role: app.role.trim() });
-    onClose();
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await saveApplication({ ...app, company: app.company.trim(), role: app.role.trim() });
+      onClose();
+    } catch (e) {
+      setError(`Couldn't save: ${e instanceof Error ? e.message : String(e)}`);
+      setSaving(false);
+    }
   };
 
   // Stage changes on the Overview save right away, like the stage menu in the table. Only the
@@ -196,7 +206,7 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
           </div>
           {!isNew && app.stage === "Saved" && (
             <div className="-mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-muted">
-              {app.triage === "checked" && <span>Checked, not in your applications yet.</span>}
+              {app.triage === "checked" && <span>Not in your applications yet.</span>}
               {app.triage === "skipped" && <span>Marked as not applying.</span>}
               {app.triage && (
                 <button type="button" onClick={() => setTriageNow(undefined)} className="font-medium text-accent hover:underline">
@@ -218,10 +228,7 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
 
           {incomplete && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-warn-soft px-5 py-4 text-sm">
-              <p className="max-w-md leading-relaxed text-warn">
-                The saved text doesn&apos;t look like the job description (the site probably loads it with JavaScript), so this check
-                isn&apos;t reliable. Paste the description to re-check it.
-              </p>
+              <p className="max-w-md leading-relaxed text-warn">The saved text isn&apos;t the full job description, so this check isn&apos;t reliable.</p>
               <Button variant="secondary" onClick={() => setRechecking(true)}>
                 Paste and re-check
               </Button>
@@ -231,22 +238,22 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
             <ScoreCard result={breakdown} />
           ) : (
             <p className="rounded-2xl bg-paper px-5 py-4 text-sm text-muted">
-              This job wasn&apos;t analyzed. To see if it fits, add it from its link with <span className="font-medium text-ink">Add job</span>.
+              Not analyzed. Add it from its link with <span className="font-medium text-ink">Add job</span> to see if it fits.
             </p>
           )}
 
           <section className="rounded-2xl border border-black/[0.08] p-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <h3 className="text-[17px] font-semibold tracking-display">Your resume for this job</h3>
+                <h3 className="text-[17px] font-semibold tracking-display">Resume</h3>
                 <p className="mt-1 max-w-sm text-[13px] leading-relaxed text-muted">
                   {own
                     ? `Using your own file: ${own.own!.fileName}.`
                     : resume
-                    ? `Saved ${new Date(resume.createdAt).toLocaleDateString()}. It shows ${resume.keywordScoreAfter}% of the skills this job asks for.`
+                    ? `Saved ${new Date(resume.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}. Shows ${resume.keywordScoreAfter}% of the job's skills.`
                     : app.jdText.trim()
-                      ? "Tailored to this job's keywords, using only what's in Your experience."
-                      : "Add the job description under Details to tailor a resume."}
+                      ? "Written only from Your experience."
+                      : "Add the job description under Details to tailor one."}
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {own ? (
@@ -307,7 +314,7 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
           <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-black/[0.08] p-5">
             <div>
               <h3 className="text-[17px] font-semibold tracking-display">Reach out</h3>
-              <p className="mt-1 text-[13px] text-muted">Find recruiters and engineers there on LinkedIn, and draft a short note.</p>
+              <p className="mt-1 text-[13px] text-muted">Find people on LinkedIn and draft a note.</p>
             </div>
             <Button variant="secondary" onClick={() => setOutreach(true)}>
               Open outreach
@@ -360,8 +367,8 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
                 ...(app.source && !JOB_SOURCES.includes(app.source) ? [app.source] : []).concat(JOB_SOURCES).map((v) => ({ value: v, label: v })),
               ]}
             />
-            <SelectField label="Visa sponsorship (from the posting)" value={app.visa} onChange={(v) => set("visa", v as VisaSignal)} options={opts(VISA_SIGNALS)} />
-            <Field label="Link to a resume stored elsewhere (optional)" value={app.tailoredUrl} onChange={(v) => set("tailoredUrl", v)} />
+            <SelectField label="Sponsorship (per the posting)" value={app.visa} onChange={(v) => set("visa", v as VisaSignal)} options={opts(VISA_SIGNALS)} />
+            <Field label="Resume link (optional)" value={app.tailoredUrl} onChange={(v) => set("tailoredUrl", v)} />
           </div>
           <div className="mt-4 grid gap-4">
             <TextArea label="Notes" value={app.notes} onChange={(v) => set("notes", v)} rows={3} />
@@ -379,20 +386,29 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
             </Button>
           )}
         </div>
-        <div className="ml-auto flex flex-wrap justify-end gap-2">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          {!isNew && dirty && (
+            <span className="text-[13px] text-muted" role="status">
+              Unsaved changes
+            </span>
+          )}
           {isNew ? (
             <>
               <Button variant="secondary" onClick={requestClose}>
                 Cancel
               </Button>
-              <Button onClick={save}>Add job</Button>
+              <Button onClick={save} disabled={saving}>
+                {saving ? "Adding..." : "Add job"}
+              </Button>
             </>
           ) : dirty ? (
             <>
-              <Button variant="secondary" onClick={() => setApp(savedApp)}>
+              <Button variant="secondary" onClick={() => setApp(savedApp)} disabled={saving}>
                 Discard changes
               </Button>
-              <Button onClick={save}>Save changes</Button>
+              <Button onClick={save} disabled={saving}>
+                {saving ? "Saving..." : "Save changes"}
+              </Button>
             </>
           ) : (
             <Button variant="secondary" onClick={onClose}>
@@ -432,7 +448,7 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
       {confirmDiscard && (
         <ConfirmDialog
           title="Discard your changes?"
-          message="You edited this job but didn't save. Closing now loses those edits."
+          message="Your edits to this job aren't saved yet."
           confirmLabel="Discard changes"
           onCancel={() => setConfirmDiscard(false)}
           onConfirm={() => {
@@ -444,13 +460,7 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
       {confirmDelete && app.id !== undefined && (
         <ConfirmDialog
           title="Delete this job?"
-          message={
-            <>
-              {app.role || "This job"}
-              {app.company ? ` at ${app.company}` : ""} will be removed from your tracker, along with its tailored resume and contacts saved
-              in the app. Files already in your resume folder are kept. This can&apos;t be undone.
-            </>
-          }
+          message={<DeleteJobMessage app={app} />}
           confirmLabel="Delete job"
           onCancel={() => setConfirmDelete(false)}
           onConfirm={async () => {
