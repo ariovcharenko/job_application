@@ -18,6 +18,9 @@ const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 
 const rich = (s: string) => boldSegments(s).map((p) => (p.bold ? `<b>${esc(p.text)}</b>` : esc(p.text))).join("");
 
+/** The role shown under a project's name: "" for a generic "Project" title. */
+export const projectRole = (title: string) => (/^(personal\s+|side\s+)?project$/i.test(title.trim()) ? "" : title);
+
 const safeHref = (url: string) => (/^(https?:|mailto:)/i.test(url) ? esc(url) : "#");
 
 // Sizes come from two CSS variables set on each page (renderResumeHtml): --b, the body font size in
@@ -56,7 +59,7 @@ export function renderResumeHtml(h: ResumeHeader, doc: ResumeDoc): string {
   // one reachable by keyboard for the click-to-act menu.
   const entry = (sec: string, i: number, title: string, right: string, sub: string, subRight: string, bullets: string[]) =>
     `<div class="e" data-sec="${sec}" data-e="${i}" tabindex="0"><div class="r t"><span>${esc(title)}</span><span style="font-weight:normal">${esc(right)}</span></div>` +
-    `<div class="r s"><span>${esc(sub)}</span><span>${esc(subRight)}</span></div>` +
+    (sub || subRight ? `<div class="r s"><span>${esc(sub)}</span><span>${esc(subRight)}</span></div>` : "") +
     (bullets.length ? `<ul>${bullets.map((b, j) => `<li data-b="${j}" tabindex="0">${rich(b)}</li>`).join("")}</ul>` : "") +
     `</div>`;
 
@@ -72,7 +75,8 @@ export function renderResumeHtml(h: ResumeHeader, doc: ResumeDoc): string {
   }
   if (projects.length) {
     parts.push(`<div class="h">${SECTION_TITLES.projects}</div>`);
-    parts.push(...projects.map((e, i) => entry("projects", i, e.title, e.dates, e.company, e.location, e.bullets)));
+    // A project leads with its name; the role line shows only when it says more than "Project".
+    parts.push(...projects.map((e, i) => entry("projects", i, e.company, e.dates, projectRole(e.title), e.location, e.bullets)));
   }
   if (doc.skills.length) {
     parts.push(`<div class="h">${SECTION_TITLES.skills}</div>`);

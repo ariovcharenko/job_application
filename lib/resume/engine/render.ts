@@ -12,6 +12,7 @@ import {
   type ParagraphChild,
 } from "docx";
 import { boldSegments, contentWidthTwips, DEFAULT_LAYOUT, FONT, LINK_COLOR, PAGE, SECTION_TITLES, sizesFor, spaceFor, TWIPS_PER_IN, type Layout } from "./layout";
+import { projectRole } from "./html";
 import type { ResumeDoc, ResumeHeader } from "./schema";
 
 // Renders a tailored resume to .docx in her exact format: Times New Roman, the sizes in layout.ts,
@@ -112,8 +113,9 @@ export function buildResumeParagraphs(h: ResumeHeader, doc: ResumeDoc): Paragrap
   if (projects.length) {
     out.push(sectionHeader(SECTION_TITLES.projects));
     projects.forEach((e, i) => {
-      out.push(splitLine([new TextRun({ text: e.title, bold: true, size: pt(SIZE.entryTitle), font: FONT })], e.dates, SIZE.entryTitle, { before: i ? SPACE.beforeEntry : 0 }));
-      out.push(splitLine([new TextRun({ text: e.company, italics: true, size: pt(SIZE.entrySub), font: FONT })], e.location, SIZE.entrySub, { italics: true }));
+      out.push(splitLine([new TextRun({ text: e.company, bold: true, size: pt(SIZE.entryTitle), font: FONT })], e.dates, SIZE.entryTitle, { before: i ? SPACE.beforeEntry : 0 }));
+      const role = projectRole(e.title);
+      if (role || e.location) out.push(splitLine([new TextRun({ text: role, italics: true, size: pt(SIZE.entrySub), font: FONT })], e.location, SIZE.entrySub, { italics: true }));
       e.bullets.forEach((b) => out.push(bullet(b, SIZE.bullet)));
     });
   }

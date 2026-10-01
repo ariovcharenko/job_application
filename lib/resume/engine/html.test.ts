@@ -49,5 +49,8 @@ describe("renderResumeHtml", () => {
     expect(html).toContain('style="--b:10.5;--m:1.1"');
     expect(html.indexOf("PROJECTS")).toBeGreaterThan(html.indexOf("EXPERIENCE"));
     expect(html).toContain('data-sec="projects"');
+    expect(html).toContain('<div class="r t"><span>DemoDeck</span>');
+    const generic = renderResumeHtml({ name: "A", location: "", links: [] }, { ...doc, projects: [{ title: "Project", company: "DemoDeck", location: "", dates: "", bullets: [] }] });
+    expect(generic).not.toContain("<span>Project</span>");
   });
 });
