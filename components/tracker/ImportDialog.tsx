@@ -9,6 +9,7 @@ export default function ImportDialog({ onClose }: { onClose: () => void }) {
   const [result, setResult] = useState<ImportResult | null>(null);
   const [done, setDone] = useState<{ added: number; skipped: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
 
   const onFile = async (file: File | undefined) => {
     setError(null);
@@ -26,13 +27,7 @@ export default function ImportDialog({ onClose }: { onClose: () => void }) {
       {!done && (
         <>
           <p className="text-sm text-muted">
-            Bring your old tracker as a CSV from Notion, Airtable, Google Sheets or Excel. Columns like Company, Position (or
-            Title), Status, Date Applied and Link are recognised. You will see a preview before anything is added, and rows you
-            already have are skipped.
-          </p>
-          <p className="mt-2 text-[13px] text-muted">
-            Notion: the ••• menu, then Export as CSV. Google Sheets: File, Download, CSV. Excel: Save As, CSV. Airtable: the view
-            menu, Download CSV.
+            From Notion, Airtable, Google Sheets or Excel. You&apos;ll see a preview first, and rows you already have are skipped.
           </p>
           <input
             type="file"
@@ -76,7 +71,19 @@ export default function ImportDialog({ onClose }: { onClose: () => void }) {
                 )}
               </ul>
               <div className="mt-4">
-                <Button onClick={async () => setDone(await importApplications(result.applications))}>
+                <Button
+                  disabled={importing}
+                  onClick={async () => {
+                    setImporting(true);
+                    try {
+                      setDone(await importApplications(result.applications));
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : String(e));
+                    } finally {
+                      setImporting(false);
+                    }
+                  }}
+                >
                   Import {result.applications.length} row(s)
                 </Button>
               </div>

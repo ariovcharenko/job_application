@@ -7,17 +7,17 @@ import Link from "next/link";
 const JOBS: { title: string; body: string; icon: React.ReactNode }[] = [
   {
     title: "Check if a job is worth it",
-    body: "Paste a job link. See whether it meets your must-haves (level, degree, location, work authorization) and how many of its skills you have.",
+    body: "Paste a link. See if it meets your must-haves and how many of its skills you have.",
     icon: <path d="m5 12.5 4.5 4.5L19 7.5" />,
   },
   {
     title: "Tailor your resume",
-    body: "Get a one-page resume for that job, written only from your real experience. Anything it can't verify is left out unless you tick it.",
+    body: "A one-page resume for that job, written only from your real experience.",
     icon: <path d="M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h6" />,
   },
   {
     title: "Track every application",
-    body: "Stages, follow-up reminders and notes in one place. Bring your old tracker as a CSV from Notion, Airtable, Google Sheets or Excel.",
+    body: "Stages, follow-ups and notes in one place. Import your old tracker as a CSV.",
     icon: <path d="M4 5h16M4 12h16M4 19h10" />,
   },
 ];
@@ -33,10 +33,7 @@ export default function SetupCard({ onImportCsv }: { onImportCsv?: () => void })
       <h2 id="setup-title" className="text-[28px] font-semibold leading-tight tracking-display">
         Get set up (about 5 minutes)
       </h2>
-      <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-muted">
-        Connect your own Claude API key, add your experience once, and say what you&apos;re looking for. Then every job you paste is
-        checked against you.
-      </p>
+      <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-muted">Add your Claude API key, your experience and what you&apos;re looking for.</p>
 
       <ul className="mt-6 grid gap-4 md:grid-cols-3">
         {JOBS.map((j) => (
@@ -56,7 +53,7 @@ export default function SetupCard({ onImportCsv }: { onImportCsv?: () => void })
         <div>
           <dt className="font-semibold">What it costs</dt>
           <dd className="mt-0.5 text-muted">
-            About 1 to 2¢ to check a job, about 5¢ to tailor, paid to Anthropic with your own key. The app itself is free.
+            The app is free. Anthropic charges your key about 1 to 2¢ per job check and 5¢ per resume.
           </dd>
         </div>
         <div>

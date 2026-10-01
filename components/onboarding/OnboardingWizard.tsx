@@ -23,22 +23,22 @@ const STEPS = [
   {
     title: "Connect Claude",
     key: "key",
-    lead: "Checking jobs and tailoring resumes use your own Anthropic API key, so you pay Anthropic only for what you use: about 1 to 2¢ to check a job, about 5¢ to tailor a resume.",
+    lead: "You pay Anthropic only for what you use: about 1 to 2¢ to check a job, about 5¢ to tailor a resume.",
   },
   {
     title: "Your experience",
     key: "master",
-    lead: "Import your resume or paste everything you've done: every role and bullet, projects, and a skills list. Jobs are matched against this, and tailored resumes are written only from it.",
+    lead: "Import your resume or paste everything you've done. Jobs are matched against it, and resumes are written only from it.",
   },
   {
     title: "About you",
     key: "profile",
-    lead: "Your name and links go at the top of every tailored resume. Work authorization matters because many jobs can't sponsor a visa or require citizenship: your answers decide which jobs pass, and they're only ever taken from here, never guessed.",
+    lead: "Your name and links head every tailored resume. Work authorization answers decide which jobs pass, and are never guessed.",
   },
   {
     title: "What you're looking for",
     key: "preferences",
-    lead: "Your level, roles, locations and work styles. Every job you add is checked against these for free. If a must-have fails, the app tells you not to apply.",
+    lead: "Every job you add is checked against these, for free.",
   },
   { title: "You're set", key: "done", lead: "" },
 ] as const;
@@ -164,30 +164,23 @@ export default function OnboardingWizard() {
       {current.key === "welcome" && (
         <div className="mb-6 rounded-[22px] bg-white p-6 shadow-soft">
           <p className="text-[15px] leading-relaxed">
-            Paste a job link and Job Copilot tells you whether it meets your must-haves and how well your skills match. It can then
-            write a resume tailored to that job, and it tracks every application in one place. Setup takes about five minutes. Worth
-            knowing first:
+            Paste a job link to see if it fits you, get a tailored resume, and track every application. Setup takes about five minutes.
           </p>
           <ul className="mt-4 grid gap-3 text-sm leading-relaxed">
             <li>
-              <strong>Your data stays in this browser.</strong> Your experience, Profile and tracker are stored on this device, not
-              on a server. There isn&apos;t one.
+              <strong>Your data stays in this browser.</strong> There is no server.
             </li>
             <li>
-              <strong>You pay Anthropic directly, only for what you use.</strong> About 1 to 2¢ to check a job and about 5¢ to tailor
-              a resume, with your own API key. The job text and your experience are sent to Anthropic to do that.
+              <strong>You pay Anthropic directly</strong>, with your own key. Job text and your experience are sent to Anthropic.
             </li>
             <li>
-              <strong>Nothing is ever submitted for you.</strong> Tailored resumes and outreach drafts stop at a review screen. You
-              always take the final step yourself.
+              <strong>Nothing is ever submitted for you.</strong> You always take the final step.
             </li>
           </ul>
-          <p className="mt-4 text-[13px] text-muted">
-            More detail on{" "}
+          <p className="mt-4 text-[13px]">
             <Link href="/privacy" className="text-accent hover:underline">
-              what stays in your browser and what doesn&apos;t
+              Privacy details
             </Link>
-            .
           </p>
         </div>
       )}
@@ -213,19 +206,19 @@ export default function OnboardingWizard() {
             </li>
             <li className="flex gap-3">
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-soft text-xs font-semibold text-accent-deep">2</span>
-              <span>Add at least $5 of credit under Billing. That covers a few hundred job checks.</span>
+              <span>Add at least $5 of credit under Billing.</span>
             </li>
             <li className="flex gap-3">
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-soft text-xs font-semibold text-accent-deep">3</span>
-              <span>Set a monthly spend limit under Limits, so a key can never cost more than you chose.</span>
+              <span>Set a monthly spend limit under Limits.</span>
             </li>
             <li className="flex gap-3">
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-soft text-xs font-semibold text-accent-deep">4</span>
-              <span>Paste the key below and press Test connection.</span>
+              <span>Paste the key below and test it.</span>
             </li>
           </ol>
           <ApiKeyCard compact />
-          {!keySaved && <p className="-mt-2 mb-6 text-[13px] text-muted">No key yet? You can skip this and add it later in Settings.</p>}
+          {!keySaved && <p className="-mt-2 mb-6 text-[13px] text-muted">You can skip this and add it later.</p>}
         </>
       )}
 
@@ -244,7 +237,7 @@ export default function OnboardingWizard() {
         <>
           <div className="mb-6 rounded-[22px] bg-white p-6 text-center shadow-soft">
             <p className="text-[21px] font-semibold tracking-display">Try it on a real job.</p>
-            <p className="mt-2 text-[15px] text-muted">Paste a job link to check it, or bring your old tracker as a CSV from Notion, Airtable, Google Sheets or Excel.</p>
+            <p className="mt-2 text-[15px] text-muted">Paste a job link, or import your old tracker as a CSV.</p>
             <div className="mt-6 flex flex-wrap justify-center gap-2">
               <Link href="/?add=1" className={primaryLinkClass}>
                 Paste a job link

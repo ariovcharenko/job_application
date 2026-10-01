@@ -24,17 +24,15 @@ export default function PrivacyPage() {
       <div className="grid gap-4 text-[15px] leading-relaxed text-ink">
         <Section title="Your data lives in this browser">
           <p>
-            There is no Job Copilot server and no account. Your Profile, experience, preferences, tracked jobs, tailored resumes, saved
-            answers and contacts are stored in this browser&apos;s own database (IndexedDB) on this device. Nobody else can see them,
-            including us.
+            There is no Job Copilot server and no account. Everything you add is stored in this browser&apos;s own database on this
+            device. Nobody else can see it, including us.
           </p>
           <p className="mt-2 text-muted">
-            That also means they aren&apos;t backed up anywhere. Use{" "}
+            It isn&apos;t backed up anywhere unless you use{" "}
             <Link href="/settings#backup-and-restore" className="text-accent hover:underline">
-              Settings, Backup and restore
-            </Link>{" "}
-            to download a copy. Clearing this site&apos;s data in your browser deletes everything, and so does &quot;Delete all my data&quot;
-            in Settings.
+              Backup and restore
+            </Link>
+            . Clearing this site&apos;s data deletes everything.
           </p>
         </Section>
 
@@ -71,9 +69,9 @@ export default function PrivacyPage() {
 
         <Section title="Your API key">
           <p>
-            Your Anthropic key is stored in this browser, <strong>unencrypted</strong>, and sent only to Anthropic. Anyone who can use
-            this browser profile could read it. So use a key with a monthly spend limit, and don&apos;t save it on a shared computer. You
-            can remove it any time with &quot;Forget my API key&quot; in Settings.
+            Your Anthropic key is stored in this browser, <strong>unencrypted</strong>, and sent only to Anthropic. Anyone using this
+            browser profile could read it, so set a monthly spend limit and don&apos;t save it on a shared computer. &quot;Forget my API
+            key&quot; in Settings removes it.
           </p>
           <p className="mt-2 text-muted">A backup file leaves the key out unless you tick the box to include it.</p>
           {FEATURES.jobFeed && (

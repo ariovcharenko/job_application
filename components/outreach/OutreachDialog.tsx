@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getProvider } from "@/lib/ai";
 import { AIError } from "@/lib/ai/provider";
 import { deleteContact, getAnswerBank, getContactsForApplication, getProfile, saveContact } from "@/lib/db";
@@ -32,10 +32,24 @@ export default function OutreachDialog({ application, onClose }: { application: 
   const [removing, setRemoving] = useState<Contact | null>(null);
   const [newContact, setNewContact] = useState({ name: "", role: "", linkedinUrl: "", type: "recruiter" as Contact["type"] });
 
+  const latest = useRef<Contact[] | null>(null);
+  latest.current = contacts;
   const refresh = async () => setContacts(await getContactsForApplication(application.id));
+  // Typing shows at once and is saved shortly after it stops (a write and re-read per keystroke
+  // made the inputs lag and could drop characters). Anything still waiting is written on close.
+  const pending = useRef(new Map<number, { contact: Contact; timer: ReturnType<typeof setTimeout> }>());
   useEffect(() => {
     refresh();
     getProfile().then((p) => setSchool(p.school));
+    const queue = pending.current;
+    return () => {
+      for (const { contact, timer } of queue.values()) {
+        clearTimeout(timer);
+        void saveContact(contact);
+      }
+      queue.clear();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const addContact = async () => {
@@ -54,12 +68,26 @@ export default function OutreachDialog({ application, onClose }: { application: 
   };
 
   const updateContact = async (contact: Contact, patch: Partial<Contact>) => {
-    await saveContact({ ...contact, ...patch });
-    await refresh();
+    const next = { ...contact, ...patch };
+    if (next.id === undefined) {
+      await saveContact(next);
+      await refresh();
+      return;
+    }
+    const id = next.id;
+    setContacts((list) => list?.map((c) => (c.id === id ? next : c)) ?? list);
+    clearTimeout(pending.current.get(id)?.timer);
+    const timer = setTimeout(() => {
+      pending.current.delete(id);
+      void saveContact(next);
+    }, 300);
+    pending.current.set(id, { contact: next, timer });
   };
 
   const removeContact = async (id?: number) => {
     if (id === undefined) return;
+    clearTimeout(pending.current.get(id)?.timer);
+    pending.current.delete(id);
     await deleteContact(id);
     await refresh();
   };
@@ -72,7 +100,9 @@ export default function OutreachDialog({ application, onClose }: { application: 
       const profile = await getProfile();
       const draft = await draftOutreachMessage(provider, contact, application, profile, answerBank);
       const text = `Connection note (${draft.note.length} chars):\n${draft.note}\n\nFollow-up after connecting:\n${draft.followUp}`;
-      await updateContact(contact, { draft: text });
+      // Merge into the newest copy, so edits made while drafting aren't lost.
+      const now = latest.current?.find((c) => c.id === contact.id) ?? contact;
+      await updateContact(now, { draft: text });
     } catch (e) {
       const needsKey = e instanceof AIError && e.kind === "no_key";
       setError(needsKey ? "Add your Anthropic API key in Settings first." : e instanceof Error ? e.message : String(e));
@@ -87,10 +117,7 @@ export default function OutreachDialog({ application, onClose }: { application: 
 
   return (
     <Modal title={`Reach out at ${application.company || application.role}`} onClose={onClose}>
-      <p className="text-sm leading-relaxed text-muted">
-        These open a LinkedIn search in a new tab. Nothing is sent automatically. Every draft below is a starting point for
-        you to review and send yourself.
-      </p>
+      <p className="text-sm text-muted">Search LinkedIn in a new tab. Nothing is sent for you.</p>
       <div className="mt-3 flex flex-wrap gap-2">
         {searches.map((s) => (
           <a
@@ -165,7 +192,7 @@ export default function OutreachDialog({ application, onClose }: { application: 
             )}
           </div>
         ))}
-        {contacts.length === 0 && <p className="text-sm text-muted">No contacts yet. Add one below, or find someone with a search above.</p>}
+        {contacts.length === 0 && <p className="text-sm text-muted">No contacts yet.</p>}
       </div>
 
       <div className="mt-4 grid gap-2.5 rounded-2xl bg-paper p-3 sm:grid-cols-2 sm:p-4">

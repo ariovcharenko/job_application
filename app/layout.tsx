@@ -55,7 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Nav />
         <main className="mx-auto max-w-[1080px] px-4 pb-24 pt-12 sm:px-6">{children}</main>
         <footer className="border-t border-black/[0.06] px-4 py-6 text-center text-xs text-muted">
-          Your data stays in this browser. The app never submits an application for you.{" "}
+          Your data stays in this browser. Nothing is ever submitted for you.{" "}
           <Link href="/privacy" className="underline hover:text-ink">
             Privacy
           </Link>
