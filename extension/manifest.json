@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Job Application Copilot",
+  "version": "0.1.0",
+  "description": "Captures job postings, scores fit, and fills application forms for you to review — it never clicks Submit.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Job Application Copilot"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": ["storage", "activeTab", "scripting", "alarms"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content/capture.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}

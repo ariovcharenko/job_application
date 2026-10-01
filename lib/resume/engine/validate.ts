@@ -1,0 +1,440 @@
+import { altTitle, cleanTitle, parseMasterExperiences, type MasterEntry } from "../master/experiences";
+import { hasSkill, normalizeSkill, parseSkillInventory } from "../master/skills";
+import { mentionsTerm, TECH_TERMS } from "../master/techTerms";
+import { polishResume } from "./polish";
+import type { ResumeDoc } from "./schema";
+
+// Code-side enforcement of the tailoring rules. The prompt asks the model to follow them; this
+// checks the answer instead of trusting it. Mechanical rules (dashes, bold markers) are fixed
+// silently. Anything that might be an invented fact (a skill, number, employer or date the master
+// profile doesn't contain) becomes a Flag: left OUT of the resume unless she ticks it.
+
+export type FlagKind = "skill" | "number" | "employer" | "education" | "leadership";
+
+export interface Flag {
+  id: string;
+  kind: FlagKind;
+  message: string;
+  /** Where the flagged content is, so an unticked flag can be removed from the document. */
+  target:
+    | { section: "skills"; line: number; item: number }
+    | { section: "experience"; entry: number; bullet?: number }
+    | { section: "education"; entry: number; bullet?: number }
+    | { section: "leadership"; entry: number };
+}
+
+export interface ValidationResult {
+  doc: ResumeDoc;
+  flags: Flag[];
+  /** Mechanical fixes applied without asking (e.g. "Replaced 3 dashes"). */
+  fixes: string[];
+}
+
+/**
+ * No "--", em dash or en dash. Spaced ones ("May 2026 – Aug 2026", "fast — and") become " - ";
+ * unspaced ones between letters/digits ("end–to–end", "300–500") become a plain hyphen.
+ */
+export function fixDashes(text: string): { text: string; count: number } {
+  let count = 0;
+  const out = text
+    .replace(/\s+(?:—|–|--+)\s+|\s+(?:—|–|--+)|(?:—|–|--+)\s+/g, () => {
+      count++;
+      return " - ";
+    })
+    .replace(/—|–|--+/g, () => {
+      count++;
+      return "-";
+    });
+  return { text: out, count };
+}
+
+/** Drops ** markers if they don't pair up, so a stray one never shows as literal asterisks. */
+export function fixBoldMarkers(text: string): string {
+  const n = (text.match(/\*\*/g) ?? []).length;
+  if (n % 2 === 0) return text.replace(/\*\*\s*\*\*/g, "");
+  return text.replace(/\*\*/g, "");
+}
+
+export const plain = (text: string) => text.replace(/\*\*/g, "");
+
+/** Every number in a string ("80+", "~35%", "p95", "250-450" -> "80","35","95","250","450"). */
+export function numbersIn(text: string): string[] {
+  return plain(text).match(/\d+(?:\.\d+)?/g) ?? [];
+}
+
+const normalizeLoose = (s: string) => s.toLowerCase().replace(/[^a-z0-9+#]+/g, " ").trim();
+
+/** Whole-word "does `text` contain `phrase`", ignoring case and punctuation. */
+const containsLoose = (text: string, phrase: string) => {
+  const p = normalizeLoose(phrase);
+  return p !== "" && ` ${normalizeLoose(text)} `.includes(` ${p} `);
+};
+
+const wordsOf = (s: string) => normalizeLoose(s).split(" ").filter(Boolean);
+
+/** Every word of `phrase` appears somewhere in `text` (order and extra words don't matter). */
+const allWordsIn = (phrase: string, text: string) => {
+  const have = new Set(wordsOf(text));
+  return wordsOf(phrase).every((w) => have.has(w));
+};
+
+function mapStrings(doc: ResumeDoc, fn: (s: string) => string): ResumeDoc {
+  return {
+    education: doc.education.map((e) => ({
+      school: fn(e.school),
+      location: fn(e.location),
+      degree: fn(e.degree),
+      dates: fn(e.dates),
+      bullets: e.bullets.map(fn),
+    })),
+    experience: doc.experience.map((e) => ({
+      title: fn(e.title),
+      company: fn(e.company),
+      location: fn(e.location),
+      dates: fn(e.dates),
+      bullets: e.bullets.map(fn),
+    })),
+    skills: doc.skills.map((l) => ({ category: fn(l.category), items: l.items.map(fn) })),
+    leadership: doc.leadership.map((l) => ({ role: fn(l.role), dates: fn(l.dates) })),
+    meta: doc.meta,
+  };
+}
+
+/** "May 2026-Aug 2026" -> "May 2026 - Aug 2026". Only for date fields. */
+const spaceDateDashes = (dates: string) => dates.replace(/\s*-\s*/g, " - ");
+
+/**
+ * Dates reduced to a comparable form: "September 2022 – June 2026" and "Sep 2022 - Jun 2026" both
+ * become "aug 2023 - may 2027"; "Current" becomes "present". Anything else ("Summer 2026",
+ * "05/2026", "2023 - 2027") stays as written, so it only matches the same text in the master.
+ */
+function normDates(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?/g, "$1")
+    .replace(/\b(current|now|today)\b/g, "present")
+    .replace(/[^a-z0-9-]+/g, " ")
+    .replace(/\s*-\s*/g, " - ")
+    .trim();
+}
+
+/** Whether these exact dates (as a whole range, not month by month) appear in `text`. */
+function datesInText(dates: string, text: string): boolean {
+  const d = normDates(dates);
+  return d !== "" && ` ${normDates(text)} `.includes(` ${d} `);
+}
+
+/** The lines under every heading matching `heading` ("### Education"), or "" if there are none. */
+function sectionText(master: string, heading: RegExp): string {
+  const out: string[] = [];
+  let inside = false;
+  for (const raw of master.split(/\r?\n/)) {
+    const h = raw.trim().match(/^#{1,6}\s+(.*)$/);
+    if (h) {
+      inside = heading.test(h[1]);
+      continue;
+    }
+    if (inside) out.push(raw);
+  }
+  return out.join("\n");
+}
+
+/** The master entry an experience on the page claims to be: same company, then same title or dates. */
+function findEntry(entries: MasterEntry[], e: ResumeDoc["experience"][number]): MasterEntry | undefined {
+  const c = normalizeLoose(e.company);
+  if (!c) return undefined;
+  const same = entries.filter((m) => normalizeLoose(m.company) === c);
+  const pool = same.length ? same : entries.filter((m) => containsLoose(m.company, e.company) || containsLoose(e.company, m.company));
+  return pool.find((m) => titleMatches(e.title, m)) ?? pool.find((m) => normDates(m.dates) === normDates(e.dates)) ?? pool[0];
+}
+
+/**
+ * The allowed title a page title stands for, or null. Accepts the main or alt title exactly, or a
+ * combination of only those ("Main (Alt)", "Main / Alt", "Main, Alt"): then the first part wins.
+ */
+export function resolveTitle(title: string, m: MasterEntry): string | null {
+  const allowed = [cleanTitle(m.title), altTitle(m.title)].filter(Boolean);
+  const exact = allowed.find((x) => normalizeLoose(x) === normalizeLoose(cleanTitle(title)));
+  if (exact) return exact;
+  const parts = title
+    .split(/\s*[()/,|]\s*|\s+-\s+/)
+    .map((p) => p.replace(/^alt\.?\s*title:?\s*/i, "").trim())
+    .filter(Boolean);
+  if (parts.length < 2) return null;
+  const matched = parts.map((p) => allowed.find((x) => normalizeLoose(x) === normalizeLoose(p)));
+  return matched.every(Boolean) ? matched[0]! : null;
+}
+
+/** The page's title is the entry's main title or its "(alt. title: X)", with any such note ignored. */
+function titleMatches(title: string, m: MasterEntry): boolean {
+  const t = normalizeLoose(cleanTitle(title));
+  if (!t) return true;
+  return [cleanTitle(m.title), altTitle(m.title)].some((x) => x && normalizeLoose(x) === t);
+}
+
+/** Tool names with digits in them (S3, k6, p95, EC2): their digits aren't metrics. */
+const ALNUM_TOKEN = /\b[A-Za-z]+\d+[A-Za-z0-9]*\b/g;
+
+/** Numbers in a bullet that its own master entry (`block`) doesn't have. */
+function unknownNumbers(bullet: string, block: string, master: string): string[] {
+  const masterTokens = new Set((master.match(ALNUM_TOKEN) ?? []).map((t) => t.toLowerCase()));
+  const text = plain(bullet).replace(ALNUM_TOKEN, (t) => (masterTokens.has(t.toLowerCase()) ? " " : t));
+  const known = new Set(numbersIn(block));
+  return [...new Set(numbersIn(text).filter((n) => !known.has(n)))];
+}
+
+const NUMBER_WORDS = /\b(two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|dozens?|hundreds|thousands|millions|doubled|tripled|halved)\b/gi;
+
+/** Quantities written as words ("six teams", "doubled", "thousands of users") that `block` doesn't use. */
+function unknownNumberWords(bullet: string, block: string): string[] {
+  const words = [...new Set((plain(bullet).match(NUMBER_WORDS) ?? []).map((w) => w.toLowerCase()))];
+  return words.filter((w) => !new RegExp(`\\b${w}\\b`, "i").test(block));
+}
+
+const TECH_KEYS = new Set(TECH_TERMS.map(normalizeSkill));
+
+/**
+ * A bold span that names a technology rather than an ordinary phrase: no digits (those are
+ * metrics, checked as numbers), at most 5 words, and something tool-like about its spelling (a
+ * capital letter or . + # /). "design system" and "end-to-end" don't qualify; "Kubernetes",
+ * "CI/CD" and "Next.js" do. A lone past-tense verb the model bolded ("Owned", "Led") doesn't.
+ */
+const looksLikeTool = (span: string) =>
+  !/\d/.test(span) &&
+  !new RegExp(NUMBER_WORDS.source, "i").test(span) &&
+  !/^[A-Z][a-z]*ed$/.test(span) &&
+  span.split(/\s+/).length <= 5 &&
+  /[A-Z.+#/]/.test(span);
+
+/**
+ * Technologies a bullet mentions that her master profile doesn't have: its bold spans, plus known
+ * technology names written in their usual capitalization. A known technology passes if she has
+ * the skill or this entry's own master text names it (coursework under Education); any other bold
+ * phrase also passes if the master profile uses it anywhere.
+ */
+function unknownTools(bullet: string, block: string, inventory: string[], master: string): string[] {
+  const text = plain(bullet);
+  const spans = [...bullet.matchAll(/\*\*(.+?)\*\*/g)].map((m) => m[1].trim()).filter(looksLikeTool);
+  const terms = TECH_TERMS.filter(
+    (t) => mentionsTerm(text, t, { exactCase: !t.includes(" ") }) && !spans.some((s) => mentionsTerm(s, t)),
+  );
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const name of [...spans, ...terms]) {
+    const key = normalizeSkill(name);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const ok =
+      hasSkill(name, inventory, master) ||
+      mentionsTerm(block, name) ||
+      (!TECH_KEYS.has(key) && containsLoose(master, name));
+    if (!ok) out.push(name);
+  }
+  return out;
+}
+
+export function validateResume(raw: ResumeDoc, masterProfile: string): ValidationResult {
+  const fixes: string[] = [];
+  let dashCount = 0;
+  const doc = mapStrings(raw, (s) => {
+    const d = fixDashes(s);
+    dashCount += d.count;
+    return fixBoldMarkers(d.text.replace(/\s+/g, " ").trim());
+  });
+  if (dashCount) fixes.push(`Replaced ${dashCount} dash${dashCount === 1 ? "" : "es"} with a hyphen.`);
+
+  // Titles, skills and education are never bold; only bullets may carry ** markers.
+  for (const e of doc.experience) Object.assign(e, { title: plain(e.title), company: plain(e.company) });
+  for (const l of doc.skills) Object.assign(l, { category: plain(l.category), items: l.items.map(plain) });
+  // Date ranges always read "Mon YYYY - Mon YYYY".
+  for (const e of [...doc.experience, ...doc.education, ...doc.leadership]) e.dates = spaceDateDashes(e.dates);
+  // Mechanical polish by code: at most 4 bold spans per bullet, the usual casing of well-known
+  // technologies, no skill listed twice (lib/resume/engine/polish.ts).
+  const polished = polishResume(doc);
+  Object.assign(doc, polished.doc);
+  fixes.push(...polished.notes);
+
+  const flags: Flag[] = [];
+  const master = masterProfile;
+  const masterLoose = normalizeLoose(master);
+  const inventory = parseSkillInventory(master);
+  const entries = parseMasterExperiences(master);
+
+  doc.skills.forEach((line, li) =>
+    line.items.forEach((item, ii) => {
+      if (!hasSkill(item, inventory, master)) {
+        flags.push({
+          id: `skill-${li}-${ii}`,
+          kind: "skill",
+          message: `"${item}" isn't in your experience.`,
+          target: { section: "skills", line: li, item: ii },
+        });
+      }
+    }),
+  );
+
+  /** Tool and number flags for one bullet, checked against its own entry's master text. */
+  const checkBullet = (b: string, block: string, where: string, idPrefix: string, target: Flag["target"]) => {
+    unknownTools(b, block, inventory, master).forEach((tool, k) =>
+      flags.push({
+        id: `${idPrefix}tool-${k}`,
+        kind: "skill",
+        message: `"${tool}" isn't in your experience (${where}: "${plain(b)}")`,
+        target,
+      }),
+    );
+    const unknown = [...unknownNumbers(b, block, master), ...unknownNumberWords(b, block)];
+    if (unknown.length) {
+      flags.push({
+        id: `${idPrefix}num`,
+        kind: "number",
+        message: `Uses ${unknown.join(", ")}, which isn't in ${where === "education" ? "your education" : "this role"} in your experience: "${plain(b)}"`,
+        target,
+      });
+    }
+  };
+
+  let headersCorrected = 0;
+  doc.experience.forEach((e, ei) => {
+    const entry = entries.length ? findEntry(entries, e) : undefined;
+    let problems: string[];
+    if (entry) {
+      // Header facts are fixed by her rules, so code writes them from the matched role instead of
+      // dropping the whole role over a wording difference: dates and location exactly as in her
+      // experience, and a title made only of her main/alt titles ("Main (Alt)", "Main / Alt") becomes
+      // the one the model led with. A title that isn't hers is still flagged below.
+      const resolved = resolveTitle(e.title, entry);
+      const before = `${e.title}|${e.dates}|${e.location}`;
+      if (resolved) e.title = resolved;
+      if (entry.dates) e.dates = spaceDateDashes(entry.dates);
+      if (entry.location) e.location = entry.location;
+      if (`${e.title}|${e.dates}|${e.location}` !== before) headersCorrected++;
+      problems = [
+        !titleMatches(e.title, entry) && `title "${e.title}"`,
+        e.dates && normDates(e.dates) !== normDates(entry.dates) && `dates "${e.dates}"`,
+        e.location && normalizeLoose(e.location) !== normalizeLoose(entry.location) && `location "${e.location}"`,
+      ].filter((x): x is string => Boolean(x));
+      if (problems.length) {
+        flags.push({
+          id: `exp-${ei}`,
+          kind: "employer",
+          message: `${problems.join(", ")} doesn't match your ${entry.company} role in your experience (${entry.title} | ${entry.location ? `${entry.location} | ` : ""}${entry.dates}).`,
+          target: { section: "experience", entry: ei },
+        });
+      }
+    } else {
+      // No such company among her roles (or a master profile without role headings): check each
+      // field against the whole profile.
+      const companyOk = masterLoose.includes(normalizeLoose(e.company));
+      const titleCore = normalizeLoose(cleanTitle(e.title));
+      const titleOk = titleCore === "" || masterLoose.includes(titleCore);
+      const datesOk = !e.dates || datesInText(e.dates, master);
+      problems = [!companyOk && `company "${e.company}"`, !titleOk && `title "${e.title}"`, !datesOk && `dates "${e.dates}"`].filter(
+        (x): x is string => Boolean(x),
+      );
+      if (problems.length) {
+        flags.push({ id: `exp-${ei}`, kind: "employer", message: `${problems.join(", ")} not found in your experience.`, target: { section: "experience", entry: ei } });
+      }
+    }
+    const block = entry?.block ?? master;
+    e.bullets.forEach((b, bi) => checkBullet(b, block, `${e.company}, bullet ${bi + 1}`, `exp-${ei}-${bi}-`, { section: "experience", entry: ei, bullet: bi }));
+  });
+
+  const eduText = sectionText(master, /education/i) || master;
+  if (headersCorrected) fixes.push(`Used your exact title, dates and location for ${headersCorrected} role${headersCorrected === 1 ? "" : "s"}.`);
+
+  doc.education.forEach((e, ei) => {
+    const problems = [
+      !masterLoose.includes(normalizeLoose(e.school)) && `school "${e.school}"`,
+      !allWordsIn(e.degree, eduText) && `degree "${e.degree}"`,
+      e.location && !containsLoose(eduText, e.location) && `location "${e.location}"`,
+      e.dates && !datesInText(e.dates, eduText) && `dates "${e.dates}"`,
+    ].filter((x): x is string => Boolean(x));
+    if (problems.length) {
+      flags.push({
+        id: `edu-${ei}`,
+        kind: "education",
+        message: `${problems.join(", ")} doesn't match your experience's education.`,
+        target: { section: "education", entry: ei },
+      });
+    }
+    e.bullets.forEach((b, bi) => checkBullet(b, eduText, "education", `edu-${ei}-${bi}-`, { section: "education", entry: ei, bullet: bi }));
+  });
+
+  // Leadership: each role must be one line of the master's leadership section (all of its words),
+  // with the same dates on that line or the one after it.
+  const leadLines = sectionText(master, /leadership|involvement|activit|extracurricular|volunteer/i)
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  doc.leadership.forEach((l, li) => {
+    const lines = leadLines.map((line, i) => ({ line, withNext: `${line}\n${leadLines[i + 1] ?? ""}` })).filter((x) => allWordsIn(l.role, x.line));
+    const roleOk = wordsOf(l.role).length === 0 || lines.length > 0;
+    const datesOk = !l.dates || lines.some((x) => datesInText(l.dates, x.withNext));
+    if (!roleOk || !datesOk) {
+      flags.push({
+        id: `lead-${li}`,
+        kind: "leadership",
+        message: roleOk
+          ? `"${l.role}": dates "${l.dates}" don't match your experience's leadership section.`
+          : `"${l.role}" isn't in your experience's leadership section.`,
+        target: { section: "leadership", entry: li },
+      });
+    }
+  });
+
+  // An "(alt. title: X)" note is for choosing a title, never for the page.
+  for (const e of doc.experience) e.title = cleanTitle(e.title);
+
+  return { doc, flags, fixes };
+}
+
+/** The document with every flag she hasn't approved removed. Pure; the original is untouched. */
+export function applyApprovals(doc: ResumeDoc, flags: Flag[], approved: Set<string>): ResumeDoc {
+  const drop = flags.filter((f) => !approved.has(f.id));
+  const dropped = (pred: (f: Flag) => boolean) => drop.some(pred);
+  const bulletOf = (f: Flag) => ("bullet" in f.target ? f.target.bullet : undefined);
+  return {
+    ...doc,
+    education: doc.education
+      .map((e, ei) => ({
+        ...e,
+        bullets: e.bullets.filter((_, bi) => !dropped((f) => f.target.section === "education" && f.target.entry === ei && bulletOf(f) === bi)),
+      }))
+      .filter((_, ei) => !dropped((f) => f.target.section === "education" && f.target.entry === ei && bulletOf(f) === undefined)),
+    experience: doc.experience
+      .map((e, ei) => ({
+        ...e,
+        bullets: e.bullets.filter((_, bi) => !dropped((f) => f.target.section === "experience" && f.target.entry === ei && bulletOf(f) === bi)),
+      }))
+      .filter((_, ei) => !dropped((f) => f.target.section === "experience" && f.target.entry === ei && bulletOf(f) === undefined)),
+    skills: doc.skills
+      .map((l, li) => ({
+        ...l,
+        items: l.items.filter((_, ii) => !dropped((f) => f.target.section === "skills" && f.target.line === li && f.target.item === ii)),
+      }))
+      .filter((l) => l.items.length > 0),
+    leadership: doc.leadership.filter((_, li) => !dropped((f) => f.target.section === "leadership" && f.target.entry === li)),
+  };
+}
+
+/** Plain text of the whole resume, for keyword coverage. */
+export function resumeText(doc: ResumeDoc): string {
+  return [
+    ...doc.education.flatMap((e) => [e.school, e.degree, ...e.bullets]),
+    ...doc.experience.flatMap((e) => [e.title, e.company, ...e.bullets]),
+    ...doc.skills.map((l) => `${l.category}: ${l.items.join(", ")}`),
+    ...doc.leadership.map((l) => l.role),
+  ]
+    .map(plain)
+    .join("\n");
+}
+
+
+/**
+ * Flag messages used to say "master profile"; saved ticks are matched by message, so old ticks are
+ * read through this to keep matching after the wording changed to "your experience".
+ */
+export function normalizeFlagMessage(message: string): string {
+  return message.replace(/your master profile's/g, "your experience's").replace(/(in )?your master profile/g, (_m, pre) => `${pre ?? ""}your experience`);
+}

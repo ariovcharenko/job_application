@@ -1,0 +1,15 @@
+node_modules
+.next*
+out
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
+.env*
+extension/dist
+
+# Agent worktrees (isolated copies used by background engineering agents)
+.claude/worktrees/
+
+# Personal project notes (kept local, never pushed)
+CLAUDE.local.md
+private/
