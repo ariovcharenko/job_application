@@ -14,15 +14,43 @@ export function slugify(title: string) {
     .replace(/(^-|-$)/g, "");
 }
 
-export function Card({ title, hint, children }: { title: string; hint?: React.ReactNode; children: React.ReactNode }) {
+export function Card({
+  title,
+  hint,
+  saveStatus,
+  children,
+}: {
+  title: string;
+  hint?: React.ReactNode;
+  /** An autosaving card shows "Saving..." / "Saved" next to its title. */
+  saveStatus?: SaveStatus;
+  children: React.ReactNode;
+}) {
   return (
-    <section id={slugify(title)} className="mb-5 scroll-mt-24 rounded-[22px] bg-white p-6 shadow-soft sm:p-8">
+    <section id={slugify(title)} className="mb-5 scroll-mt-24 rounded-[22px] bg-white p-5 shadow-soft sm:p-8">
       <div className="mb-6">
-        <h2 className="text-[21px] font-semibold leading-tight tracking-display">{title}</h2>
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="text-[21px] font-semibold leading-tight tracking-display">{title}</h2>
+          {saveStatus && <SaveStatusText status={saveStatus} />}
+        </div>
         {hint && <p className="mt-1.5 max-w-2xl text-[15px] leading-relaxed text-muted">{hint}</p>}
       </div>
       {children}
     </section>
+  );
+}
+
+/** "Saving..." then "Saved" for autosaved settings; nothing until the first edit. Announced politely. */
+export function SaveStatusText({ status }: { status: SaveStatus }) {
+  return (
+    <span className={`inline-flex shrink-0 items-center gap-1 text-xs ${status === "saved" ? "text-good" : "text-muted"}`} aria-live="polite">
+      {status === "saved" && (
+        <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="m3.5 8.5 3 3 6-7" />
+        </svg>
+      )}
+      {status === "saving" ? "Saving..." : status === "saved" ? "Saved" : ""}
+    </span>
   );
 }
 
@@ -512,11 +540,11 @@ export function Spinner({ label }: { label?: string }) {
   );
 }
 
+/** A save status on its own line (prefer Card's saveStatus, which puts it next to the title). */
 export function SaveIndicator({ status }: { status: SaveStatus }) {
-  if (status === "idle") return <p className="mt-4 text-xs text-muted">Changes save automatically on this device.</p>;
   return (
-    <p className={`mt-4 text-xs ${status === "saved" ? "text-good" : "text-muted"}`} aria-live="polite">
-      {status === "saved" ? "Saved on this device." : "Saving..."}
+    <p className="mt-4 min-h-[16px]">
+      <SaveStatusText status={status} />
     </p>
   );
 }

@@ -32,18 +32,18 @@ export default function ResumesView() {
 
   return (
     <>
-      <PageHeader title="Resumes" subtitle="Every resume tailored to a job, and the experience they're written from." />
+      <PageHeader title="Resumes" />
 
       <section className="mb-14">
         <div className="mb-5 flex items-baseline justify-between">
-          <h2 className="text-[28px] font-semibold tracking-display">Tailored for jobs</h2>
+          <h2 className="text-[24px] font-semibold tracking-display sm:text-[28px]">Tailored for jobs</h2>
           {rows && rows.length > 0 && <p className="text-sm text-muted">{rows.length} saved</p>}
         </div>
         {rows === undefined ? (
           <Spinner label="Loading your resumes..." />
         ) : rows.length === 0 ? (
           <EmptyState title="No tailored resumes yet">
-            Add a job from its link, then choose Tailor resume. Each one is saved here and on its job automatically.
+            Check a job, then choose Tailor resume. It&apos;s saved here.
           </EmptyState>
         ) : (
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -58,9 +58,11 @@ export default function ResumesView() {
                   <ResumePreview doc={r.stored.final} width={170} />
                 </button>
                 <p className="mt-4 font-semibold tracking-display">{r.app.company || "Untitled job"}</p>
-                <p className="line-clamp-1 text-sm text-muted">{r.app.role}</p>
+                <p className="line-clamp-1 text-sm text-muted" title={r.app.role || undefined}>
+                  {r.app.role}
+                </p>
                 <p className="mt-2 text-xs text-muted">
-                  {new Date(r.resume.createdAt).toLocaleDateString()} · shows {r.resume.keywordScoreAfter}% of the job&apos;s skills · {r.app.stage}
+                  {new Date(r.resume.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })} · {r.resume.keywordScoreAfter}% of skills · {r.app.stage}
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <Button variant="secondary" onClick={() => setOpening(r.app)}>
@@ -79,7 +81,7 @@ export default function ResumesView() {
         )}
       </section>
 
-      <h2 className="mb-5 text-[28px] font-semibold tracking-display">Sources</h2>
+      <h2 className="mb-5 text-[24px] font-semibold tracking-display sm:text-[28px]">Your experience and files</h2>
       <MasterProfileCard />
       <BaseResumesCard />
       <FolderCard />

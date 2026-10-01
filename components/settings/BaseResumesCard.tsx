@@ -100,7 +100,7 @@ function BaseResumesCardInner() {
   return (
     <Card
       title="Base resumes"
-      hint="Your ready-made resume files (.docx or PDF), labeled by job type. The Chrome extension uploads the newest one to application forms. Tailoring doesn't use these; it uses Your experience."
+      hint="Ready-made .docx or PDF files the Chrome extension uploads to forms. Tailoring doesn't use them."
     >
       {!folder && <Notice kind="info">Pick a resume folder in the card below first.</Notice>}
       {folder && (

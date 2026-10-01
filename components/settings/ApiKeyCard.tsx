@@ -6,7 +6,7 @@ import { createAnthropicProvider } from "@/lib/ai/anthropic";
 import { MODEL_OPTIONS, type ModelOption } from "@/lib/options";
 import { useAutosave } from "@/lib/useAutosave";
 import { API_KEYS_FORGOTTEN_EVENT } from "@/lib/wipe";
-import { Button, Card, Field, Notice, SaveIndicator, SelectField } from "@/components/ui";
+import { Button, Card, Field, Notice, SelectField } from "@/components/ui";
 
 type Status = { kind: "ok" | "error" | "info"; text: string } | null;
 
@@ -91,7 +91,7 @@ export default function ApiKeyCard({
   const advanced = (
     <>
       <Field
-        label="Workspace ID (only if you see a “not scoped to a workspace” error)"
+        label="Workspace ID (only if asked for one)"
         placeholder="wrkspc_..."
         value={s.workspaceId}
         onChange={(v) => setS({ ...s, workspaceId: v })}
@@ -116,7 +116,8 @@ export default function ApiKeyCard({
   return (
     <Card
       title="Anthropic API key"
-      hint="Stored only in this browser and sent only to Anthropic, never to any other server. Use a key with a monthly spend limit."
+      hint="Stored in this browser and sent only to Anthropic. Use a key with a monthly spend limit."
+      saveStatus={saveStatus}
     >
       <div className="grid gap-4">
         <Field
@@ -145,8 +146,7 @@ export default function ApiKeyCard({
           )}
         </div>
       </div>
-      {status && <Notice kind={status.kind}>{status.text}</Notice>}
-      <SaveIndicator status={saveStatus} />
+      <div aria-live="polite">{status && <Notice kind={status.kind}>{status.text}</Notice>}</div>
     </Card>
   );
 }

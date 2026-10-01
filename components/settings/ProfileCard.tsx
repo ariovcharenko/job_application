@@ -16,7 +16,7 @@ import { loadGeo, type GeoIndex } from "@/lib/geo/index";
 import { searchPlaces } from "@/lib/geo/search";
 import type { Profile } from "@/lib/types";
 import { useAutosave } from "@/lib/useAutosave";
-import { Card, Field, MonthYearField, SaveIndicator, SelectField, StartDateField } from "@/components/ui";
+import { Card, Field, MonthYearField, SelectField, StartDateField } from "@/components/ui";
 
 type TextKey = {
   [K in keyof Profile]: Profile[K] extends string ? (string extends Profile[K] ? K : never) : never;
@@ -32,7 +32,7 @@ const CONTACT: { key: TextKey; label: string; type?: string; suggestions?: strin
   { key: "portfolio", label: "Portfolio URL" },
 ];
 
-const NOT_SET = { value: "", label: "Not set (field will be left blank)" };
+const NOT_SET = { value: "", label: "Not set" };
 const YES_NO = [NOT_SET, { value: "yes", label: "Yes" }, { value: "no", label: "No" }];
 const choices = (values: string[]) => [NOT_SET, ...values.map((v) => ({ value: v, label: v }))];
 // Keep a previously typed value selectable even if it is not in the standard list.
@@ -74,7 +74,7 @@ export default function ProfileCard() {
   };
 
   return (
-    <Card title="Profile" hint="Your name, contact links and education go at the top of every tailored resume. Stays in this browser.">
+    <Card title="Profile" hint="Goes at the top of every tailored resume." saveStatus={status}>
       <div className="grid gap-4 sm:grid-cols-2">
         {CONTACT.map(({ key, label, type, suggestions }) => (
           <Field
@@ -88,7 +88,7 @@ export default function ProfileCard() {
         ))}
       </div>
 
-      <h3 className="mt-6 text-sm font-semibold">Education</h3>
+      <h3 className="mt-8 text-[15px] font-semibold">Education</h3>
       <div className="mt-3 grid gap-4 sm:grid-cols-2">
         <Field label="School" value={p.school} onChange={(v) => set("school", v)} />
         <SelectField
@@ -115,7 +115,7 @@ export default function ProfileCard() {
         <Field label="GPA" placeholder="3.85" value={p.gpa} onChange={(v) => set("gpa", v)} />
       </div>
 
-      <h3 className="mt-6 text-sm font-semibold">Job details</h3>
+      <h3 className="mt-8 text-[15px] font-semibold">Job details</h3>
       <div className="mt-3 grid gap-4 sm:grid-cols-2">
         <Field
           label="Salary expectation"
@@ -127,15 +127,9 @@ export default function ProfileCard() {
         <StartDateField label="Earliest start" value={p.earliestStart} onChange={(v) => set("earliestStart", v)} />
       </div>
 
-      <h3 className="mt-6 text-sm font-semibold">Legal and identity answers</h3>
-      <p className="mt-1 text-sm text-muted">
-        Only what you choose here is ever used. The AI never guesses these. Anything left unset stays blank and is flagged for
-        you.
-      </p>
-      <p className="mt-2 rounded-2xl bg-accent-soft px-4 py-3 text-sm leading-relaxed text-ink">
-        <strong className="font-semibold">Why we ask about work authorization:</strong> many jobs can&apos;t sponsor a visa, and some
-        require US citizenship or a clearance. Your answers decide whether a job passes the &quot;Works with my work authorization&quot;
-        check. If you leave sponsorship blank, that check stays unclear instead of passing.
+      <h3 className="mt-8 text-[15px] font-semibold">Legal and identity answers</h3>
+      <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted">
+        Used exactly as you set them, never guessed by the AI. They decide the work authorization check; left blank, it stays unclear.
       </p>
       <div className="mt-3 grid gap-4 sm:grid-cols-2">
         <SelectField
@@ -166,8 +160,6 @@ export default function ProfileCard() {
           />
         ))}
       </div>
-
-      <SaveIndicator status={status} />
     </Card>
   );
 }

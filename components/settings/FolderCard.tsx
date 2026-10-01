@@ -63,7 +63,7 @@ export default function FolderCard() {
       hint={
         FEATURES.extension
           ? "Optional. The folder on your computer that holds your resumes. Base resumes are imported from it, and downloaded tailored resumes are also copied into its Tailored subfolder."
-          : "Optional. A folder on your computer where each tailored resume you download is also copied, into a Tailored subfolder."
+          : "Optional. Downloaded resumes are also copied to its Tailored subfolder."
       }
     >
       <p className="text-sm">

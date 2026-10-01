@@ -8,7 +8,7 @@ import { MUST_HAVE_FILTERS } from "@/lib/intake/decision";
 import { SENIORITY_OPTIONS, WORK_MODES, type WorkMode } from "@/lib/options";
 import { ROLE_TYPES, type ExperienceLevel, type Preferences, type ScoreWeights } from "@/lib/types";
 import { useAutosave } from "@/lib/useAutosave";
-import { Card, ChipSelect, Field, SaveIndicator, SelectField } from "@/components/ui";
+import { Card, ChipSelect, Field, SelectField } from "@/components/ui";
 import LocationPicker from "@/components/LocationPicker";
 
 const WEIGHT_LABELS: [keyof ScoreWeights, string][] = [
@@ -45,7 +45,7 @@ export default function PreferencesCard() {
   const mustHaves = (
     <div>
       <h3 className="text-[15px] font-semibold">Must-haves</h3>
-      <p className="mt-1 text-[13px] text-muted">A job that fails any of these is marked &quot;Don&apos;t apply&quot;. You can also change them when you add a job.</p>
+      <p className="mt-1 text-[13px] text-muted">Failing one means &quot;Don&apos;t apply&quot;.</p>
       <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
         {MUST_HAVE_FILTERS.map((f) => (
           <label key={f.key} className="flex items-center gap-2.5 text-[15px]">
@@ -63,7 +63,7 @@ export default function PreferencesCard() {
   );
 
   return (
-    <Card title="Job preferences" hint="What a job needs for you to apply. Every job you add is checked against these, for free.">
+    <Card title="Job preferences" hint="Every job you add is checked against these, for free." saveStatus={status}>
       <div className="grid gap-7">
         <div className="max-w-sm">
           <SelectField
@@ -75,14 +75,14 @@ export default function PreferencesCard() {
         </div>
         <ChipSelect
           label="Roles I'm looking for"
-          hint="Jobs outside these get a gentle note. They never rule a job out."
+          hint="Never rules a job out."
           options={ROLE_CHOICES}
           value={p.targetRoles}
           onChange={(v) => update({ ...p, targetRoles: v })}
         />
         <LocationPicker
           label="My locations"
-          hint="Hybrid and on-site jobs must be in one of these. Add Remote (US) to accept remote jobs."
+          hint="Hybrid and on-site jobs must be in one. Add Remote (US) for remote jobs."
           value={p.locations}
           onChange={(v) => update(withLocations(p, v))}
         />
@@ -148,8 +148,6 @@ export default function PreferencesCard() {
           </div>
         </div>
       )}
-
-      <SaveIndicator status={status} />
     </Card>
   );
 }

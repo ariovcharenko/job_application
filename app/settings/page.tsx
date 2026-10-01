@@ -24,7 +24,7 @@ const SECTIONS = [
 export default function SettingsPage() {
   return (
     <>
-      <PageHeader title="Settings" subtitle="Everything here saves automatically and stays in this browser. Your resumes and your experience are on the Resumes page." />
+      <PageHeader title="Settings" subtitle="Saves automatically and stays in this browser." />
       <div className="grid gap-8 lg:grid-cols-[200px_minmax(0,1fr)]">
         <SettingsNav sections={SECTIONS} />
         <div className="min-w-0 max-w-4xl">

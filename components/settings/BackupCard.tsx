@@ -136,20 +136,16 @@ export default function BackupCard() {
   return (
     <Card
       title="Backup and restore"
-      hint="A backup file holds everything: settings, Profile, job preferences, your experience, saved answers, every job you've checked or tracked, tailored resumes and contacts. Use it to move to another browser or computer."
+      hint="Your data lives only in this browser. A backup file holds all of it, to keep safe or move to another computer."
     >
-      <Notice kind="info">Your data lives only in this browser. Back it up.</Notice>
-
-      <div className="mt-5">
-        <AutoBackupSection />
-      </div>
+      <AutoBackupSection />
 
       <div className="mt-5">
         <label className="flex items-start gap-2 text-sm">
           <input type="checkbox" checked={includeKey} onChange={(e) => setIncludeKey(e.target.checked)} className="mt-0.5 h-4 w-4" />
           <span>
             Include my API key in the file
-            <span className="block text-xs text-muted">Off by default. If you turn it on, keep that file private.</span>
+            <span className="block text-xs text-muted">Keep that file private.</span>
           </span>
         </label>
         <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -172,12 +168,9 @@ export default function BackupCard() {
           </label>
         </div>
       </div>
-      {status && <Notice kind={status.kind}>{status.text}</Notice>}
+      <div aria-live="polite">{status && <Notice kind={status.kind}>{status.text}</Notice>}</div>
 
-      <h3 className="mt-8 text-sm font-semibold">Remove data from this browser</h3>
-      <p className="mt-1 text-sm text-muted">
-        Clearing this site&apos;s data in your browser settings does the same as Delete all my data.
-      </p>
+      <h3 className="mt-8 border-t border-black/[0.06] pt-6 text-[15px] font-semibold">Remove data from this browser</h3>
       <div className="mt-3 flex flex-wrap gap-3">
         <Button variant="secondary" onClick={() => void forget()} disabled={!keySaved}>
           Forget my API key
@@ -201,10 +194,9 @@ export default function BackupCard() {
         <Modal title="Delete all your data?" onClose={closeDelete} size="sm">
           <div className="text-[15px] leading-relaxed text-muted">
             <p>
-              This deletes everything Job Copilot keeps in this browser: your API key, Profile, experience, preferences, every job and
-              tailored resume. Files already saved to your computer are kept. This can&apos;t be undone.
+              Your API key, Profile, experience, preferences, every job and tailored resume are deleted from this browser. Files saved to
+              your computer are kept. This can&apos;t be undone, so download a backup first if you might want any of it.
             </p>
-            <p className="mt-3">Download a backup first if you might want any of it back.</p>
           </div>
           <label className="mt-5 block text-sm">
             <span className="mb-1.5 block text-[13px] font-medium text-muted">

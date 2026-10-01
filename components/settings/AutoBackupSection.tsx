@@ -73,13 +73,12 @@ export default function AutoBackupSection() {
         Automatic backup
       </h3>
       <p className="mt-1 text-[13px] leading-relaxed text-muted">
-        Saves everything (every job, tailored resume, your Profile, experience, saved answers and contacts, never your API key) to a
-        folder on this computer whenever something changes. Keeps one file per day for the last {KEEP_DAYS} days, plus the latest.
+        Saves everything except your API key to a folder on this computer after each change. Keeps the last {KEEP_DAYS} days.
       </p>
       <div className="mt-3 text-sm" aria-live="polite">
         {status?.kind === "saved" && (
           <p>
-            On. Last saved {when(status.at)} to the <span className="font-medium">{status.folder}</span> folder.
+            On. Last saved {when(status.at)} to <span className="font-medium">{status.folder}</span>.
           </p>
         )}
         {status?.kind === "needs-permission" && (
@@ -103,10 +102,7 @@ export default function AutoBackupSection() {
           </Button>
         )}
       </div>
-      <p className="mt-3 text-xs text-muted">
-        Tip: pick a folder that&apos;s not inside your browser&apos;s data (for example Documents/Job Copilot Backups). When Chrome
-        asks, choose &ldquo;Allow on every visit&rdquo; so backups keep running without asking.
-      </p>
+      <p className="mt-3 text-xs text-muted">When Chrome asks, choose &ldquo;Allow on every visit&rdquo;.</p>
     </section>
   );
 }
