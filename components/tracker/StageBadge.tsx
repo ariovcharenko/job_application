@@ -2,12 +2,13 @@ import { DEFAULT_PREFERENCES } from "@/lib/defaults";
 import type { Stage } from "@/lib/types";
 
 // Neutral by default; color only where the stage means something (in progress, an offer).
+/** One color per stage, so the table reads at a glance: gray to do, purple applied, amber interview, green offer, red rejected. */
 export const STAGE_STYLE: Record<Stage, string> = {
   Saved: "bg-black/[0.05] text-black/65",
   Applied: "bg-accent-soft text-accent-deep",
-  "Waiting for interview": "bg-accent-soft text-accent-deep",
+  "Waiting for interview": "bg-warn-soft text-warn",
   Offer: "bg-good-soft text-good",
-  Rejected: "bg-black/[0.04] text-muted",
+  Rejected: "bg-bad-soft text-bad",
 };
 
 /** The small pill-shaped stage menu used on table rows and board cards. */

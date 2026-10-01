@@ -116,7 +116,7 @@ function MobileCards({ apps, onOpen, onDelete }: { apps: Application[]; onOpen: 
       {apps.map((a) => {
         const place = [a.location, a.workMode && a.workMode !== "Unknown" ? a.workMode : ""].filter(Boolean).join(" · ");
         return (
-          <li key={a.id} className="rounded-[22px] bg-white p-4 shadow-soft">
+          <li key={a.id} className={`rounded-[22px] bg-white p-4 shadow-soft ${a.stage === "Rejected" ? "text-muted" : ""}`}>
             <div className="flex items-start gap-3">
               <CompanyMark name={a.company} />
               <button
@@ -176,7 +176,11 @@ export default function TrackerTable({
           </thead>
           <tbody>
             {apps.map((a) => (
-              <tr key={a.id} onClick={() => onOpen(a)} className="group cursor-pointer border-b border-black/[0.05] transition-colors last:border-0 hover:bg-paper">
+              <tr
+                key={a.id}
+                onClick={() => onOpen(a)}
+                className={`group cursor-pointer border-b border-black/[0.05] transition-colors last:border-0 hover:bg-paper ${a.stage === "Rejected" ? "text-muted [&_img]:opacity-60" : ""}`}
+              >
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2.5">
                     <CompanyMark name={a.company} />

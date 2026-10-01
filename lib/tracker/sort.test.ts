@@ -22,12 +22,24 @@ describe("sortApplications", () => {
       app(3, { stage: "Applied", appliedDate: "2026-09-01", createdAt: 90 }),
       app(4, { stage: "Offer", appliedDate: "", createdAt: 999 }),
     ]);
-    expect(out.map((a) => a.id)).toEqual([2, 3, 1, 4]);
+    expect(out.map((a) => a.id)).toEqual([3, 1, 4, 2]);
   });
 
   it("does not mutate its input", () => {
     const input = [app(1, { stage: "Applied", createdAt: 1 }), app(2, { stage: "Saved", createdAt: 2 })];
     sortApplications(input);
     expect(input.map((a) => a.id)).toEqual([1, 2]);
+  });
+});
+
+describe("sortApplications: rejected", () => {
+  it("puts rejected jobs at the bottom, newest apply date first among them", () => {
+    const out = sortApplications([
+      { stage: "Rejected" as const, appliedDate: "2026-09-29", createdAt: 1 },
+      { stage: "Applied" as const, appliedDate: "2026-09-01", createdAt: 2 },
+      { stage: "Rejected" as const, appliedDate: "2026-09-30", createdAt: 3 },
+      { stage: "Saved" as const, appliedDate: "", createdAt: 4 },
+    ]);
+    expect(out.map((a) => `${a.stage} ${a.appliedDate}`)).toEqual(["Saved ", "Applied 2026-09-01", "Rejected 2026-09-30", "Rejected 2026-09-29"]);
   });
 });
