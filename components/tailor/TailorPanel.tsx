@@ -12,7 +12,9 @@ import { exportResume, getJobResume, storeJobResume, type ExportResult } from "@
 import { createDebouncedSave } from "@/lib/resume/engine/autosave";
 import { fitResume, toPoolTarget } from "@/lib/resume/engine/trim";
 import { verifyResume } from "@/lib/resume/engine/verify";
-import { backfillFromExperience } from "@/lib/resume/engine/backfill";
+import { backfillFromExperience, copiedBullets } from "@/lib/resume/engine/backfill";
+import { focusRelevance } from "@/lib/resume/engine/focus";
+import { explainTailoring } from "@/lib/resume/engine/tailored";
 import { addSkill, describeTarget, removeTarget, targetFromElement, type Target } from "@/lib/resume/engine/edit";
 import { editTarget, textOfTarget } from "@/lib/resume/engine/editText";
 import { findQuote } from "@/lib/resume/engine/highlight";
@@ -20,15 +22,16 @@ import { popoverPlacement, PREVIEW_SCALE, previewScale } from "@/lib/resume/engi
 import type { ResumeDoc } from "@/lib/resume/engine/schema";
 import { cleanTitle, entriesNotOnPage } from "@/lib/resume/master/experiences";
 import { appendSkillToMaster, appendUsageNote, hasSkill, parseSkillInventory } from "@/lib/resume/master/skills";
-import { carryApprovals, fillPageComment, reviseResume, type ResumeComment } from "@/lib/resume/engine/revise";
+import { carryApprovals, fillPageComment, retailorComments, reviseResume, type ResumeComment } from "@/lib/resume/engine/revise";
 import { applyApprovals, normalizeFlagMessage, resumeText, validateResume, type ValidationResult } from "@/lib/resume/engine/validate";
-import { jobSkills, skillCoverage, skillHits } from "@/lib/resume/coverage";
+import { jobFocusFor, jobSkills, skillCoverage, skillHits } from "@/lib/resume/coverage";
 import { tailoredFileName } from "@/lib/resume/repo";
 import type { Application } from "@/lib/types";
 import { Button, Checkbox, inputClass, Notice, Spinner } from "@/components/ui";
 import AIErrorNotice from "@/components/resumes/AIErrorNotice";
 import SkillGapsCard from "./SkillGapsCard";
 import QualityCard from "./QualityCard";
+import TailoredForCard from "./TailoredForCard";
 import { lintResume } from "@/lib/resume/quality/lint";
 import { issuesToComments, qualityScore } from "@/lib/resume/quality/summary";
 import { readBreakdown } from "@/lib/intake/stored";
@@ -142,7 +145,7 @@ export default function TailorPanel({
     Promise.all([getMasterProfile(), getProfile(), getJobResume(application.id)]).then(([m, p, existing]) => {
       // Reopen the resume already saved for this job, with her ticks, instead of an empty panel.
       if (existing && m.trim()) {
-        const reopened = validateResume(existing.stored.doc, m, { jobSkills: skillsForJob });
+        const reopened = validateResume(existing.stored.doc, m, { jobSkills: jobSkills(application, m), focus: jobFocusFor(application, m) });
         // Older saves stored ticks with the previous "master profile" wording.
         const ticked = new Set(existing.stored.approved.map(normalizeFlagMessage));
         loadedFromStore.current = true;
@@ -172,19 +175,40 @@ export default function TailorPanel({
       const skills = jobSkills(application, master);
       const provider = await getProvider();
       const have = skills.filter((s) => hasSkill(s, inventory, master));
-      const raw = await generateResume(provider, master, application.company, application.jdText, {
-        have,
-        gaps: skills.filter((s) => !hasSkill(s, inventory, master)),
-      });
-      let checked = validateResume(raw, master, { jobSkills: skillsForJob });
+      // The job focus (what this job is about, worked out by code) goes into the request too, with
+      // code's ranking of her experiences for this job, so the model writes for this job's work.
+      const raw = await generateResume(
+        provider,
+        master,
+        application.company,
+        application.jdText,
+        { have, gaps: skills.filter((s) => !hasSkill(s, inventory, master)) },
+        focus ?? undefined,
+      );
+      let checked = validateResume(raw, master, checkOpts);
       let polishNotes: string[] = [];
+      const measure = (d: ResumeDoc) => pageFill(header!, d);
+      // The model often writes less than a page. The rest is filled from her own bullets for the
+      // roles already on the page, word for word (true by construction, no extra call), most
+      // relevant to this job first; fitting then keeps only what fits.
+      const fillFromExperience = () => {
+        if (!header) return;
+        const pool = applyApprovals(checked.doc, checked.flags, new Set());
+        if (!fitResume(pool, measure, fitOpts).underfilled) return;
+        const filled = backfillFromExperience(checked.doc, master, fitOpts.focus ? focusRelevance(fitOpts.focus) : fitOpts.relevance);
+        if (filled.added === 0) return;
+        checked = validateResume(filled.doc, master, checkOpts);
+        polishNotes = [...polishNotes, `Filled the page with ${filled.added} more of your own bullets, kept only where they fit.`];
+      };
+      fillFromExperience();
       // Her own rule: when a check fails, send that issue back to the model once. Code has already
       // fixed what it can (dashes, bold count, casing, duplicate skills); what's left here is writing
       // only the model can fix (repeated or weak verbs, buzzwords, overlong bullets). One extra call,
-      // only when needed; if it fails, the first draft stands.
+      // only when needed; if it fails, the draft stands. That same call also rewrites, for this
+      // job, the bullets the page filler copied word for word (no call is made just for those).
       if (header) {
         const pool = applyApprovals(checked.doc, checked.flags, new Set());
-        const fit = fitResume(pool, (d) => pageFill(header, d), { relevance: (text) => skillHits(skillsForJob, text) });
+        const fit = fitResume(pool, measure, fitOpts);
         const s = readBreakdown(application)?.skills;
         const required = s ? [...s.required.have, ...s.required.gap] : [];
         const fixIssues = lintResume(fit.doc, { jobSkills: have, requiredSkills: required }).filter((i) => i.severity === "fix");
@@ -193,28 +217,20 @@ export default function TailorPanel({
             const target = c.target ? toPoolTarget(fit.map, c.target) : null;
             return { ...c, ...(target ? { target } : { target: undefined }) };
           });
+          const retailor = focus ? retailorComments(fit.doc, fit.map, copiedBullets(fit.doc, master), focus) : [];
           try {
-            const out = await reviseResume(provider, master, application.company, application.jdText, pool, repairs);
+            const out = await reviseResume(provider, master, application.company, application.jdText, pool, [...repairs, ...retailor]);
             const { changes: done, ...doc } = out;
-            checked = validateResume(doc, master, { jobSkills: skillsForJob });
-            polishNotes = [`Polished automatically: fixed ${fixIssues.length} writing issue${fixIssues.length === 1 ? "" : "s"} in one extra pass.`, ...done];
+            checked = validateResume(doc, master, checkOpts);
+            polishNotes = [
+              `Polished automatically: fixed ${fixIssues.length} writing issue${fixIssues.length === 1 ? "" : "s"}${retailor.length ? ` and rewrote ${retailor.length} copied bullet${retailor.length === 1 ? "" : "s"} for this job` : ""} in one extra pass.`,
+              ...done,
+            ];
           } catch {
             polishNotes = [];
           }
-        }
-      }
-      // The model often writes less than a page. The rest is filled from her own bullets for the
-      // roles already on the page, word for word (true by construction, no extra call); fitting then
-      // keeps only what fits, most relevant first.
-      if (header) {
-        const relevance = (text: string) => skillHits(skillsForJob, text);
-        const pool = applyApprovals(checked.doc, checked.flags, new Set());
-        if (fitResume(pool, (d) => pageFill(header, d), { relevance }).underfilled) {
-          const filled = backfillFromExperience(checked.doc, master, relevance);
-          if (filled.added > 0) {
-            checked = validateResume(filled.doc, master, { jobSkills: skillsForJob });
-            polishNotes = [...polishNotes, `Filled the page with ${filled.added} more of your own bullets, kept only where they fit.`];
-          }
+          // A revision can leave the page short again: fill it the same way.
+          fillFromExperience();
         }
       }
       setResult(checked);
@@ -248,13 +264,28 @@ export default function TailorPanel({
   // The job's skills, which rank bullets when the page is full (most job skills shown = kept).
   const { fitBreakdown, jdText } = application;
   const skillsForJob = useMemo(() => (master ? jobSkills({ fitBreakdown, jdText }, master) : []), [fitBreakdown, jdText, master]);
+  // What this job is about (must-haves, domains, responsibilities, role family): ranks bullets,
+  // roles, projects and skills lines everywhere content is chosen (lib/resume/engine/focus.ts).
+  const { role } = application;
+  const focus = useMemo(() => (master ? jobFocusFor({ fitBreakdown, jdText, role }, master) : null), [fitBreakdown, jdText, role, master]);
+  const checkOpts = useMemo(() => ({ jobSkills: skillsForJob, focus: focus ?? undefined }), [skillsForJob, focus]);
+  const fitOpts = useMemo(
+    () => (focus ? { focus } : { relevance: (text: string) => skillHits(skillsForJob, text) }),
+    [focus, skillsForJob],
+  );
 
   // Fit the pool to exactly one page: leave off the least relevant content until it fits, then
   // put back whatever still fits, measured on the real HTML rendering.
   const fitted = useMemo(() => {
     if (!untrimmed || !header) return null;
-    return fitResume(untrimmed, (d) => pageFill(header, d), { relevance: (text) => skillHits(skillsForJob, text) });
-  }, [untrimmed, header, skillsForJob]);
+    return fitResume(untrimmed, (d) => pageFill(header, d), fitOpts);
+  }, [untrimmed, header, fitOpts]);
+
+  // In plain words, what was done differently for this job (shown above the Checks).
+  const tailoredFor = useMemo(() => {
+    if (!fitted || !focus || !master) return [];
+    return explainTailoring(focus, fitted, { copied: copiedBullets(fitted.doc, master).length });
+  }, [fitted, focus, master]);
 
   // Share of the job's skills the page shows, vs. how many of them the full master profile has.
   const coverage = useMemo(() => {
@@ -415,7 +446,7 @@ export default function TailorPanel({
   const commitDoc = (next: ResumeDoc, confirmedSkills: string[] = []) => {
     // While an update is running its answer would replace this edit, so edits wait for it.
     if (!result || !master || phase !== "ready") return;
-    const checked = validateResume(next, master, { jobSkills: skillsForJob });
+    const checked = validateResume(next, master, checkOpts);
     const keep = carryApprovals(result.flags, approved, checked.flags);
     // A skill she just said she has is approved by that click.
     for (const f of checked.flags) {
@@ -492,7 +523,7 @@ export default function TailorPanel({
     try {
       const out = await reviseResume(await getProvider(), master, application.company, application.jdText, untrimmed ?? fitted.doc, all);
       const { changes: done, ...doc } = out;
-      const next = validateResume(doc, master, { jobSkills: skillsForJob });
+      const next = validateResume(doc, master, checkOpts);
       setHistory((h) => [...h, { result, approved }]);
       // Her current ticks, including any made while the update was running.
       setApproved((current) => carryApprovals(result.flags, current, next.flags));
@@ -627,6 +658,7 @@ export default function TailorPanel({
 
   return (
     <div className="grid gap-4">
+      <TailoredForCard lines={tailoredFor} />
       <div className="rounded-2xl bg-paper p-5">
         <p className="mb-3 text-[15px] font-semibold tracking-display">Checks</p>
         <ul className="grid gap-1.5 text-sm">
