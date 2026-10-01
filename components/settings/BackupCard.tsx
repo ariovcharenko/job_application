@@ -7,6 +7,7 @@ import { exportBackup, parseBackup, restoreBackup, type ParsedBackup } from "@/l
 import { todayISO } from "@/lib/tracker/stage";
 import { forgetApiKeys, hasApiKey, isDeleteConfirmed, wipeAllData, DELETE_CONFIRM_WORD } from "@/lib/wipe";
 import { Button, Card, ConfirmDialog, inputClass, Modal, Notice } from "@/components/ui";
+import AutoBackupSection from "./AutoBackupSection";
 
 type Status = { kind: "ok" | "error" | "info"; text: string } | null;
 
@@ -138,6 +139,10 @@ export default function BackupCard() {
       hint="A backup file holds everything: settings, Profile, job preferences, your experience, saved answers, every job you've checked or tracked, tailored resumes and contacts. Use it to move to another browser or computer."
     >
       <Notice kind="info">Your data lives only in this browser. Back it up.</Notice>
+
+      <div className="mt-5">
+        <AutoBackupSection />
+      </div>
 
       <div className="mt-5">
         <label className="flex items-start gap-2 text-sm">

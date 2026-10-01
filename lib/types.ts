@@ -40,6 +40,8 @@ export interface AppSettings {
   fastModel: string; // cheap extraction / classification / scoring signals
   smartModel: string; // tailoring, cover letters, free-text answers
   resumeFolder?: FileSystemDirectoryHandle;
+  /** Folder for automatic backups (lib/autoBackup.ts). Never part of a backup file itself. */
+  backupFolder?: FileSystemDirectoryHandle;
   /** JSearch (RapidAPI) key, for the company-watchlist job feed. Free tier: ~200 requests/month. */
   jsearchApiKey: string;
 }

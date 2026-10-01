@@ -6,6 +6,7 @@ import { ScrollToHash } from "@/components/settings/SettingsNav";
 import { FEATURES } from "@/lib/features";
 import Nav from "@/components/Nav";
 import StoragePersist from "@/components/StoragePersist";
+import AutoBackupRunner from "@/components/AutoBackupRunner";
 import "./globals.css";
 
 // next/font downloads Inter at build time and serves it from this site, so no external font
@@ -46,6 +47,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={inter.variable}>
       <body>
         <StoragePersist />
+        <AutoBackupRunner />
         {/* Off in the public build: the bridge posts the key, Profile and resume via
             window.postMessage (see lib/features.ts). Covered by lib/features.test.ts. */}
         {FEATURES.extension && <ExtensionBridge />}
