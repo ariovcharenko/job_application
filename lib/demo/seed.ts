@@ -8,6 +8,7 @@ import { buildHeader } from "../resume/engine/index";
 import { renderResumeDocx } from "../resume/engine/render";
 import { storeJobResume } from "../resume/engine/save";
 import type { ResumeDoc } from "../resume/engine/schema";
+import { buildJobFocus, focusRelevance, preferredTitle, type JobFocus } from "../resume/engine/focus";
 import { fitResume } from "../resume/engine/trim";
 import { applyApprovals, validateResume } from "../resume/engine/validate";
 import { cleanTitle, parseMasterExperiences } from "../resume/master/experiences";
@@ -15,7 +16,7 @@ import { parseSkillInventory } from "../resume/master/skills";
 import { blankApplication } from "../tracker/blank";
 import { normalizeRoleType } from "../tracker/csvMap";
 import type { Application } from "../types";
-import { DEMO_ANSWERS, DEMO_CONTACTS, DEMO_EXPERIENCE, DEMO_JOBS, DEMO_PREFERENCES, DEMO_PROFILE } from "./data";
+import { DEMO_ANSWERS, DEMO_CONTACTS, DEMO_EXPERIENCE, DEMO_JOBS, DEMO_PREFERENCES, DEMO_PROFILE, type DemoJob } from "./data";
 
 // Fills this browser with the demo candidate (lib/demo/data.ts) for showing the app off. Local
 // copies of the app only: it replaces every job, resume, contact, answer and the Profile,
@@ -65,12 +66,26 @@ export function skillLines(master: string): ResumeDoc["skills"] {
   return out;
 }
 
-/** Everything in the demo experience as a resume pool, bullets ordered by this job's skills. */
-export function demoPool(master: string, jobSkills: string[]): ResumeDoc {
+/** What a demo job is about (lib/resume/engine/focus.ts), from its posting and skills lists. */
+export function demoFocus(job: DemoJob): JobFocus {
+  return buildJobFocus({ role: job.signals.role, jdText: job.jd, must: job.signals.mustHaveSkills, nice: job.signals.niceToHaveSkills });
+}
+
+/**
+ * Everything in the demo experience as a resume pool, bullets ordered by what this job is about
+ * (its focus when given, else its skills), and each role under the title that fits the job.
+ */
+export function demoPool(master: string, jobSkills: string[], focus?: JobFocus): ResumeDoc {
   const entries = parseMasterExperiences(master);
-  const relevance = (text: string) => skillHits(jobSkills, text);
+  const relevance = focus ? focusRelevance(focus) : (text: string) => skillHits(jobSkills, text);
   const inventory = parseSkillInventory(master);
-  const header = (m: (typeof entries)[number]) => ({ title: cleanTitle(m.title), company: m.company, location: m.location, dates: m.dates, bullets: [] as string[] });
+  const header = (m: (typeof entries)[number]) => ({
+    title: focus ? preferredTitle(m.title, focus) : cleanTitle(m.title),
+    company: m.company,
+    location: m.location,
+    dates: m.dates,
+    bullets: [] as string[],
+  });
   const base: ResumeDoc = {
     education: [
       {
@@ -89,7 +104,9 @@ export function demoPool(master: string, jobSkills: string[]): ResumeDoc {
         bullets: m.block
           .split("\n")
           .filter((l) => /^[-*•]\s+/.test(l.trim()))
-          .map((l) => autoBold(l.trim().replace(/^[-*•]\s+/, ""), inventory, master)),
+          .map((l) => l.trim().replace(/^[-*•]\s+/, ""))
+          .sort((a, b) => relevance(b) - relevance(a))
+          .map((l) => autoBold(l, inventory, master)),
       })),
     skills: skillLines(master),
     leadership: [
@@ -153,9 +170,10 @@ export async function seedDemo(now = Date.now()): Promise<DemoReport> {
 
     if (!job.resume) continue;
     const jobSkills = [...s.mustHaveSkills, ...s.niceToHaveSkills];
-    const checked = validateResume(demoPool(DEMO_EXPERIENCE, jobSkills), DEMO_EXPERIENCE, { jobSkills });
+    const focus = demoFocus(job);
+    const checked = validateResume(demoPool(DEMO_EXPERIENCE, jobSkills, focus), DEMO_EXPERIENCE, { jobSkills, focus });
     const pool = applyApprovals(checked.doc, checked.flags, new Set());
-    const fit = fitResume(pool, (d) => pageFill(header, d), { relevance: (text) => skillHits(jobSkills, text) });
+    const fit = fitResume(pool, (d) => pageFill(header, d), { focus });
     const bytes = await renderResumeDocx(header, fit.doc);
     const before = skillCoverage(jobSkills, DEMO_EXPERIENCE)?.percent ?? 0;
     const after = skillCoverage(jobSkills, JSON.stringify(fit.doc))?.percent ?? 0;
