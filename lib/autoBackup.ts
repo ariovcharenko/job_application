@@ -7,21 +7,36 @@ import { hasPermission } from "./fsAccess";
 // experience, answers, contacts) is written as the same file "Backup and restore" makes, without
 // API keys. One "latest" file plus one per day, keeping the last KEEP_DAYS days.
 
-export const LATEST_FILE = "job-copilot-backup-latest.json";
 export const KEEP_DAYS = 14;
-const DATED = /^job-copilot-backup-(\d{4}-\d{2}-\d{2})\.json$/;
+
+/**
+ * File name prefix for this copy of the app. A local copy (localhost) gets its own names, so it can
+ * never overwrite the deployed site's backups in a shared folder (that happened once: a stale
+ * localhost copy replaced the live site's "latest" file).
+ */
+export function backupPrefix(hostname: string): string {
+  const local = /^(localhost|127\.0\.0\.1|\[::1\]|::1)$/.test(hostname) || hostname.endsWith(".localhost") || hostname.endsWith(".test");
+  return local ? "job-copilot-localhost-backup" : "job-copilot-backup";
+}
+
+const currentPrefix = () => backupPrefix(typeof location === "undefined" ? "" : location.hostname);
+
+export const latestFileName = (prefix = currentPrefix()) => `${prefix}-latest.json`;
+/** The deployed site's latest file. */
+export const LATEST_FILE = latestFileName("job-copilot-backup");
 const LAST_KEY = "job-copilot:last-auto-backup";
 
 /** "job-copilot-backup-2026-09-30.json", by local calendar day. */
-export function datedFileName(now: Date): string {
+export function datedFileName(now: Date, prefix = "job-copilot-backup"): string {
   const p = (n: number) => String(n).padStart(2, "0");
-  return `job-copilot-backup-${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}.json`;
+  return `${prefix}-${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}.json`;
 }
 
-/** Dated backup files beyond the newest `keep`, oldest first. Other files are never touched. */
-export function filesToPrune(names: string[], keep = KEEP_DAYS): string[] {
-  const dated = names.filter((n) => DATED.test(n)).sort();
-  return dated.slice(0, Math.max(0, dated.length - keep));
+/** This copy's dated files beyond the newest `keep`, oldest first. Any other file is never touched. */
+export function filesToPrune(names: string[], keep = KEEP_DAYS, prefix = "job-copilot-backup"): string[] {
+  const dated = new RegExp(`^${prefix}-\\d{4}-\\d{2}-\\d{2}\\.json$`);
+  const mine = names.filter((n) => dated.test(n)).sort();
+  return mine.slice(0, Math.max(0, mine.length - keep));
 }
 
 async function writeText(dir: FileSystemDirectoryHandle, name: string, text: string): Promise<void> {
@@ -31,12 +46,12 @@ async function writeText(dir: FileSystemDirectoryHandle, name: string, text: str
   await w.close();
 }
 
-export async function writeAutoBackup(dir: FileSystemDirectoryHandle, text: string, now = new Date()): Promise<void> {
-  await writeText(dir, LATEST_FILE, text);
-  await writeText(dir, datedFileName(now), text);
+export async function writeAutoBackup(dir: FileSystemDirectoryHandle, text: string, now = new Date(), prefix = currentPrefix()): Promise<void> {
+  await writeText(dir, latestFileName(prefix), text);
+  await writeText(dir, datedFileName(now, prefix), text);
   const names: string[] = [];
   for await (const [name] of (dir as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries()) names.push(name);
-  for (const name of filesToPrune(names)) await dir.removeEntry(name);
+  for (const name of filesToPrune(names, KEEP_DAYS, prefix)) await dir.removeEntry(name);
 }
 
 /** Fired on window after each automatic backup attempt, with the AutoBackupStatus as detail. */

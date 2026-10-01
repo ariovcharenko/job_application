@@ -1,5 +1,5 @@
 import { altTitle, cleanTitle, parseMasterExperiences, type MasterEntry } from "../master/experiences";
-import { hasSkill, normalizeSkill, parseSkillInventory } from "../master/skills";
+import { hasSkill, normalizeSkill, parseSkillInventory, parseUsageNotes } from "../master/skills";
 import { mentionsTerm, TECH_TERMS } from "../master/techTerms";
 import { polishResume } from "./polish";
 import type { ResumeDoc } from "./schema";
@@ -290,6 +290,13 @@ export function validateResume(raw: ResumeDoc, masterProfile: string, opts: Vali
   const masterLoose = normalizeLoose(master);
   const inventory = parseSkillInventory(master);
   const entries = parseMasterExperiences(master);
+  // Her notes on where she used a skill she confirmed count as part of the role or project they name.
+  const notes = parseUsageNotes(master);
+  const withNotes = (block: string, company: string) => {
+    const core = company.split(/[,(]/)[0].trim();
+    const extra = notes.filter((n) => core && containsLoose(n.where, core)).map((n) => `${n.skill}: ${n.where}`);
+    return extra.length ? `${block}\n${extra.join("\n")}` : block;
+  };
 
   doc.skills.forEach((line, li) =>
     line.items.forEach((item, ii) => {
@@ -390,7 +397,7 @@ export function validateResume(raw: ResumeDoc, masterProfile: string, opts: Vali
         flags.push({ id: `exp-${ei}`, kind: "employer", message: `${problems.join(", ")} not found in your experience.`, target: { section: "experience", entry: ei } });
       }
     }
-    const block = entry?.block ?? master;
+    const block = withNotes(entry?.block ?? master, entry?.company ?? e.company);
     e.bullets.forEach((b, bi) => checkBullet(b, block, `${e.company}, bullet ${bi + 1}`, `exp-${ei}-${bi}-`, { section: "experience", entry: ei, bullet: bi }));
   });
 
@@ -410,21 +417,24 @@ export function validateResume(raw: ResumeDoc, masterProfile: string, opts: Vali
     } else {
       flags.push({ id: `proj-${pi}`, kind: "employer", message: `project "${e.company}" not found in your experience.`, target: { section: "projects", entry: pi } });
     }
-    const block = entry?.block ?? "";
+    const block = withNotes(entry?.block ?? "", entry?.company ?? e.company);
     e.bullets.forEach((b, bi) => checkBullet(b, block, `${e.company}, bullet ${bi + 1}`, `proj-${pi}-${bi}-`, { section: "projects", entry: pi, bullet: bi }));
   });
 
   const eduText = sectionText(master, /education/i) || master;
-  // Her rules for Education: no coursework line, and when her experience gives a major GPA, never
-  // any other GPA.
+  // Education: a coursework line only if her experience lists coursework (checked like any bullet
+  // below), and when her experience gives a major GPA, never any other GPA.
   const majorGpa = /major\s+gpa/i.test(eduText);
+  const listsCoursework = /coursework/i.test(eduText);
   let eduDropped = 0;
   for (const e of doc.education) {
-    const keep = e.bullets.filter((b) => !/^\s*(relevant\s+)?coursework\b/i.test(plain(b)) && !(majorGpa && /\bgpa\b/i.test(b) && !/major\s+gpa/i.test(b)));
+    const keep = e.bullets.filter(
+      (b) => !(!listsCoursework && /^\s*(relevant\s+)?coursework\b/i.test(plain(b))) && !(majorGpa && /\bgpa\b/i.test(b) && !/major\s+gpa/i.test(b)),
+    );
     eduDropped += e.bullets.length - keep.length;
     e.bullets = keep;
   }
-  if (eduDropped) fixes.push(`Left off ${eduDropped} coursework or overall GPA line${eduDropped === 1 ? "" : "s"} from Education.`);
+  if (eduDropped) fixes.push(`Left off ${eduDropped} Education line${eduDropped === 1 ? "" : "s"} your experience doesn't have (coursework or a GPA other than your major GPA).`);
   if (headersCorrected) fixes.push(`Used your exact title, dates and location for ${headersCorrected} role${headersCorrected === 1 ? "" : "s"}.`);
 
   doc.education.forEach((e, ei) => {

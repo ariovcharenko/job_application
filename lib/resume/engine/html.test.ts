@@ -1,3 +1,4 @@
+import { monthsOfExperience } from "./layout";
 import { describe, expect, it } from "vitest";
 import { PAGE_CSS, renderResumeHtml } from "./html";
 import type { ResumeDoc } from "./schema";
@@ -52,5 +53,25 @@ describe("renderResumeHtml", () => {
     expect(html).toContain('<div class="r t"><span>DemoDeck</span>');
     const generic = renderResumeHtml({ name: "A", location: "", links: [] }, { ...doc, projects: [{ title: "Project", company: "DemoDeck", location: "", dates: "", bullets: [] }] });
     expect(generic).not.toContain("<span>Project</span>");
+  });
+});
+
+describe("section order", () => {
+  const entry = (dates: string) => ({ title: "Engineer", company: "Acme", location: "", dates, bullets: ["Built it"] });
+  const base = {
+    education: [{ school: "Lakeside University", location: "", degree: "B.S.", dates: "", bullets: [] }],
+    skills: [],
+    leadership: [],
+    meta: { matchedKeywords: [], gaps: [], valuesReflected: [] },
+  };
+  const h = { name: "A", location: "", links: [] };
+  it("puts Education first for a new grad and Experience first after about 2 years of work", () => {
+    const grad = renderResumeHtml(h, { ...base, experience: [entry("May 2026 - Aug 2026"), entry("Oct 2025 - Feb 2026")] });
+    expect(grad.indexOf("EDUCATION")).toBeLessThan(grad.indexOf("EXPERIENCE"));
+    const senior = renderResumeHtml(h, { ...base, experience: [entry("Jan 2021 - Dec 2023")] });
+    expect(senior.indexOf("EXPERIENCE")).toBeLessThan(senior.indexOf("EDUCATION"));
+  });
+  it("counts overlapping roles once", () => {
+    expect(monthsOfExperience(["Jan 2026 - Jun 2026", "Mar 2026 - Apr 2026"])).toBe(6);
   });
 });

@@ -321,3 +321,18 @@ describe("role headers are corrected, not dropped, when they only reword her own
     expect(r.flags.some((f) => f.kind === "employer")).toBe(true);
   });
 });
+
+describe("validateResume: confirmed skills with usage notes", () => {
+  const bullet = "Built an onboarding screen in **Kotlin** for the checkout flow";
+  const withRole = (master: string) => {
+    const d = doc();
+    d.experience[0].bullets = [bullet];
+    return validateResume(d, master).flags.filter((f) => f.kind === "skill");
+  };
+  it("allows a confirmed skill in a bullet only for the role its note names", () => {
+    const listed = MASTER.replace("- **Testing & Monitoring:**", "- **Additional:** Kotlin\n- **Testing & Monitoring:**");
+    expect(withRole(listed)).toHaveLength(1);
+    expect(withRole(`${listed}\n\n### Usage notes\n- Kotlin: Android screens at Brightloop\n`)).toEqual([]);
+    expect(withRole(`${listed}\n\n### Usage notes\n- Kotlin: a class project\n`)).toHaveLength(1);
+  });
+});

@@ -310,12 +310,13 @@ const withLayout = (doc: ResumeDoc, layout: Layout): ResumeDoc => ({ ...doc, lay
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
- * Her fit loop, deterministic: one US Letter page, FILL_TARGET to FIT_LIMIT full.
- *  - Over the limit at the smallest type (10pt, single spacing): drop the least relevant content
- *    (leadership, extra project bullets, then bullets by relevance; fitToPage).
- *  - Under the target: (a) raise the body font 0.25pt at a time up to 11pt, (b) raise line and
- *    section spacing up to 1.15, (c) restore the next most relevant bullets (at most 5 per role),
- *    (d) add back Projects and Leadership & Involvement. Each step is kept only if the page still fits.
+ * The fit loop, deterministic: one US Letter page, FILL_TARGET to FIT_LIMIT full.
+ *  - Overflow at the default 10pt: drop the lowest-relevance content first (leadership, extra
+ *    project bullets, then bullets of the lowest-ranked roles; metrics last) until it fits.
+ *  - Underflow: content first, then type. Put back the most valuable cut content that fits (real
+ *    bullets of the highest-ranked roles, at most 5 per role, a coursework line, project bullets,
+ *    skills lines, then leadership); only if the page is still short, raise the body font 0.25pt at
+ *    a time up to 11pt, then line and section spacing up to 1.15.
  * Projects are capped at 2 bullets. `measure` must honor doc.layout.
  */
 export function fitResume(pool: ResumeDoc, measure: LayoutMeasureFn, opts: Omit<FitOptions, "restore" | "maxBulletsPerRole"> = {}): ResumeFitResult {
@@ -326,8 +327,8 @@ export function fitResume(pool: ResumeDoc, measure: LayoutMeasureFn, opts: Omit<
   let layout: Layout = { ...DEFAULT_LAYOUT };
   const at = (l: Layout) => (d: ResumeDoc) => measure(withLayout(d, l));
 
-  // Trim to fit at the smallest type, without putting anything back yet.
-  let r = fitToPage(capped, at(layout), { ...opts, limit, fillTarget, restore: false });
+  // Trim to fit at the default type, then put back whatever fits, most valuable first.
+  let r = fitToPage(capped, at(layout), { ...opts, limit, fillTarget, maxBulletsPerRole: MAX_RESTORED_BULLETS });
   if (!r.fits) return { ...r, doc: withLayout(r.doc, layout), layout, steps };
 
   const grow = (next: (l: Layout) => Layout | null, label: (l: Layout) => string) => {
@@ -343,15 +344,9 @@ export function fitResume(pool: ResumeDoc, measure: LayoutMeasureFn, opts: Omit<
     }
     if (changed) steps.push(label(layout));
   };
-  // (a) body font, (b) spacing.
+  // Content is all in and the page is still short: larger type, then more spacing.
   grow((l) => (l.body < MAX_BODY_PT ? { ...l, body: Math.min(MAX_BODY_PT, round2(l.body + BODY_STEP_PT)) } : null), (l) => `Body text set to ${l.body}pt to fill the page.`);
   grow((l) => (l.spacing < MAX_SPACING ? { ...l, spacing: Math.min(MAX_SPACING, round2(l.spacing + SPACING_STEP)) } : null), (l) => `Line spacing set to ${l.spacing} to fill the page.`);
 
-  // (c) bullets, at most 5 per role, then (d) projects and leadership: the cut list put back in
-  // reverse (most valuable first), keeping each piece that still fits.
-  if (r.fill < fillTarget) {
-    const restored = fitToPage(capped, at(layout), { ...opts, limit, fillTarget, maxBulletsPerRole: MAX_RESTORED_BULLETS });
-    if (restored.fits) r = restored;
-  }
   return { ...r, doc: withLayout(r.doc, layout), layout, underfilled: r.fits && r.fill < fillTarget, steps };
 }

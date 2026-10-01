@@ -56,3 +56,28 @@ describe("verifyResume", () => {
     expect(failing(verifyResume({ header: bad, doc: doc(), fits: true, fill: 0.96, master: MASTER }))).toEqual(["links"]);
   });
 });
+
+describe("header links", () => {
+  it("shows each URL once, exactly as saved", async () => {
+    const { buildHeader } = await import("./index");
+    const { DEFAULT_PROFILE } = await import("../../defaults");
+    const h = buildHeader({
+      ...DEFAULT_PROFILE,
+      fullName: "Alex Rivera",
+      email: "alex.rivera@example.com",
+      github: "https://github.com/alexrivera",
+      portfolio: "https://github.com/alexrivera/",
+    });
+    expect(h.links.map((l) => l.url)).toEqual(["mailto:alex.rivera@example.com", "https://github.com/alexrivera"]);
+  });
+});
+
+describe("education lines", () => {
+  it("keeps a coursework line only when the experience lists coursework", async () => {
+    const { validateResume } = await import("./validate");
+    const d = (): ResumeDoc => ({ ...doc(), education: [{ school: "Lakeside University", location: "Austin, TX", degree: "Bachelor of Computer Science", dates: "", bullets: ["Relevant coursework: Machine Learning"] }] });
+    expect(validateResume(d(), MASTER).doc.education[0].bullets).toHaveLength(1);
+    const noCourses = MASTER.replace(/^- Relevant coursework.*$/m, "");
+    expect(validateResume(d(), noCourses).doc.education[0].bullets).toEqual([]);
+  });
+});

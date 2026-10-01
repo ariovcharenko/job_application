@@ -58,7 +58,8 @@ export function verifyResume(input: {
   const roles = [...doc.experience, ...(doc.projects ?? [])];
   const bullets = [...roles.flatMap((e) => e.bullets), ...doc.education.flatMap((e) => e.bullets)];
 
-  const badLinks = header.links.filter((l) => !linkOk(l.url));
+  const urls = header.links.map((l) => l.url.toLowerCase().replace(/\/+$/, ""));
+  const badLinks = header.links.filter((l, i) => !linkOk(l.url) || urls.indexOf(urls[i]) !== i);
   const dashed = allText(header, doc).filter((t) => DASHES.test(t));
   const touching = bullets.filter(boldSpansTouch);
   const unknownSkills = doc.skills.flatMap((l) => l.items).filter((i) => !hasSkill(i, inventory, ""));

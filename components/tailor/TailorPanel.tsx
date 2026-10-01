@@ -19,7 +19,7 @@ import { findQuote } from "@/lib/resume/engine/highlight";
 import { popoverPlacement, PREVIEW_SCALE, previewScale } from "@/lib/resume/engine/preview";
 import type { ResumeDoc } from "@/lib/resume/engine/schema";
 import { cleanTitle, entriesNotOnPage } from "@/lib/resume/master/experiences";
-import { appendSkillToMaster, hasSkill, parseSkillInventory } from "@/lib/resume/master/skills";
+import { appendSkillToMaster, appendUsageNote, hasSkill, parseSkillInventory } from "@/lib/resume/master/skills";
 import { carryApprovals, fillPageComment, reviseResume, type ResumeComment } from "@/lib/resume/engine/revise";
 import { applyApprovals, normalizeFlagMessage, resumeText, validateResume, type ValidationResult } from "@/lib/resume/engine/validate";
 import { jobSkills, skillCoverage, skillHits } from "@/lib/resume/coverage";
@@ -438,11 +438,19 @@ export default function TailorPanel({
     if (target) commitDoc(change(untrimmed, target));
   };
 
-  const addSkills = async (skills: string[], opts: { confirmedByHer: boolean; saveToProfile: boolean }) => {
+  const addSkills = async (skills: string[], opts: { confirmedByHer: boolean; saveToProfile: boolean; where?: string }) => {
     if (!untrimmed || !master) return;
     commitDoc(skills.reduce((d, s) => addSkill(d, s), untrimmed), opts.confirmedByHer ? skills : []);
+    // A note on where she used it: the next Update resume may add it to that role, as she put it.
+    if (opts.where) {
+      const where = opts.where;
+      setComments((c) => [
+        ...c,
+        ...skills.map((s) => ({ id: `skill-${s}-${Date.now()}`, quote: "", note: `I have ${s}: ${where}. Mention it in that role or project only, saying just what this note says.` })),
+      ]);
+    }
     if (opts.confirmedByHer && opts.saveToProfile) {
-      const updated = skills.reduce((m, s) => appendSkillToMaster(m, s), master);
+      const updated = skills.reduce((m, s) => (opts.where ? appendUsageNote(appendSkillToMaster(m, s), s, opts.where) : appendSkillToMaster(m, s)), master);
       if (updated !== master) {
         await saveMasterProfile(updated);
         setMaster(updated);
@@ -574,10 +582,17 @@ export default function TailorPanel({
   const editable = selection?.target ? textOfTarget(fitted.doc, selection.target) : null;
   const fillPercent = Math.round(fitted.fill * 100);
   // Her final check of the finished page (lib/resume/engine/verify.ts), plus what code fixed.
-  const verified = verifyResume({ header, doc: fitted.doc, fits: fitted.fits, fill: fitted.fill, master });
+  // Skills she ticked (decision #6) count as hers for the final check, even if not saved to her list.
+  const tickedSkills = flags
+    .filter((f) => approved.has(f.id) && f.target.section === "skills")
+    .map((f) => (f.target.section === "skills" ? result.doc.skills[f.target.line]?.items[f.target.item] : undefined))
+    .filter((x): x is string => Boolean(x));
+  const verified = verifyResume({ header, doc: fitted.doc, fits: fitted.fits, fill: fitted.fill, master, extraSkills: tickedSkills });
   const checks = [
     ...verified.filter((c) => c.id !== "one-page" && c.id !== "fill").map((c) => ({ ok: c.ok, text: c.label })),
     ...(fixes.length || fitted.steps.length ? [{ ok: true, text: `Fixed automatically: ${[...fixes, ...fitted.steps].join(" ")}` }] : []),
+    // Hard requirements of the job she may not meet, as the tailoring call saw them.
+    ...(result.doc.meta.warnings ?? []).map((w) => ({ ok: false, text: `Heads-up: ${w}` })),
     {
       ok: flags.length === 0,
       text:

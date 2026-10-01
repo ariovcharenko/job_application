@@ -4,8 +4,8 @@
 export const PAGE = {
   widthIn: 8.5,
   heightIn: 11,
-  marginXIn: 0.4,
-  marginYIn: 0.3,
+  marginXIn: 0.45,
+  marginYIn: 0.35,
 };
 
 export const FONT = "Times New Roman";
@@ -29,13 +29,17 @@ export const SPACING_STEP = 0.05;
 
 export const DEFAULT_LAYOUT: Layout = { body: MIN_BODY_PT, spacing: MIN_SPACING };
 
-/** Sizes in points for a layout: the name, headers and titles keep their offsets from the body text. */
+/**
+ * Sizes in points for a layout. At the default 10pt body: name 17, contact line 10, section headers
+ * 10.5, entry title 10.5, entry subtitle 10, bullets and skills 10. Each keeps its offset from the
+ * body text when the fit loop raises it.
+ */
 export function sizesFor(layout: Layout = DEFAULT_LAYOUT) {
   const b = layout.body;
   return {
-    name: b + 8,
-    contact: b + 0.5,
-    sectionHeader: b + 1,
+    name: b + 7,
+    contact: b,
+    sectionHeader: b + 0.5,
     entryTitle: b + 0.5,
     entrySub: b,
     bullet: b,
@@ -76,4 +80,37 @@ export const contentWidthTwips = Math.round((PAGE.widthIn - 2 * PAGE.marginXIn) 
 export function boldSegments(text: string): { text: string; bold: boolean }[] {
   const parts = text.split("**");
   return parts.map((t, i) => ({ text: t, bold: i % 2 === 1 })).filter((p) => p.text !== "");
+}
+
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+/** "May 2026" -> months since year 0; "Present"/"Current" -> `now`; anything else -> null. */
+function monthIndex(s: string, now: Date): number | null {
+  const t = s.trim().toLowerCase();
+  if (/^(present|current|now)$/.test(t)) return now.getFullYear() * 12 + now.getMonth();
+  const m = t.match(/^([a-z]{3})[a-z]*\.?\s+(\d{4})$/);
+  if (m && MONTHS.includes(m[1])) return Number(m[2]) * 12 + MONTHS.indexOf(m[1]);
+  const y = t.match(/^(\d{4})$/);
+  return y ? Number(y[1]) * 12 : null;
+}
+
+/** Months covered by a set of "Mon YYYY - Mon YYYY" ranges, overlaps counted once. */
+export function monthsOfExperience(ranges: string[], now = new Date()): number {
+  const covered = new Set<number>();
+  for (const r of ranges) {
+    const [a, b] = r.split(/\s+-\s+/);
+    const start = a ? monthIndex(a, now) : null;
+    const end = b ? monthIndex(b, now) : start;
+    if (start === null || end === null || end < start) continue;
+    for (let m = start; m <= end; m++) covered.add(m);
+  }
+  return covered.size;
+}
+
+/**
+ * Section order: Education first for students and new grads; Experience first once someone has
+ * more than about 2 years of work (counted from the roles on the page).
+ */
+export function educationFirst(experienceDates: string[], now = new Date()): boolean {
+  return monthsOfExperience(experienceDates, now) <= 24;
 }

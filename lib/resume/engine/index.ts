@@ -23,7 +23,15 @@ export function buildHeader(p: Profile): ResumeHeader {
   if (p.linkedin.trim()) links.push({ text: "LinkedIn", url: withScheme(p.linkedin.trim()) });
   if (p.github.trim()) links.push({ text: "GitHub", url: withScheme(p.github.trim()) });
   if (p.portfolio.trim()) links.push({ text: "Portfolio", url: withScheme(p.portfolio.trim()) });
-  return { name: p.fullName.trim(), location: p.location.trim(), links };
+  // Each URL once: a link saved in two fields (say GitHub also as Portfolio) shows once.
+  const seen = new Set<string>();
+  const unique = links.filter((l) => {
+    const key = l.url.toLowerCase().replace(/\/+$/, "");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return { name: p.fullName.trim(), location: p.location.trim(), links: unique };
 }
 
 /**

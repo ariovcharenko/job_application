@@ -35,6 +35,8 @@ export const ResumeDocSchema = z.object({
     matchedKeywords: z.array(z.string()),
     gaps: z.array(z.string()),
     valuesReflected: z.array(z.string()),
+    /** Hard requirements she may not meet (graduation window, years, location, authorization, degree), one sentence each. */
+    warnings: z.array(z.string()).optional(),
   }),
   /** Set by code when fitting the page, never by the model. Absent = DEFAULT_LAYOUT. */
   layout: LayoutSchema.optional(),
@@ -92,6 +94,11 @@ const RESUME_DOC_PROPERTIES = {
     matchedKeywords: { ...strArr, description: "The job's main keywords that appear on the page, in the job's spelling. Brief is fine." },
     gaps: { ...strArr, description: "Skills the job asks for that are not in the master profile. Never put these on the page. Brief is fine." },
     valuesReflected: { ...strArr, description: "Company values reflected through word choice." },
+    warnings: {
+      ...strArr,
+      description:
+        "One sentence per hard requirement in the job the candidate may not meet (graduation window, years of experience, location or onsite, work authorization, degree level), or a conflict in the master profile. Empty if none.",
+    },
   }),
 };
 

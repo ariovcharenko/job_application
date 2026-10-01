@@ -331,3 +331,54 @@ export function appendSkillToMaster(master: string, skill: string): string {
   }
   return lines.join("\n");
 }
+
+/**
+ * Where she used a skill she confirmed ("I have this"), kept in her experience under this heading
+ * as "- Kotlin: built an Android app in Mobile Development (class)". The heading avoids the word
+ * "skill" on purpose, so these notes are never read as skills lines. A bullet may mention such a
+ * skill only in the role or project its note names (validate.ts); with no note, Skills line only.
+ */
+export const USAGE_NOTES_HEADING = "Usage notes";
+
+export interface UsageNote {
+  skill: string;
+  where: string;
+}
+
+export function parseUsageNotes(master: string): UsageNote[] {
+  const out: UsageNote[] = [];
+  let inside = false;
+  for (const raw of master.split(/\r?\n/)) {
+    const line = raw.trim();
+    const h = line.match(/^#{1,6}\s+(.*)$/);
+    if (h) {
+      inside = h[1].trim().toLowerCase().startsWith(USAGE_NOTES_HEADING.toLowerCase());
+      continue;
+    }
+    if (!inside) continue;
+    const m = line.replace(/\*\*/g, "").match(/^[-*•]\s*([^:]{1,60}):\s*(.+)$/);
+    if (m) out.push({ skill: m[1].trim(), where: m[2].trim() });
+  }
+  return out;
+}
+
+/** Adds (or replaces) the note for one skill under the Usage notes heading, creating it if needed. */
+export function appendUsageNote(master: string, skill: string, where: string): string {
+  const name = skill.trim();
+  const text = where.replace(/\s+/g, " ").trim();
+  if (!name || !text) return master;
+  const line = `- ${name}: ${text}`;
+  const lines = master.split(/\r?\n/);
+  const heading = lines.findIndex((l) => new RegExp(`^#{1,6}\\s+${USAGE_NOTES_HEADING}`, "i").test(l.trim()));
+  if (heading < 0) return `${master.trimEnd()}\n\n### ${USAGE_NOTES_HEADING}\n${line}\n`;
+  let end = heading + 1;
+  while (end < lines.length && !/^#{1,6}\s/.test(lines[end].trim())) end++;
+  const existing = lines.slice(heading + 1, end).findIndex((l) => normalizeSkill(l.replace(/^[-*•]\s*/, "").split(":")[0] ?? "") === normalizeSkill(name));
+  if (existing >= 0) lines[heading + 1 + existing] = line;
+  else {
+    let last = end - 1;
+    while (last > heading && !lines[last].trim()) last--;
+    lines.splice(last + 1, 0, line);
+  }
+  return lines.join("\n");
+}

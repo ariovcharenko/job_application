@@ -1,4 +1,4 @@
-import { boldSegments, DEFAULT_LAYOUT, FONT, LINE_HEIGHT, LINK_COLOR, PAGE, SECTION_TITLES } from "./layout";
+import { boldSegments, DEFAULT_LAYOUT, educationFirst, FONT, LINE_HEIGHT, LINK_COLOR, PAGE, SECTION_TITLES } from "./layout";
 import type { ResumeDoc, ResumeHeader } from "./schema";
 
 // An HTML rendering of the same layout as render.ts. Used twice: as the on-screen preview, and in
@@ -31,10 +31,10 @@ const sp = (base: number) => `calc(var(--m) * ${base}pt)`;
 export const PAGE_CSS = `
 .rp{--b:${DEFAULT_LAYOUT.body};--m:${DEFAULT_LAYOUT.spacing};box-sizing:border-box;width:${PAGE.widthIn}in;min-height:${PAGE.heightIn}in;padding:${PAGE.marginYIn}in ${PAGE.marginXIn}in;background:#fff;color:#000;font-family:"${FONT}",Tinos,"Liberation Serif",serif;line-height:calc(${LINE_HEIGHT} * var(--m));font-size:${pt(0)};font-kerning:none;font-variant-ligatures:none;letter-spacing:0;word-spacing:0}
 .rp *{margin:0;padding:0}
-.rp .n{text-align:center;font-weight:bold;font-size:${pt(8)};margin-bottom:1pt}
-.rp .c{text-align:center;font-size:${pt(0.5)};margin-bottom:${sp(3)}}
+.rp .n{text-align:center;font-weight:bold;font-size:${pt(7)};margin-bottom:1pt}
+.rp .c{text-align:center;font-size:${pt(0)};margin-bottom:${sp(3)}}
 .rp .c a{color:#${LINK_COLOR};text-decoration:underline}
-.rp .h{font-weight:bold;font-size:${pt(1)};border-bottom:0.75pt solid #000;padding-top:${sp(5)};padding-bottom:1pt;margin-bottom:${sp(2)}}
+.rp .h{font-weight:bold;font-size:${pt(0.5)};border-bottom:0.75pt solid #000;padding-top:${sp(5)};padding-bottom:1pt;margin-bottom:${sp(2)}}
 .rp .r{display:flex;justify-content:space-between;gap:12pt}
 .rp .r>span:last-child{white-space:nowrap;flex-shrink:0}
 .rp [data-b],.rp [data-sec]{cursor:pointer}
@@ -65,13 +65,22 @@ export function renderResumeHtml(h: ResumeHeader, doc: ResumeDoc): string {
 
   const projects = doc.projects ?? [];
   const parts = [`<div class="n">${esc(h.name)}</div>`, `<div class="c">${contact}</div>`];
-  if (doc.education.length) {
+  const education = () => {
+    if (!doc.education.length) return;
     parts.push(`<div class="h">${SECTION_TITLES.education}</div>`);
     parts.push(...doc.education.map((e, i) => entry("education", i, e.school, e.dates, e.degree, e.location, e.bullets)));
-  }
-  if (doc.experience.length) {
+  };
+  const experience = () => {
+    if (!doc.experience.length) return;
     parts.push(`<div class="h">${SECTION_TITLES.experience}</div>`);
     parts.push(...doc.experience.map((e, i) => entry("experience", i, e.title, e.dates, e.company, e.location, e.bullets)));
+  };
+  if (educationFirst(doc.experience.map((e) => e.dates))) {
+    education();
+    experience();
+  } else {
+    experience();
+    education();
   }
   if (projects.length) {
     parts.push(`<div class="h">${SECTION_TITLES.projects}</div>`);

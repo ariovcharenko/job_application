@@ -175,3 +175,18 @@ describe("vocabulary beyond software engineering", () => {
     expect(hasIn("NoSQL", "PostgreSQL")).toBe(false);
   });
 });
+
+describe("usage notes for confirmed skills", () => {
+  const base = "### Skills inventory\n- **Languages:** TypeScript\n";
+  it("adds, replaces and reads notes, and never turns them into skills lines", async () => {
+    const { appendUsageNote, parseUsageNotes } = await import("./skills");
+    let m = appendUsageNote(base, "Kotlin", "built an Android app at Brightloop");
+    m = appendUsageNote(m, "Rust", "class project");
+    m = appendUsageNote(m, "Kotlin", "Android app at Brightloop, 2 screens");
+    expect(parseUsageNotes(m)).toEqual([
+      { skill: "Kotlin", where: "Android app at Brightloop, 2 screens" },
+      { skill: "Rust", where: "class project" },
+    ]);
+    expect(parseSkillInventory(m)).toEqual(["TypeScript"]);
+  });
+});

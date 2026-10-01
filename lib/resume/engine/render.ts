@@ -11,7 +11,7 @@ import {
   TextRun,
   type ParagraphChild,
 } from "docx";
-import { boldSegments, contentWidthTwips, DEFAULT_LAYOUT, FONT, LINK_COLOR, PAGE, SECTION_TITLES, sizesFor, spaceFor, TWIPS_PER_IN, type Layout } from "./layout";
+import { boldSegments, contentWidthTwips, DEFAULT_LAYOUT, educationFirst, FONT, LINK_COLOR, PAGE, SECTION_TITLES, sizesFor, spaceFor, TWIPS_PER_IN, type Layout } from "./layout";
 import { projectRole } from "./html";
 import type { ResumeDoc, ResumeHeader } from "./schema";
 
@@ -91,6 +91,7 @@ export function buildResumeParagraphs(h: ResumeHeader, doc: ResumeDoc): Paragrap
   SPACE = spaceFor(layout);
   const out: Paragraph[] = [...header(h)];
 
+  const education = () => {
   if (doc.education.length) {
     out.push(sectionHeader(SECTION_TITLES.education));
     doc.education.forEach((e, i) => {
@@ -99,7 +100,8 @@ export function buildResumeParagraphs(h: ResumeHeader, doc: ResumeDoc): Paragrap
       e.bullets.forEach((b) => out.push(bullet(b, SIZE.bullet)));
     });
   }
-
+  };
+  const experience = () => {
   if (doc.experience.length) {
     out.push(sectionHeader(SECTION_TITLES.experience));
     doc.experience.forEach((e, i) => {
@@ -107,6 +109,15 @@ export function buildResumeParagraphs(h: ResumeHeader, doc: ResumeDoc): Paragrap
       out.push(splitLine([new TextRun({ text: e.company, italics: true, size: pt(SIZE.entrySub), font: FONT })], e.location, SIZE.entrySub, { italics: true }));
       e.bullets.forEach((b) => out.push(bullet(b, SIZE.bullet)));
     });
+  }
+  };
+  // Education first for students and new grads; Experience first after about 2 years of work.
+  if (educationFirst(doc.experience.map((e) => e.dates))) {
+    education();
+    experience();
+  } else {
+    experience();
+    education();
   }
 
   const projects = doc.projects ?? [];
@@ -188,10 +199,10 @@ export async function renderResumeDocx(h: ResumeHeader, doc: ResumeDoc): Promise
           page: {
             size: { width: PAGE.widthIn * TWIPS_PER_IN, height: PAGE.heightIn * TWIPS_PER_IN },
             margin: {
-              top: PAGE.marginYIn * TWIPS_PER_IN,
-              bottom: PAGE.marginYIn * TWIPS_PER_IN,
-              left: PAGE.marginXIn * TWIPS_PER_IN,
-              right: PAGE.marginXIn * TWIPS_PER_IN,
+              top: Math.round(PAGE.marginYIn * TWIPS_PER_IN),
+              bottom: Math.round(PAGE.marginYIn * TWIPS_PER_IN),
+              left: Math.round(PAGE.marginXIn * TWIPS_PER_IN),
+              right: Math.round(PAGE.marginXIn * TWIPS_PER_IN),
             },
           },
         },

@@ -199,6 +199,15 @@ describe("fitResume: her fill loop", () => {
     expect(capped.doc.experience[0].bullets.length).toBeLessThanOrEqual(5);
   });
 
+  it("fills with real content before touching the type size", () => {
+    // 2 + 1 + 2 + 6 bullets + leadership (1 + 1) = 13 lines; 13.5 lines of room at 10pt (96%).
+    const d = doc({ experience: [exp("A", ["a", "b", "c", "d", "e", "f"])], leadership: [{ role: "Club", dates: "" }] });
+    const r = fitResume(d, scaled(13.5), opts);
+    expect(r.layout.body).toBe(10);
+    expect(r.doc.leadership).toHaveLength(1);
+    expect(r.fill).toBeGreaterThanOrEqual(0.9);
+  });
+
   it("shows at most 2 bullets per project", () => {
     const d = doc({ experience: [exp("A", ["a", "b"])], projects: [exp("P", ["1", "2", "3", "4"])] });
     const r = fitResume(d, scaled(30), opts);

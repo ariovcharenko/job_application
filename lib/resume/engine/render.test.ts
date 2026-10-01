@@ -83,8 +83,8 @@ describe("renderResumeDocx", () => {
     expect(body).toMatch(/<w:b\/>[\s\S]*?6 production features/);
     expect(body).toContain('w:w="12240"');
     expect(body).toContain('w:h="15840"');
-    expect(body).toMatch(/w:left="576"/);
-    expect(body).toMatch(/w:top="432"/);
+    expect(body).toMatch(/w:left="648"/);
+    expect(body).toMatch(/w:top="504"/);
   });
 
   it("contains no dashes and no literal ** markers", async () => {
