@@ -14,10 +14,11 @@ import { exportCsv } from "@/lib/tracker/csvMap";
 import { blankApplication } from "@/lib/tracker/blank";
 import { completeFollowUp, daysBetween, needsFollowUp, snoozeFollowUp, todayISO } from "@/lib/tracker/stage";
 import { sortApplications } from "@/lib/tracker/sort";
-import { isTracked, skipJob, trackJob } from "@/lib/tracker/triage";
-import { ROLE_TYPES, STAGES, type Application } from "@/lib/types";
+import { DEFAULT_VIEW_PREFS, filterApplications, hasActiveFilters, loadViewPrefs, saveViewPrefs, stageCounts, type TrackerView as View } from "@/lib/tracker/filter";
+import { isTracked } from "@/lib/tracker/triage";
+import { ROLE_TYPES, STAGES, type Application, type RoleType, type Stage } from "@/lib/types";
 import { OPEN_ADD_JOB_EVENT } from "@/components/Nav";
-import { deleteApplication, saveApplication } from "@/lib/tracker/repo";
+import { deleteApplication, saveApplication, setTriage } from "@/lib/tracker/repo";
 import { Button, ConfirmDialog, EmptyState, inputClass, Modal, Spinner } from "@/components/ui";
 import ApiKeyCard from "@/components/settings/ApiKeyCard";
 import ReadinessStrip from "@/components/ReadinessStrip";
@@ -26,20 +27,42 @@ import ApplicationForm from "./ApplicationForm";
 import CheckedJobs from "./CheckedJobs";
 import ImportDialog from "./ImportDialog";
 import NewJobDialog from "./NewJobDialog";
-import { CompanyMark } from "./StageBadge";
+import DeleteJobMessage from "./DeleteJobMessage";
+import { CompanyMark, STAGE_DOT } from "./StageBadge";
 import TrackerBoard from "./TrackerBoard";
 import TrackerTable from "./TrackerTable";
 
-type View = "table" | "board";
-
 const toolbarSelect = inputClass.replace("w-full", "w-auto");
 
-function Stat({ label, value, detail }: { label: string; value: React.ReactNode; detail?: string }) {
+function Stat({ label, value, title }: { label: string; value: React.ReactNode; title?: string }) {
   return (
-    <div className="rounded-[22px] bg-white px-5 py-5 shadow-soft">
+    <div className="rounded-[22px] bg-white px-5 py-4 shadow-soft" title={title}>
       <p className="text-[13px] font-medium text-muted">{label}</p>
-      <p className="mt-2 text-[34px] font-semibold leading-none tracking-display tabular-nums">{value}</p>
-      {detail && <p className="mt-2 text-xs text-muted">{detail}</p>}
+      <p className="mt-1.5 text-[28px] font-semibold leading-none tracking-display tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+/** Stage filter as chips with live counts ("Applied 4"), one tap each, "All" to clear. */
+function StageChips({ counts, total, value, onChange }: { counts: Record<Stage, number>; total: number; value: Stage | ""; onChange: (s: Stage | "") => void }) {
+  const chip = (on: boolean) =>
+    `inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent/25 ${
+      on ? "bg-ink text-white" : "bg-white text-ink shadow-soft hover:bg-black/[0.03]"
+    }`;
+  return (
+    <div role="group" aria-label="Filter by stage" className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
+      <button type="button" aria-pressed={value === ""} onClick={() => onChange("")} className={chip(value === "")}>
+        All <span className={`tabular-nums ${value === "" ? "text-white/70" : "text-muted"}`}>{total}</span>
+      </button>
+      {STAGES.map((s) => {
+        const on = value === s;
+        return (
+          <button key={s} type="button" aria-pressed={on} onClick={() => onChange(on ? "" : s)} className={chip(on)}>
+            {!on && <span className={`h-2 w-2 rounded-full ${STAGE_DOT[s]}`} aria-hidden="true" />}
+            {s} <span className={`tabular-nums ${on ? "text-white/70" : "text-muted"}`}>{counts[s]}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -64,7 +87,7 @@ function UpNextCard({
   onDone?: () => void;
   onSnooze?: () => void;
 }) {
-  const openLabel = tone === "blue" ? (app.tailoredResumeId !== undefined ? "Resume ready. Open" : "Open and tailor") : "Open";
+  const openLabel = tone === "blue" ? (app.tailoredResumeId !== undefined ? "Open" : "Open and tailor") : "Open";
   const smallAction =
     "relative z-10 rounded-full bg-black/[0.05] px-3 py-1 text-xs font-medium text-ink transition hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
   return (
@@ -94,8 +117,8 @@ function UpNextCard({
           </button>
         )}
         {onSnooze && (
-          <button type="button" onClick={onSnooze} className={smallAction}>
-            Snooze a week
+          <button type="button" onClick={onSnooze} className={smallAction} title="Remind me again in a week">
+            Snooze
           </button>
         )}
       </div>
@@ -112,16 +135,16 @@ function KeyNeededDialog({ onContinue, onClose }: { onContinue: () => void; onCl
   return (
     <Modal title="Connect Claude to check jobs" onClose={onClose}>
       <p className="text-[15px] leading-relaxed text-muted">
-        Reading and checking a job uses your own Anthropic API key (about 1 to 2¢ a job). Get one at{" "}
+        Checking a job uses your own Anthropic API key, about 1 to 2¢ a job. Get one at{" "}
         <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer" className="text-accent hover:underline">
           console.anthropic.com
         </a>
-        , add at least $5 of credit, and set a monthly spend limit. The key stays in this browser.
+        .
       </p>
       <div className="mt-5">
         <ApiKeyCard compact onSaved={setSavedKey} />
       </div>
-      <div className="flex justify-end gap-2">
+      <div className="flex justify-end gap-2 border-t border-black/[0.06] pt-5">
         <Button variant="secondary" onClick={onClose}>
           Cancel
         </Button>
@@ -145,10 +168,23 @@ function download(name: string, text: string) {
 
 export default function TrackerView() {
   const apps = useLiveQuery(() => db.applications.toArray(), []);
-  const [view, setView] = useState<View>("table");
+  const [view, setView] = useState<View>(DEFAULT_VIEW_PREFS.view);
   const [query, setQuery] = useState("");
-  const [stage, setStage] = useState("");
-  const [roleType, setRoleType] = useState("");
+  const [stage, setStage] = useState<Stage | "">(DEFAULT_VIEW_PREFS.stage);
+  const [roleType, setRoleType] = useState<RoleType | "">(DEFAULT_VIEW_PREFS.roleType);
+  // Table/Board and the stage/role filters are remembered in this browser. Read after mounting so
+  // the first render matches the server's; saved only after that read, so defaults never overwrite them.
+  const prefsLoaded = useRef(false);
+  useEffect(() => {
+    const p = loadViewPrefs();
+    setView(p.view);
+    setStage(p.stage);
+    setRoleType(p.roleType);
+    prefsLoaded.current = true;
+  }, []);
+  useEffect(() => {
+    if (prefsLoaded.current) saveViewPrefs({ view, stage, roleType });
+  }, [view, stage, roleType]);
   const [editing, setEditing] = useState<Application | null>(null);
   const [importing, setImporting] = useState(false);
   const [pastingJob, setPastingJob] = useState(false);
@@ -254,18 +290,15 @@ export default function TrackerView() {
   const tracked = useMemo(() => (apps ?? []).filter(isTracked), [apps]);
   const checkedOnly = useMemo(() => (apps ?? []).filter((a) => !isTracked(a)), [apps]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const list = tracked
-      .filter((a) => !stage || a.stage === stage)
-      .filter((a) => !roleType || a.roleType === roleType)
-      .filter(
-        (a) =>
-          !q ||
-          [a.company, a.role, a.location, a.contactName, a.referral, a.notes].some((f) => f.toLowerCase().includes(q)),
-      );
-    return sortApplications(list);
-  }, [tracked, query, stage, roleType]);
+  const filters = { query, stage, roleType };
+  const filtered = useMemo(() => sortApplications(filterApplications(tracked, { query, stage, roleType })), [tracked, query, stage, roleType]);
+  // Chip counts follow the search and role filters, so each chip says what tapping it would show.
+  const counts = useMemo(() => stageCounts(filterApplications(tracked, { query, stage: "", roleType })), [tracked, query, roleType]);
+  const clearFilters = () => {
+    setQuery("");
+    setStage("");
+    setRoleType("");
+  };
 
   const stats = useMemo(() => {
     const list = tracked;
@@ -302,14 +335,14 @@ export default function TrackerView() {
           <h1 className="animate-rise mx-auto mt-2 max-w-3xl text-[44px] font-semibold leading-[1.05] tracking-display sm:text-[64px]" style={{ animationDelay: "60ms" }}>
             Apply to the jobs <span className="text-gradient">worth it.</span>
           </h1>
-          <p className="animate-rise mx-auto mt-4 max-w-xl text-[19px] leading-snug text-muted sm:text-[21px]" style={{ animationDelay: "120ms" }}>
-            Paste a job link. See if it meets your must-haves, how well your skills match, and get a tailored resume.
+          <p className="animate-rise mx-auto mt-4 max-w-xl text-[17px] leading-snug text-muted sm:text-[21px]" style={{ animationDelay: "120ms" }}>
+            Paste a job link. See if it fits, then tailor your resume.
           </p>
           {/* Not a <form>: pressing Enter before the page finishes loading would do a native submit
               and reload the page, losing the link she just typed. */}
           <div
             role="search"
-            className="animate-rise mx-auto mt-8 flex max-w-2xl items-center gap-2 rounded-full bg-white p-1.5 pl-5 shadow-lift ring-1 ring-black/[0.06] focus-within:ring-4 focus-within:ring-accent/20"
+            className="animate-rise mx-auto mt-8 flex max-w-2xl items-center gap-2 rounded-full bg-white p-1.5 pl-4 sm:pl-5 shadow-lift ring-1 ring-black/[0.06] focus-within:ring-4 focus-within:ring-accent/20"
             style={{ animationDelay: "180ms" }}
           >
             <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
@@ -328,19 +361,25 @@ export default function TrackerView() {
                   analyzeQuick();
                 }
               }}
-              className="min-w-0 flex-1 bg-transparent py-2.5 text-[17px] outline-none placeholder:text-black/30"
+              className="min-w-0 flex-1 bg-transparent py-2.5 text-base outline-none placeholder:text-black/40 sm:text-[17px]"
             />
             <kbd className="hidden rounded-md border border-black/10 px-1.5 py-0.5 text-[11px] text-muted sm:block">⌘K</kbd>
-            <button type="button" onClick={analyzeQuick} className="rounded-full bg-accent px-6 py-2.5 text-[15px] font-medium text-white transition hover:bg-accent-deep active:scale-[0.97]">
+            <button
+              type="button"
+              onClick={analyzeQuick}
+              className="shrink-0 rounded-full bg-accent px-5 py-2.5 text-[15px] font-medium text-white transition hover:bg-accent-deep focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent/25 active:scale-[0.97] sm:px-6"
+            >
               Analyze
             </button>
           </div>
-          {quickError && <p className="mt-3 text-sm text-bad">{quickError}</p>}
-          <p className="mt-4 text-[13px] text-muted">
-            About 1 to 2¢ per job.{" "}
-            <button type="button" onClick={() => withKey(() => setPastingJob(true))} className="text-accent hover:underline">
-              Or paste the description
+          <p className="mt-3 min-h-[20px] text-sm text-bad" role="alert">
+            {quickError}
+          </p>
+          <p className="mt-1 text-[13px] text-muted">
+            <button type="button" onClick={() => withKey(() => setPastingJob(true))} className="font-medium text-accent hover:underline">
+              Paste a description instead
             </button>
+            <span aria-hidden="true"> · </span>about 1 to 2¢ a job
           </p>
         </div>
       </section>
@@ -353,7 +392,9 @@ export default function TrackerView() {
 
           {(upNext.ready.length > 0 || upNext.followUps.length > 0) && (
             <section className="mb-12">
-              <h2 className="mb-4 text-[28px] font-semibold tracking-display">Up next</h2>
+              <h2 className="mb-4 text-[24px] font-semibold tracking-display sm:text-[28px]">
+                Up next <span className="font-normal text-muted tabular-nums">{upNext.followUps.length + Math.min(upNext.ready.length, 8)}</span>
+              </h2>
               <div className="-mx-4 flex gap-4 overflow-x-auto px-4 pb-3 sm:-mx-6 sm:px-6">
                 {upNext.followUps.map((a) => (
                   <UpNextCard
@@ -373,9 +414,12 @@ export default function TrackerView() {
             </section>
           )}
 
-          <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
-            <h2 className="text-[28px] font-semibold tracking-display">Your applications</h2>
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-[24px] font-semibold tracking-display sm:text-[28px]">Your applications</h2>
             <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" onClick={() => setEditing(blankApplication())}>
+                Add manually
+              </Button>
               <Button variant="secondary" onClick={() => setImporting(true)}>
                 Import CSV
               </Button>
@@ -386,20 +430,22 @@ export default function TrackerView() {
               >
                 Export CSV
               </Button>
-              <Button variant="secondary" onClick={() => setEditing(blankApplication())}>
-                Add manually
-              </Button>
             </div>
           </div>
 
-          <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-4">
-            <Stat label="Tracked" value={stats.total} />
-            <Stat label="Applied" value={stats.applied} />
-            <Stat label="Response rate" value={`${stats.rate}%`} detail={`${stats.responded} responded`} />
-            <Stat label="Time to hear back" value={stats.avgDays !== null ? `${stats.avgDays}d` : "—"} detail="average" />
-          </div>
+          {tracked.length > 0 && (
+            <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
+              <Stat label="Tracked" value={stats.total} />
+              <Stat label="Applied" value={stats.applied} />
+              <Stat label="Response rate" value={`${stats.rate}%`} title={`${stats.responded} of ${stats.applied} applied heard back`} />
+              <Stat label="Avg. reply time" value={stats.avgDays !== null ? `${stats.avgDays}d` : "—"} title="Average days from applying to hearing back" />
+            </div>
+          )}
 
-          <div className="mb-4 flex flex-wrap items-center gap-2">
+          {tracked.length > 0 && (
+          <div className="mb-4 grid gap-3">
+          <StageChips counts={counts} total={Object.values(counts).reduce((a, b) => a + b, 0)} value={stage} onChange={setStage} />
+          <div className="flex flex-wrap items-center gap-2">
             <div className="relative w-full sm:w-72">
               <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-black/35" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
                 <circle cx="11" cy="11" r="7" />
@@ -408,22 +454,16 @@ export default function TrackerView() {
               <input
                 type="search"
                 aria-label="Search"
-                placeholder="Search company, position, contact..."
+                placeholder="Search company, role, location, notes"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 className={`${inputClass} pl-9`}
               />
             </div>
-            <select aria-label="Filter by stage" value={stage} onChange={(e) => setStage(e.target.value)} className={toolbarSelect}>
-              <option value="">All stages</option>
-              {STAGES.map((s) => (
-                <option key={s}>{s}</option>
-              ))}
-            </select>
             <select
               aria-label="Filter by role type"
               value={roleType}
-              onChange={(e) => setRoleType(e.target.value)}
+              onChange={(e) => setRoleType(e.target.value as RoleType | "")}
               className={toolbarSelect}
             >
               <option value="">All role types</option>
@@ -431,7 +471,12 @@ export default function TrackerView() {
                 <option key={r}>{r}</option>
               ))}
             </select>
-            <div className="ml-auto inline-flex rounded-full bg-black/[0.05] p-1 text-sm">
+            {hasActiveFilters(filters) && (
+              <button type="button" onClick={clearFilters} className="rounded-full px-3 py-2 text-sm font-medium text-accent hover:underline">
+                Clear filters
+              </button>
+            )}
+            <div className="ml-auto inline-flex rounded-full bg-black/[0.05] p-1 text-sm" role="group" aria-label="View">
               {(["table", "board"] as View[]).map((v) => (
                 <button
                   key={v}
@@ -447,18 +492,28 @@ export default function TrackerView() {
               ))}
             </div>
           </div>
+          <p className="sr-only" aria-live="polite">
+            {filtered.length} of {tracked.length} shown
+          </p>
+          </div>
+          )}
 
           {tracked.length === 0 ? (
             <EmptyState title="No applications yet">
-              <p>Add one, or import a CSV from Notion, Airtable, Google Sheets or Excel.</p>
+              <p>Paste a job link above, or import a CSV from your old tracker.</p>
               <p className="mt-4">
-                First time here?{" "}
                 <Link href="/onboarding" className="font-medium text-accent hover:underline">
                   Walk through setup
                 </Link>
-                .
               </p>
             </EmptyState>
+          ) : filtered.length === 0 ? (
+            <div className="rounded-[22px] bg-white p-10 text-center text-sm text-muted shadow-soft">
+              <p>No applications match.</p>
+              <button type="button" onClick={clearFilters} className="mt-2 font-medium text-accent hover:underline">
+                Clear filters
+              </button>
+            </div>
           ) : view === "table" ? (
             <TrackerTable apps={filtered} onOpen={setEditing} onDelete={setDeleting} />
           ) : (
@@ -468,9 +523,9 @@ export default function TrackerView() {
           <CheckedJobs
             apps={checkedOnly}
             onOpen={setEditing}
-            onTrack={(a) => saveApplication(trackJob(a))}
-            onSkip={(a) => saveApplication(skipJob(a))}
-            onRestore={(a) => saveApplication({ ...a, triage: "checked" })}
+            onTrack={(a) => a.id !== undefined && setTriage(a.id, undefined)}
+            onSkip={(a) => a.id !== undefined && setTriage(a.id, "skipped")}
+            onRestore={(a) => a.id !== undefined && setTriage(a.id, "checked")}
           />
         </>
       )}
@@ -490,13 +545,7 @@ export default function TrackerView() {
       {deleting?.id !== undefined && (
         <ConfirmDialog
           title="Delete this job?"
-          message={
-            <>
-              {deleting.role || "This job"}
-              {deleting.company ? ` at ${deleting.company}` : ""} will be removed from your tracker, along with its tailored resume and
-              contacts saved in the app. Files already in your resume folder are kept. This can&apos;t be undone.
-            </>
-          }
+          message={<DeleteJobMessage app={deleting} />}
           confirmLabel="Delete job"
           onCancel={() => setDeleting(null)}
           onConfirm={async () => {

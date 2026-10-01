@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { verdictFor, VERDICT_TEXT } from "@/lib/intake/decision";
 import { readBreakdown } from "@/lib/intake/stored";
 import type { Application } from "@/lib/types";
@@ -40,9 +41,12 @@ function Row({ app, onOpen, children }: { app: Application; onOpen: () => void; 
   );
 }
 
+type Action = (a: Application) => unknown;
+
 /**
  * Jobs she checked but hasn't turned into applications. They stay out of the table and the stats,
- * and are remembered so a repeat check of the same position is recognized.
+ * and are remembered so a repeat check of the same position is recognized. Each move says what
+ * happened, with an Undo, since the row disappears from where she was looking.
  */
 export default function CheckedJobs({
   apps,
@@ -53,27 +57,67 @@ export default function CheckedJobs({
 }: {
   apps: Application[];
   onOpen: (a: Application) => void;
-  onTrack: (a: Application) => void;
-  onSkip: (a: Application) => void;
-  onRestore: (a: Application) => void;
+  onTrack: Action;
+  onSkip: Action;
+  onRestore: Action;
 }) {
+  const [busy, setBusy] = useState<number | null>(null);
+  const [notice, setNotice] = useState<{ text: string; undo: () => unknown } | null>(null);
+
+  const run = async (a: Application, action: Action, text: string, undo: () => unknown) => {
+    if (busy !== null) return;
+    setBusy(a.id ?? -1);
+    try {
+      await action(a);
+      setNotice({ text, undo });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const name = (a: Application) => a.company || a.role || "Job";
+
   const deciding = apps.filter((a) => a.triage === "checked").sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   const skipped = apps.filter((a) => a.triage === "skipped").sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  if (deciding.length === 0 && skipped.length === 0) return null;
+  if (deciding.length === 0 && skipped.length === 0 && !notice) return null;
 
   return (
-    <section className="mt-12">
-      <h2 className="text-[24px] font-semibold tracking-display sm:text-[28px]">Checked jobs</h2>
-      <p className="mt-1 max-w-2xl text-[15px] text-muted">
-        Jobs you checked but haven&apos;t added to your applications. Checking one of them again is recognized, so you won&apos;t pay twice.
-      </p>
+    <section className="mt-12" aria-labelledby="checked-jobs-title">
+      <h2 id="checked-jobs-title" className="text-[24px] font-semibold tracking-display sm:text-[28px]" title="Jobs you checked but haven't added to your applications">
+        Checked jobs {deciding.length > 0 && <span className="font-normal tabular-nums text-muted">{deciding.length}</span>}
+      </h2>
+
+      <div aria-live="polite">
+        {notice && (
+          <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl bg-white px-4 py-3 text-sm shadow-soft">
+            <span>{notice.text}</span>
+            <button
+              type="button"
+              className="font-medium text-accent hover:underline"
+              onClick={async () => {
+                const { undo } = notice;
+                setNotice(null);
+                await undo();
+              }}
+            >
+              Undo
+            </button>
+            <button type="button" aria-label="Dismiss" className="ml-auto rounded-full p-1 text-muted hover:text-ink" onClick={() => setNotice(null)}>
+              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                <path d="M6 6l12 12M18 6 6 18" />
+              </svg>
+            </button>
+          </p>
+        )}
+      </div>
 
       {deciding.length > 0 && (
-        <ul className="mt-5 divide-y divide-black/[0.06] rounded-[22px] bg-white px-4 shadow-soft sm:px-5">
+        <ul className="mt-4 divide-y divide-black/[0.06] rounded-[22px] bg-white px-4 shadow-soft sm:px-5">
           {deciding.map((a) => (
             <Row key={a.id} app={a} onOpen={() => onOpen(a)}>
-              <Button onClick={() => onTrack(a)}>Add to applications</Button>
-              <Button variant="secondary" onClick={() => onSkip(a)}>
+              <Button disabled={busy !== null} onClick={() => run(a, onTrack, `${name(a)} moved to your applications.`, () => onRestore(a))}>
+                Add to applications
+              </Button>
+              <Button variant="secondary" disabled={busy !== null} onClick={() => run(a, onSkip, `${name(a)} marked as not applying.`, () => onRestore(a))}>
                 Not applying
               </Button>
             </Row>
@@ -83,9 +127,9 @@ export default function CheckedJobs({
 
       {skipped.length > 0 && (
         <details className="group mt-4 rounded-[22px] bg-white px-4 py-3 shadow-soft sm:px-5">
-          <summary className="flex cursor-pointer list-none items-center justify-between py-1 text-[15px] font-medium">
+          <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg py-1 text-[15px] font-medium focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent/25">
             <span>
-              Not applying <span className="font-normal text-muted">({skipped.length})</span>
+              Not applying <span className="font-normal tabular-nums text-muted">{skipped.length}</span>
             </span>
             <svg viewBox="0 0 24 24" className="h-4 w-4 text-muted transition group-open:rotate-180" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
               <path d="m6 9 6 6 6-6" />
@@ -94,7 +138,11 @@ export default function CheckedJobs({
           <ul className="divide-y divide-black/[0.06]">
             {skipped.map((a) => (
               <Row key={a.id} app={a} onOpen={() => onOpen(a)}>
-                <Button variant="secondary" onClick={() => onRestore(a)}>
+                <Button
+                  variant="secondary"
+                  disabled={busy !== null}
+                  onClick={() => run(a, onRestore, `${name(a)} is back under Checked jobs.`, () => onSkip(a))}
+                >
                   Reconsider
                 </Button>
               </Row>

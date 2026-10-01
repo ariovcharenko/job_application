@@ -1,7 +1,6 @@
 import { DEFAULT_PREFERENCES } from "@/lib/defaults";
 import type { Stage } from "@/lib/types";
 
-// Neutral by default; color only where the stage means something (in progress, an offer).
 /** One color per stage, so the table reads at a glance: gray to do, purple applied, amber interview, green offer, red rejected. */
 export const STAGE_STYLE: Record<Stage, string> = {
   Saved: "bg-black/[0.05] text-black/65",
@@ -11,9 +10,18 @@ export const STAGE_STYLE: Record<Stage, string> = {
   Rejected: "bg-bad-soft text-bad",
 };
 
+/** A solid dot per stage (chips, legends), so the stage color still reads where the pill's soft tint would be too faint. */
+export const STAGE_DOT: Record<Stage, string> = {
+  Saved: "bg-black/30",
+  Applied: "bg-accent",
+  "Waiting for interview": "bg-warn",
+  Offer: "bg-good",
+  Rejected: "bg-bad",
+};
+
 /** The small pill-shaped stage menu used on table rows and board cards. */
 export const STAGE_SELECT_CLASS =
-  "max-w-[150px] cursor-pointer truncate rounded-full border-0 py-1 pl-2.5 pr-7 text-xs font-medium outline-none focus:ring-2 focus:ring-accent/30";
+  "max-w-full cursor-pointer truncate rounded-full border-0 py-1 pl-2.5 pr-7 text-xs font-medium outline-none focus:ring-2 focus:ring-accent/30";
 
 export default function StageBadge({ stage }: { stage: Stage }) {
   return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STAGE_STYLE[stage]}`}>{stage}</span>;

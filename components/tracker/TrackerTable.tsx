@@ -109,10 +109,10 @@ function DeleteButton({ app, onDelete, alwaysVisible = false }: { app: Applicati
   );
 }
 
-/** Below the sm breakpoint each job is a stacked card instead of a 1000px-wide table row. */
+/** Below the md breakpoint each job is a stacked card instead of a table row. */
 function MobileCards({ apps, onOpen, onDelete }: { apps: Application[]; onOpen: (a: Application) => void; onDelete: (a: Application) => void }) {
   return (
-    <ul className="grid gap-3 sm:hidden" aria-label="Applications">
+    <ul className="grid gap-3 md:hidden" aria-label="Applications">
       {apps.map((a) => {
         const place = [a.location, a.workMode && a.workMode !== "Unknown" ? a.workMode : ""].filter(Boolean).join(" · ");
         return (
@@ -125,7 +125,7 @@ function MobileCards({ apps, onOpen, onDelete }: { apps: Application[]; onOpen: 
                 className="min-w-0 flex-1 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
               >
                 <span className="block truncate font-medium">{a.company || "Company not set"}</span>
-                <span className="block text-[13px] leading-snug text-ink">{a.role || "Role not set"}</span>
+                <span className={`block text-[13px] leading-snug ${a.stage === "Rejected" ? "" : "text-ink"}`}>{a.role || "Role not set"}</span>
                 {place && <span className="mt-0.5 block truncate text-xs text-muted">{place}</span>}
               </button>
               <MatchCell app={a} />
@@ -133,7 +133,7 @@ function MobileCards({ apps, onOpen, onDelete }: { apps: Application[]; onOpen: 
             <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
               <StageSelect app={a} />
               {needsFollowUp(a) && <span className="font-medium text-warn">Follow up</span>}
-              {a.appliedDate && <span className="tabular-nums text-muted">Applied {a.appliedDate}</span>}
+              {a.appliedDate && <span className="tabular-nums text-muted">Applied {shortDate(a.appliedDate)}</span>}
               <span className="ml-auto flex items-center gap-1">
                 <span className="text-sm">
                   <ResumeLink app={a} />
@@ -147,6 +147,25 @@ function MobileCards({ apps, onOpen, onDelete }: { apps: Application[]; onOpen: 
     </ul>
   );
 }
+
+// Column widths for the fixed table layout. Position takes what's left. Location, Applied and Resume
+// only appear from lg up, so the table fits its container at every width without a sideways scroll
+// (below md each job is a card instead).
+const COLUMNS: { label: string; width: string; className?: string }[] = [
+  { label: "Company", width: "w-[24%] lg:w-[16%]" },
+  { label: "Position", width: "" },
+  { label: "Match", width: "w-[112px]" },
+  { label: "Stage", width: "w-[168px]" },
+  { label: "Location", width: "w-[13%]", className: "hidden lg:table-cell" },
+  { label: "Applied", width: "w-[84px]", className: "hidden lg:table-cell" },
+  { label: "Resume", width: "w-[76px]", className: "hidden lg:table-cell" },
+  { label: "", width: "w-[44px]" },
+];
+
+const shortDate = (iso: string) => {
+  const d = new Date(`${iso}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+};
 
 export default function TrackerTable({
   apps,
@@ -163,26 +182,32 @@ export default function TrackerTable({
   return (
     <>
       <MobileCards apps={apps} onOpen={onOpen} onDelete={onDelete} />
-      <div className="hidden overflow-x-auto rounded-[22px] bg-white shadow-soft sm:block">
-        <table className="w-full min-w-[1000px] text-left text-sm">
-          <thead className="border-b border-black/[0.06] text-[12px] text-muted">
+      <div className="hidden rounded-[22px] bg-white shadow-soft md:block">
+        <table className="w-full table-fixed text-left text-sm">
+          <thead className="text-[12px] text-muted">
             <tr>
-              {["Company", "Position", "Match", "Stage", "Location", "Applied", "Resume", ""].map((h) => (
-                <th key={h || "actions"} className="px-4 py-3.5 font-medium">
-                  {h}
+              {COLUMNS.map((c, i) => (
+                <th
+                  key={c.label || "actions"}
+                  scope="col"
+                  className={`sticky top-12 z-[1] border-b border-black/[0.06] bg-white/95 px-3 py-3 font-medium backdrop-blur ${c.width} ${c.className ?? ""} ${
+                    i === 0 ? "rounded-tl-[22px]" : i === COLUMNS.length - 1 ? "rounded-tr-[22px]" : ""
+                  }`}
+                >
+                  {c.label || <span className="sr-only">Actions</span>}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody>
+          <tbody className="[&>tr:last-child>td:first-child]:rounded-bl-[22px] [&>tr:last-child>td:last-child]:rounded-br-[22px]">
             {apps.map((a) => (
               <tr
                 key={a.id}
                 onClick={() => onOpen(a)}
-                className={`group cursor-pointer border-b border-black/[0.05] transition-colors last:border-0 hover:bg-paper ${a.stage === "Rejected" ? "text-muted [&_img]:opacity-60" : ""}`}
+                className={`group cursor-pointer border-b border-black/[0.05] transition-colors last:border-0 hover:bg-paper ${a.stage === "Rejected" ? "text-muted" : ""}`}
               >
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2.5">
+                <td className="px-3 py-3">
+                  <div className="flex min-w-0 items-center gap-2.5">
                     <CompanyMark name={a.company} />
                     <button
                       type="button"
@@ -190,27 +215,36 @@ export default function TrackerTable({
                         e.stopPropagation();
                         onOpen(a);
                       }}
-                      className="whitespace-nowrap rounded-md text-left font-medium outline-none hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+                      title={a.company || undefined}
+                      className="min-w-0 truncate rounded-md text-left font-medium outline-none hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
                     >
                       {a.company || "—"}
                       {!a.company && <span className="sr-only">Open {a.role || "job"}</span>}
                     </button>
                   </div>
                 </td>
-                <td className="min-w-[180px] px-4 py-3 text-ink">{a.role || "—"}</td>
-                <td className="whitespace-nowrap px-4 py-3">
+                <td className="px-3 py-3">
+                  <span className={`line-clamp-2 leading-snug ${a.stage === "Rejected" ? "" : "text-ink"}`} title={a.role || undefined}>
+                    {a.role || "—"}
+                  </span>
+                </td>
+                <td className="px-3 py-3">
                   <MatchCell app={a} />
                 </td>
-                <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
                   <StageSelect app={a} />
-                  {needsFollowUp(a) && <span className="ml-2 text-xs font-medium text-warn">Follow up</span>}
+                  {needsFollowUp(a) && <span className="mt-1 block text-xs font-medium text-warn">Follow up</span>}
                 </td>
-                <td className="max-w-[200px] px-4 py-3">
-                  <span className="line-clamp-1">{a.location || "—"}</span>
-                  {a.workMode && a.workMode !== "Unknown" && <span className="block text-xs text-muted">{a.workMode}</span>}
+                <td className="hidden px-3 py-3 lg:table-cell">
+                  <span className="block truncate" title={a.location || undefined}>
+                    {a.location || "—"}
+                  </span>
+                  {a.workMode && a.workMode !== "Unknown" && <span className="block truncate text-xs text-muted">{a.workMode}</span>}
                 </td>
-                <td className="whitespace-nowrap px-4 py-3 tabular-nums text-black/70">{a.appliedDate}</td>
-                <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                <td className="hidden whitespace-nowrap px-3 py-3 tabular-nums text-muted lg:table-cell" title={a.appliedDate || undefined}>
+                  {a.appliedDate ? shortDate(a.appliedDate) : "—"}
+                </td>
+                <td className="hidden px-3 py-3 lg:table-cell" onClick={(e) => e.stopPropagation()}>
                   <ResumeLink app={a} />
                 </td>
                 <td className="px-2 py-3 text-right" onClick={(e) => e.stopPropagation()}>

@@ -22,6 +22,14 @@ export async function deleteApplication(id: number): Promise<void> {
   });
 }
 
+/**
+ * Moves a job between the table (undefined), Checked jobs ("checked") and Not applying ("skipped").
+ * Writes only that field on the stored row, so a stale copy of the job can't overwrite newer edits.
+ */
+export async function setTriage(id: number, triage: Application["triage"]): Promise<void> {
+  await db.applications.update(id, { triage, updatedAt: Date.now() });
+}
+
 export async function changeStage(app: Application, stage: Stage): Promise<void> {
   await saveApplication(applyStageChange(app, stage));
 }

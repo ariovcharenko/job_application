@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "../db";
 import type { FeedItem } from "../types";
-import { dismissFeedItem, startApplicationFromFeed } from "./repo";
+import { blankApplication } from "./blank";
+import { dismissFeedItem, setTriage, startApplicationFromFeed } from "./repo";
 
 function feedItem(overrides: Partial<FeedItem> = {}): FeedItem {
   return {
@@ -60,5 +61,18 @@ describe("dismissFeedItem", () => {
     await dismissFeedItem(id);
     expect((await db.feed.get(id))?.state).toBe("dismissed");
     expect(await db.applications.count()).toBe(0);
+  });
+});
+
+describe("setTriage", () => {
+  it("moves a job between Checked jobs, Not applying and the table without touching other fields", async () => {
+    const id = await db.applications.add({ ...blankApplication(), company: "Acme", notes: "newer note", triage: "checked" });
+    await setTriage(id, "skipped");
+    expect((await db.applications.get(id))?.triage).toBe("skipped");
+    await setTriage(id, undefined);
+    const row = await db.applications.get(id);
+    expect(row?.triage).toBeUndefined();
+    expect("triage" in (row ?? {})).toBe(false);
+    expect(row?.notes).toBe("newer note");
   });
 });
