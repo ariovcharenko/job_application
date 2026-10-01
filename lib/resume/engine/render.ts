@@ -112,7 +112,7 @@ export function buildResumeParagraphs(h: ResumeHeader, doc: ResumeDoc): Paragrap
   }
   };
   // Education first for students and new grads; Experience first after about 2 years of work.
-  if (educationFirst(doc.experience.map((e) => e.dates))) {
+  if (educationFirst(doc.experience.map((e) => e.dates), new Date(), doc.education.map((e) => e.dates))) {
     education();
     experience();
   } else {

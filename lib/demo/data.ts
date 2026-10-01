@@ -42,28 +42,28 @@ export const DEMO_EXPERIENCE = `### Education
 
 ### Experience
 **Software Engineer Intern | Cobalt Payments | Seattle, WA | Jun 2025 - Sep 2025**
-- Built a refund status service in Go and PostgreSQL that handled 40,000 requests a day with p99 latency under 120 ms
+- Developed a refund status service in Go and PostgreSQL that handled 40,000 requests a day with p99 latency under 120 ms
 - Added idempotency keys to the payouts API, removing 100% of duplicate payouts seen during retries
-- Wrote integration tests with Docker Compose that ran in GitHub Actions on every pull request, cutting flaky builds by 60%
+- Automated integration tests with Docker Compose that ran in GitHub Actions on every pull request, cutting flaky builds by 60%
 - Instrumented the service with OpenTelemetry traces and Grafana dashboards used by the on-call rotation
 - Migrated two cron jobs to AWS Lambda and SQS, lowering monthly compute cost by 35%
-- Wrote the design doc for webhook retries, reviewed by 6 senior engineers before rollout
+- Authored the design doc for webhook retries, reviewed by 6 senior engineers before rollout
 
 **Frontend Engineer Intern | Lumen Health | Remote | Jun 2024 - Sep 2024**
 - Shipped a React and TypeScript scheduling page for patients, used by 3,000 people in its first month
-- Built an accessible date picker with full keyboard support, passing an external WCAG 2.1 AA audit
+- Designed an accessible date picker with full keyboard support, passing an external WCAG 2.1 AA audit
 - Cut the dashboard bundle size by 45% by code-splitting routes and lazy-loading charts
-- Wrote Jest and React Testing Library tests for every component, raising coverage from 52% to 88%
-- Worked with 2 designers in Figma to turn usability feedback into 14 shipped UI fixes
+- Tested every component with Jest and React Testing Library, raising coverage from 52% to 88%
+- Partnered with 2 designers in Figma to turn usability feedback into 14 shipped UI fixes
 
 **Undergraduate Research Assistant | UW Systems Lab | Seattle, WA | Jan 2025 - Jun 2026**
-- Built a Python benchmarking harness for a distributed key-value store, running 200+ experiments on 16 nodes
+- Engineered a Python benchmarking harness for a distributed key-value store, running 200+ experiments on 16 nodes
 - Profiled tail latency with eBPF and found a lock contention bug that cut p99 reads by 30%
 - Co-authored a workshop paper on adaptive replication, presenting results to 50 attendees
 
 **Teaching Assistant, Data Structures | University of Washington | Seattle, WA | Sep 2024 - Jun 2026**
 - Led weekly sections for 30 students and held office hours for a 400-student course
-- Wrote 12 autograded Java assignments with JUnit test suites
+- Created 12 autograded Java assignments with JUnit test suites
 
 ### Projects
 **Personal project | Trailhead | Seattle, WA | Jan 2025 - Apr 2025**

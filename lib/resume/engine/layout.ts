@@ -108,9 +108,19 @@ export function monthsOfExperience(ranges: string[], now = new Date()): number {
 }
 
 /**
- * Section order: Education first for students and new grads; Experience first once someone has
- * more than about 2 years of work (counted from the roles on the page).
+ * Section order: Education first for students and new grads (still in school, or graduated within
+ * the last year, read from the education dates); otherwise Experience first once someone has more
+ * than about 2 years of work (counted from the roles on the page). Part-time roles during school
+ * (a TA job, research) don't move a student's Education down.
  */
-export function educationFirst(experienceDates: string[], now = new Date()): boolean {
+export function educationFirst(experienceDates: string[], now = new Date(), educationDates: string[] = []): boolean {
+  const today = now.getFullYear() * 12 + now.getMonth();
+  const ends = educationDates
+    .map((d) => {
+      const last = d.split(/\s+-\s+/).pop() ?? "";
+      return monthIndex(last, now);
+    })
+    .filter((m): m is number => m !== null);
+  if (ends.length && Math.max(...ends) >= today - 12) return true;
   return monthsOfExperience(experienceDates, now) <= 24;
 }

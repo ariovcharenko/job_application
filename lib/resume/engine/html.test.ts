@@ -71,6 +71,11 @@ describe("section order", () => {
     const senior = renderResumeHtml(h, { ...base, experience: [entry("Jan 2021 - Dec 2023")] });
     expect(senior.indexOf("EXPERIENCE")).toBeLessThan(senior.indexOf("EDUCATION"));
   });
+  it("keeps Education first for a student or recent graduate even with long part-time roles", () => {
+    const student = renderResumeHtml(h, { ...base, education: [{ ...base.education[0], dates: "Jun 2099" }], experience: [entry("Jan 2021 - Dec 2023")] });
+    expect(student.indexOf("EDUCATION")).toBeLessThan(student.indexOf("EXPERIENCE"));
+  });
+
   it("counts overlapping roles once", () => {
     expect(monthsOfExperience(["Jan 2026 - Jun 2026", "Mar 2026 - Apr 2026"])).toBe(6);
   });

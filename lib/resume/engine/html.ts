@@ -29,7 +29,7 @@ const pt = (offset: number) => `calc(var(--b) * 1pt + ${offset}pt)`;
 const sp = (base: number) => `calc(var(--m) * ${base}pt)`;
 
 export const PAGE_CSS = `
-.rp{--b:${DEFAULT_LAYOUT.body};--m:${DEFAULT_LAYOUT.spacing};box-sizing:border-box;width:${PAGE.widthIn}in;min-height:${PAGE.heightIn}in;padding:${PAGE.marginYIn}in ${PAGE.marginXIn}in;background:#fff;color:#000;font-family:"${FONT}",Tinos,"Liberation Serif",serif;line-height:calc(${LINE_HEIGHT} * var(--m));font-size:${pt(0)};font-kerning:none;font-variant-ligatures:none;letter-spacing:0;word-spacing:0}
+.rp{--b:${DEFAULT_LAYOUT.body};--m:${DEFAULT_LAYOUT.spacing};box-sizing:border-box;text-align:left;width:${PAGE.widthIn}in;min-height:${PAGE.heightIn}in;padding:${PAGE.marginYIn}in ${PAGE.marginXIn}in;background:#fff;color:#000;font-family:"${FONT}",Tinos,"Liberation Serif",serif;line-height:calc(${LINE_HEIGHT} * var(--m));font-size:${pt(0)};font-kerning:none;font-variant-ligatures:none;letter-spacing:0;word-spacing:0}
 .rp *{margin:0;padding:0}
 .rp .n{text-align:center;font-weight:bold;font-size:${pt(7)};margin-bottom:1pt}
 .rp .c{text-align:center;font-size:${pt(0)};margin-bottom:${sp(3)}}
@@ -75,7 +75,7 @@ export function renderResumeHtml(h: ResumeHeader, doc: ResumeDoc): string {
     parts.push(`<div class="h">${SECTION_TITLES.experience}</div>`);
     parts.push(...doc.experience.map((e, i) => entry("experience", i, e.title, e.dates, e.company, e.location, e.bullets)));
   };
-  if (educationFirst(doc.experience.map((e) => e.dates))) {
+  if (educationFirst(doc.experience.map((e) => e.dates), new Date(), doc.education.map((e) => e.dates))) {
     education();
     experience();
   } else {
