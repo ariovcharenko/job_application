@@ -174,17 +174,18 @@ export default function TrackerView() {
   const [roleType, setRoleType] = useState<RoleType | "">(DEFAULT_VIEW_PREFS.roleType);
   // Table/Board and the stage/role filters are remembered in this browser. Read after mounting so
   // the first render matches the server's; saved only after that read, so defaults never overwrite them.
-  const prefsLoaded = useRef(false);
+  // A state flag, not a ref: the save effect must first run with the loaded values, never the defaults.
+  const [prefsReady, setPrefsReady] = useState(false);
   useEffect(() => {
     const p = loadViewPrefs();
     setView(p.view);
     setStage(p.stage);
     setRoleType(p.roleType);
-    prefsLoaded.current = true;
+    setPrefsReady(true);
   }, []);
   useEffect(() => {
-    if (prefsLoaded.current) saveViewPrefs({ view, stage, roleType });
-  }, [view, stage, roleType]);
+    if (prefsReady) saveViewPrefs({ view, stage, roleType });
+  }, [prefsReady, view, stage, roleType]);
   const [editing, setEditing] = useState<Application | null>(null);
   const [importing, setImporting] = useState(false);
   const [pastingJob, setPastingJob] = useState(false);
