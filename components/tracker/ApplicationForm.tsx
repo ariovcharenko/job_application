@@ -1,13 +1,14 @@
 "use client";
 
 import { useLiveQuery } from "dexie-react-hooks";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { db, getProfile } from "@/lib/db";
 import { hasIncompletePosting, readBreakdown } from "@/lib/intake/stored";
 import { JOB_SOURCES, WORK_MODES } from "@/lib/options";
 import { REGION_NAMES, looksRemote } from "@/lib/regions";
 import { exportResume, getJobResume } from "@/lib/resume/engine/save";
 import { tailoredFileName } from "@/lib/resume/repo";
+import { attachOwnResume, getCurrentResume, removeOwnResume } from "@/lib/resume/ownResume";
 import { safeHttpUrl } from "@/lib/safeUrl";
 import { blankApplication } from "@/lib/tracker/blank";
 import { hasUnsavedChanges } from "@/lib/tracker/dirty";
@@ -16,6 +17,7 @@ import { applyStageChange } from "@/lib/tracker/stage";
 import { ROLE_TYPES, STAGES, VISA_SIGNALS, type Application, type RoleType, type Stage, type VisaSignal } from "@/lib/types";
 import { Button, ConfirmDialog, ExternalLinkIcon, Field, Modal, Notice, SelectField, TextArea } from "@/components/ui";
 import OutreachDialog from "../outreach/OutreachDialog";
+import JobResumeDialog from "../resumes/JobResumeDialog";
 import ResumePreview from "../resumes/ResumePreview";
 import TailorDialog, { TAILOR_COST_HINT } from "../tailor/TailorDialog";
 import NewJobDialog from "./NewJobDialog";
@@ -55,6 +57,12 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
   const incomplete = hasIncompletePosting(app);
   const [tab, setTab] = useState<Tab>(isNew ? "details" : "overview");
   const resume = useLiveQuery(() => (app.id === undefined ? null : getJobResume(app.id)), [app.id, app.tailoredResumeId]);
+  // The resume the job points to right now: her own uploaded file, or the tailored one.
+  const current = useLiveQuery(() => getCurrentResume(app), [app.tailoredResumeId]);
+  const own = current?.own ? current : null;
+  const [previewing, setPreviewing] = useState(false);
+  const [ownError, setOwnError] = useState<string | null>(null);
+  const ownInput = useRef<HTMLInputElement>(null);
 
   const dirty = hasUnsavedChanges(app, savedApp);
   // Close, the X, Escape and a click outside all come here: never drop edits without asking.
@@ -102,6 +110,32 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
     const fileName = resume.savedPath ?? tailoredFileName(profile.fullName, app.company, app.role);
     const out = await exportResume(resume.bytes, fileName, resume.id);
     setDownloadNote(`Downloaded ${fileName}${out.toFolder ? " and saved a copy to your Tailored folder" : ""}.${out.folderWarning ? ` ${out.folderWarning}` : ""}`);
+  };
+
+  // Her own file becomes the job's resume right away (like stage changes, no Save needed).
+  const pickOwn = async (file: File | undefined) => {
+    setOwnError(null);
+    if (!file || app.id === undefined) return;
+    try {
+      const id = await attachOwnResume(app.id, file);
+      const point = (a: Application): Application => {
+        const next = { ...a, tailoredResumeId: id };
+        delete next.triage;
+        return next;
+      };
+      setApp(point);
+      setSavedApp(point);
+    } catch (e) {
+      setOwnError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const removeOwn = async () => {
+    if (!own || app.id === undefined) return;
+    await removeOwnResume(own.id);
+    const tailoredResumeId = (await db.applications.get(app.id))?.tailoredResumeId;
+    setApp((a) => ({ ...a, tailoredResumeId }));
+    setSavedApp((a) => ({ ...a, tailoredResumeId }));
   };
 
   const title = isNew ? "Add a job" : `${app.role || "Job"}${app.company ? ` at ${app.company}` : ""}`;
@@ -206,14 +240,26 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
               <div>
                 <h3 className="text-[17px] font-semibold tracking-display">Your resume for this job</h3>
                 <p className="mt-1 max-w-sm text-[13px] leading-relaxed text-muted">
-                  {resume
+                  {own
+                    ? `Using your own file: ${own.own!.fileName}.`
+                    : resume
                     ? `Saved ${new Date(resume.createdAt).toLocaleDateString()}. It shows ${resume.keywordScoreAfter}% of the skills this job asks for.`
                     : app.jdText.trim()
                       ? "Tailored to this job's keywords, using only what's in Your experience."
                       : "Add the job description under Details to tailor a resume."}
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
-                  {resume ? (
+                  {own ? (
+                    <>
+                      <Button onClick={() => setPreviewing(true)}>Preview</Button>
+                      <Button variant="secondary" onClick={() => ownInput.current?.click()}>
+                        Replace file
+                      </Button>
+                      <Button variant="danger-quiet" onClick={removeOwn}>
+                        {resume ? "Use the tailored one" : "Remove"}
+                      </Button>
+                    </>
+                  ) : resume ? (
                     <>
                       <Button onClick={() => setTailoring(true)}>Review and edit</Button>
                       <Button variant="secondary" onClick={downloadResume}>
@@ -223,14 +269,30 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
                   ) : (
                     app.jdText.trim() && <Button onClick={() => setTailoring(true)}>Tailor resume ({TAILOR_COST_HINT})</Button>
                   )}
+                  {!own && (
+                    <Button variant="secondary" onClick={() => ownInput.current?.click()}>
+                      Use my own file
+                    </Button>
+                  )}
+                  <input
+                    ref={ownInput}
+                    type="file"
+                    accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    className="hidden"
+                    onChange={(e) => {
+                      pickOwn(e.target.files?.[0]);
+                      e.target.value = "";
+                    }}
+                  />
                 </div>
               </div>
-              {resume && (
+              {resume && !own && (
                 <button type="button" onClick={() => setTailoring(true)} aria-label="Open resume" className="transition hover:-translate-y-0.5">
                   <ResumePreview doc={resume.stored.final} width={150} />
                 </button>
               )}
             </div>
+            {ownError && <Notice kind="error">{ownError}</Notice>}
             {downloadNote && <Notice kind="ok">{downloadNote}</Notice>}
             {downloadNote && app.stage === "Saved" && (
               <p className="mt-3 text-[13px] text-muted">
@@ -348,6 +410,7 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
           }}
         />
       )}
+      {previewing && <JobResumeDialog app={app} onClose={() => setPreviewing(false)} />}
       {outreach && app.id !== undefined && <OutreachDialog application={{ ...app, id: app.id }} onClose={() => setOutreach(false)} />}
       {rechecking && (
         <NewJobDialog

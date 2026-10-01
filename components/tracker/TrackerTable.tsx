@@ -1,10 +1,9 @@
 "use client";
 
-import { getProfile, getTailoredResume } from "@/lib/db";
+import { useState } from "react";
 import { verdictFor } from "@/lib/intake/decision";
 import { hasIncompletePosting, readBreakdown } from "@/lib/intake/stored";
-import { downloadBytes } from "@/lib/resume/engine/save";
-import { tailoredFileName } from "@/lib/resume/repo";
+import JobResumeDialog from "@/components/resumes/JobResumeDialog";
 import { safeHttpUrl } from "@/lib/safeUrl";
 import { changeStage } from "@/lib/tracker/repo";
 import { needsFollowUp } from "@/lib/tracker/stage";
@@ -21,12 +20,6 @@ function ExtLink({ href, children }: { href: string; children: React.ReactNode }
       {children}
     </a>
   );
-}
-
-async function downloadTailored(a: Application) {
-  if (a.tailoredResumeId === undefined) return;
-  const [resume, profile] = await Promise.all([getTailoredResume(a.tailoredResumeId), getProfile()]);
-  if (resume) downloadBytes(resume.bytes, resume.savedPath ?? tailoredFileName(profile.fullName, a.company, a.role));
 }
 
 /** Skills-match % when the job passes her must-haves, "Don't apply" when it fails one; older rows show the old fit score. */
@@ -76,11 +69,23 @@ function StageSelect({ app }: { app: Application }) {
 }
 
 function ResumeLink({ app }: { app: Application }) {
+  const [open, setOpen] = useState(false);
   if (app.tailoredResumeId !== undefined) {
     return (
-      <button type="button" className={`${link} whitespace-nowrap`} onClick={() => downloadTailored(app)} title="Download the tailored resume (.docx)">
-        Download
-      </button>
+      <>
+        <button
+          type="button"
+          className={`${link} whitespace-nowrap`}
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen(true);
+          }}
+          title="Preview the resume for this job"
+        >
+          Preview
+        </button>
+        {open && <JobResumeDialog app={app} onClose={() => setOpen(false)} />}
+      </>
     );
   }
   return app.tailoredUrl ? <ExtLink href={app.tailoredUrl}>Open</ExtLink> : null;
