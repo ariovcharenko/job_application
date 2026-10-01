@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { boldOnlyTechAndNumbers, boldSpansTouch, capBoldSpans, dedupeSkills, fixTechCasing, MAX_SKILL_LINES, orderSkillLines, polishResume, separateBoldSpans, tidySkillLines } from "./polish";
+import { buildJobFocus } from "./focus";
+import {
+  boldOnlyTechAndNumbers,
+  boldSpansTouch,
+  capBoldSpans,
+  dedupeSkills,
+  fixTechCasing,
+  focusSkillLines,
+  itemMatches,
+  MAX_SKILL_LINES,
+  orderSkillLines,
+  polishResume,
+  separateBoldSpans,
+  skillLineWraps,
+  tidySkillLines,
+} from "./polish";
 import { fixBoldMarkers } from "./validate";
 import type { ResumeDoc } from "./schema";
 
@@ -123,5 +138,49 @@ describe("polishResume", () => {
   it("never leaves two bold spans touching without a space", () => {
     const r = polishResume(doc);
     for (const b of r.doc.experience.flatMap((e) => e.bullets)) expect(boldSpansTouch(b)).toBe(false);
+  });
+});
+
+describe("itemMatches", () => {
+  it("matches the same skill, a synonym, or a part of a grouped item, but not a longer name", () => {
+    expect(itemMatches("AWS", "AWS (Lambda, SQS, S3)")).toBe(true);
+    expect(itemMatches("Lambda", "AWS (Lambda, SQS, S3)")).toBe(true);
+    expect(itemMatches("Postgres", "PostgreSQL")).toBe(true);
+    expect(itemMatches("React", "React Testing Library")).toBe(false);
+    expect(itemMatches("Embedded Linux", "Linux")).toBe(false);
+  });
+});
+
+describe("focusSkillLines", () => {
+  const skills = [
+    { category: "Languages", items: ["TypeScript", "Go", "Python", "SQL"] },
+    { category: "Frontend", items: ["Next.js", "React"] },
+    { category: "Cloud", items: ["Docker", "AWS (Lambda, SQS)", "Terraform"] },
+  ];
+
+  it("puts the lines with the job's must-haves first and the job's skills first in each line", () => {
+    const focus = buildJobFocus({ role: "Backend Engineer", jdText: "", must: ["Go", "AWS"], nice: ["Terraform"] });
+    const out = focusSkillLines(skills, [], focus);
+    expect(out.map((l) => l.category)).toEqual(["Cloud", "Languages", "Frontend"]);
+    expect(out[0].items).toEqual(["AWS (Lambda, SQS)", "Terraform", "Docker"]);
+    expect(out[1].items).toEqual(["Go", "TypeScript", "Python", "SQL"]);
+  });
+
+  it("drops skills the job doesn't ask for from a line that would wrap, never one it asks for", () => {
+    const long = { category: "Tools", items: ["Git", ...Array.from({ length: 30 }, (_, i) => `Toolname${i}`), "Figma"] };
+    expect(skillLineWraps(long)).toBe(true);
+    const focus = buildJobFocus({ role: "Product Designer", jdText: "", must: ["Figma"] });
+    const [line] = focusSkillLines([long], [], focus);
+    expect(line.items[0]).toBe("Figma");
+    expect(line.items).toContain("Git");
+    expect(skillLineWraps(line)).toBe(false);
+    expect(line.items.length).toBeLessThan(long.items.length);
+  });
+
+  it("is used by polishResume when a focus is given", () => {
+    const focus = buildJobFocus({ role: "Frontend Engineer", jdText: "", must: ["React"] });
+    const empty: ResumeDoc = { education: [], experience: [], skills, leadership: [], meta: { matchedKeywords: [], gaps: [], valuesReflected: [] } };
+    const out = polishResume(empty, { focus });
+    expect(out.doc.skills[0]).toEqual({ category: "Frontend", items: ["React", "Next.js"] });
   });
 });

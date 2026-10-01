@@ -1,6 +1,8 @@
 import { hasSkill, normalizeSkill } from "../master/skills";
 import { mentionsTerm, TECH_TERMS } from "../master/techTerms";
-import { boldSegments } from "./layout";
+import { wrapBullet } from "../quality/measure";
+import type { JobFocus } from "./focus";
+import { boldSegments, PAGE } from "./layout";
 import { metricsIn } from "./relevance";
 import type { ResumeDoc } from "./schema";
 
@@ -145,10 +147,58 @@ export const MAX_SKILL_LINES = 6;
  * Skills lines in the order this job cares about (most of the job's skills first, ties keep the
  * model's order), at most MAX_SKILL_LINES (the lines with the fewest of the job's skills go).
  */
-export function orderSkillLines(skills: ResumeDoc["skills"], jobSkills: string[]): ResumeDoc["skills"] {
+export function orderSkillLines(skills: ResumeDoc["skills"], jobSkills: string[], focus?: JobFocus): ResumeDoc["skills"] {
+  if (focus) return focusSkillLines(skills, jobSkills, focus);
   const hits = (l: ResumeDoc["skills"][number]) => jobSkills.filter((j) => hasSkill(j, l.items, "")).length;
   const ranked = skills.map((l, i) => ({ l, i, h: hits(l) })).sort((a, b) => b.h - a.h || a.i - b.i);
   return ranked.slice(0, MAX_SKILL_LINES).map((x) => x.l);
+}
+
+/**
+ * Whether a skills-line item is this job skill: the same skill or a synonym, also counting the parts
+ * of "AWS (Lambda, SQS, S3)". A longer name that merely contains it doesn't count ("React Testing
+ * Library" isn't React).
+ */
+export function itemMatches(skill: string, item: string): boolean {
+  const m = item.match(/^(.*?)\s*\((.*)\)\s*$/);
+  const parts = m ? [m[1], ...m[2].split(",")].map((p) => p.trim()).filter(Boolean) : [item];
+  return hasSkill(skill, parts, "");
+}
+
+/**
+ * The width of a skills line at the default 10pt body: (8.5in - 2 x 0.45in margins) in 1/1000 em,
+ * with the same 0.97 safety factor as the bullet estimate (lib/resume/quality/measure.ts).
+ */
+const SKILL_LINE_UNITS = ((PAGE.widthIn - 2 * PAGE.marginXIn) * 72 / 10) * 1000 * 0.97;
+
+/** Whether "Category: a, b, c" takes more than one line on the page (estimated, no browser). */
+export const skillLineWraps = (l: ResumeDoc["skills"][number]) => wrapBullet(`**${l.category}:** ${l.items.join(", ")}`, SKILL_LINE_UNITS).lines.length > 1;
+
+/**
+ * Skills lines tailored to the job, by code:
+ *  - lines ordered by the job's skills they hold (a must-have counts twice a nice-to-have), ties
+ *    keep the model's order;
+ *  - within a line, the job's skills first (must-haves in the posting's order, then nice-to-haves,
+ *    then any other skill the job names), the rest in their order;
+ *  - a line that would wrap to a second line drops items the job doesn't ask for from its end
+ *    until it fits one line (never one the job asks for).
+ * At most MAX_SKILL_LINES lines.
+ */
+export function focusSkillLines(skills: ResumeDoc["skills"], jobSkills: string[], focus: JobFocus): ResumeDoc["skills"] {
+  const others = jobSkills.filter((j) => ![...focus.must, ...focus.nice].some((x) => x.toLowerCase() === j.toLowerCase()));
+  const ranked = [...focus.must.map((s) => ({ s, w: 2 })), ...focus.nice.map((s) => ({ s, w: 1 })), ...others.map((s) => ({ s, w: 1 }))];
+  const rankOf = (item: string) => ranked.findIndex((r) => itemMatches(r.s, item));
+  const lines = skills.map((l, i) => {
+    const hits = ranked.filter((r) => l.items.some((it) => itemMatches(r.s, it)));
+    const order = l.items.map((item, k) => ({ item, k, r: rankOf(item) }));
+    order.sort((a, b) => (a.r < 0 ? 1e9 : a.r) - (b.r < 0 ? 1e9 : b.r) || a.k - b.k);
+    let items = order.map((x) => x.item);
+    const matched = new Set(order.filter((x) => x.r >= 0).map((x) => x.item));
+    while (items.length > 1 && skillLineWraps({ ...l, items }) && !matched.has(items[items.length - 1])) items = items.slice(0, -1);
+    return { line: { ...l, items }, i, w: hits.reduce((s, r) => s + r.w, 0) };
+  });
+  lines.sort((a, b) => b.w - a.w || a.i - b.i);
+  return lines.slice(0, MAX_SKILL_LINES).map((x) => x.line);
 }
 
 export interface PolishOptions {
@@ -156,6 +206,8 @@ export interface PolishOptions {
   inventory?: string[];
   /** The job's skills, to order the skills lines. */
   jobSkills?: string[];
+  /** What the job is about (focus.ts): weights must-haves and orders items within each line. */
+  focus?: JobFocus;
 }
 
 /** Applies all of the above. Returns the polished document and plain notes for the Checks list. */
@@ -173,7 +225,7 @@ export function polishResume(doc: ResumeDoc, opts: PolishOptions = {}): { doc: R
   const tidy = tidySkillLines(doc.skills.map((l) => ({ ...l, items: l.items.map(fixTechCasing) })));
   const { skills: deduped, removed } = dedupeSkills(tidy.skills);
   const before = deduped.length;
-  const skills = opts.jobSkills ? orderSkillLines(deduped, opts.jobSkills) : deduped.slice(0, MAX_SKILL_LINES);
+  const skills = opts.jobSkills || opts.focus ? orderSkillLines(deduped, opts.jobSkills ?? [], opts.focus) : deduped.slice(0, MAX_SKILL_LINES);
   const out: ResumeDoc = {
     ...doc,
     experience: doc.experience.map((e) => ({ ...e, bullets: e.bullets.map(bullet) })),

@@ -1,6 +1,7 @@
 import { altTitle, cleanTitle, parseMasterExperiences, type MasterEntry } from "../master/experiences";
 import { hasSkill, normalizeSkill, parseSkillInventory, parseUsageNotes } from "../master/skills";
 import { mentionsTerm, TECH_TERMS } from "../master/techTerms";
+import type { JobFocus } from "./focus";
 import { polishResume } from "./polish";
 import type { ResumeDoc } from "./schema";
 
@@ -262,6 +263,8 @@ function unknownTools(bullet: string, block: string, inventory: string[], master
 export interface ValidateOptions {
   /** The job's skills, so skills lines are ordered by what this job cares about most. */
   jobSkills?: string[];
+  /** What the job is about (focus.ts): weights must-haves when ordering skills lines and their items. */
+  focus?: JobFocus;
 }
 
 export function validateResume(raw: ResumeDoc, masterProfile: string, opts: ValidateOptions = {}): ValidationResult {
@@ -281,7 +284,7 @@ export function validateResume(raw: ResumeDoc, masterProfile: string, opts: Vali
   for (const e of [...doc.experience, ...(doc.projects ?? []), ...doc.education, ...doc.leadership]) e.dates = spaceDateDashes(e.dates);
   // Mechanical polish by code: at most 4 bold spans per bullet, the usual casing of well-known
   // technologies, no skill listed twice (lib/resume/engine/polish.ts).
-  const polished = polishResume(doc, { inventory: parseSkillInventory(masterProfile), jobSkills: opts.jobSkills });
+  const polished = polishResume(doc, { inventory: parseSkillInventory(masterProfile), jobSkills: opts.jobSkills, focus: opts.focus });
   Object.assign(doc, polished.doc);
   fixes.push(...polished.notes);
 

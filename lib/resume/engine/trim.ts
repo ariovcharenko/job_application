@@ -1,5 +1,6 @@
 import type { Target } from "./edit";
 import { BODY_STEP_PT, DEFAULT_LAYOUT, MAX_BODY_PT, MAX_SPACING, PAGE, SPACING_STEP, type Layout } from "./layout";
+import { entryRelevance, focusRelevance, type JobFocus } from "./focus";
 import { bulletScore, type RelevanceFn } from "./relevance";
 import type { ResumeDoc } from "./schema";
 
@@ -62,14 +63,22 @@ export interface FitResult {
   fits: boolean;
   /** Content height as a share of the usable page (0.96 = "uses 96% of the page"). */
   fill: number;
+  /** Whole roles and projects left off, for the "Tailored for this job" summary. */
+  leftOffEntries: { kind: "role" | "project"; title: string; company: string }[];
   /** Fits, but under FILL_TARGET with nothing left in the pool that fits: ask for more content. */
   underfilled: boolean;
   map: PoolMap;
 }
 
 export interface FitOptions {
-  /** Job-skill hits for a bullet's plain text (lib/resume/coverage.ts skillHits). */
+  /** Job-skill hits for a bullet's plain text (lib/resume/coverage.ts skillHits). Ignored when `focus` is given. */
   relevance?: RelevanceFn;
+  /**
+   * What this job is about (focus.ts). Ranks bullets by must-have and nice-to-have skills and the
+   * job's domains and responsibilities; ranks roles and projects by their best bullets, title family
+   * and recency, so a less relevant fourth role gives way before a more relevant project.
+   */
+  focus?: JobFocus;
   limit?: number;
   fillTarget?: number;
   maxSteps?: number;
@@ -129,17 +138,42 @@ interface Ranking {
   target: number[];
   /** Role relevance (higher = keep). */
   entryScore: number[];
+  /** With a job focus: project relevance on the same scale as entryScore, so the two can be compared. */
+  projectScore?: number[];
+  /** With a job focus: each role bullet's relevance alone (no metric or position credit). */
+  relevance?: number[][];
+  /** With a job focus: the mean relevance of each project's two most relevant bullets. */
+  projectRelevance?: number[];
 }
 
-function rank(pool: ResumeDoc, relevance?: RelevanceFn): Ranking {
+function rank(pool: ResumeDoc, opts: Pick<FitOptions, "relevance" | "focus">): Ranking {
+  const focus = opts.focus;
+  const relevance = focus ? focusRelevance(focus) : opts.relevance;
   const score = pool.experience.map((e) => e.bullets.map((b, j) => bulletScore(b, j, e.bullets.length, relevance)));
-  // A role's relevance: its three strongest bullets (a role the model gave more bullets to, and
-  // whose bullets show more of the job's skills, ranks higher).
-  const entryScore = score.map((s) => [...s].sort((a, b) => b - a).slice(0, 3).reduce((a, b) => a + b, 0));
+  // A role's relevance. With a job focus: its two most relevant bullets, its title's family and its
+  // recency (focus.ts entryRelevance). Without: its three strongest bullets (a role the model gave
+  // more bullets to, and whose bullets show more of the job's skills, ranks higher).
+  const everything = [...pool.experience, ...(pool.projects ?? [])];
+  const entryScore = focus
+    ? pool.experience.map((e) => entryRelevance(focus, e, everything))
+    : score.map((s) => [...s].sort((a, b) => b - a).slice(0, 3).reduce((a, b) => a + b, 0));
+  const projectScore = focus ? (pool.projects ?? []).map((p) => entryRelevance(focus, p, everything)) : undefined;
   const order = entryScore.map((v, i) => ({ v, i })).sort((a, b) => b.v - a.v || a.i - b.i);
   const target = new Array<number>(pool.experience.length).fill(TARGET_BY_RANK[TARGET_BY_RANK.length - 1]);
   order.forEach(({ i }, r) => (target[i] = TARGET_BY_RANK[Math.min(r, TARGET_BY_RANK.length - 1)]));
-  return { score, target, entryScore };
+  if (!focus || !relevance) return { score, target, entryScore };
+  const top2 = (xs: number[]) => {
+    const t = [...xs].sort((a, b) => b - a).slice(0, 2);
+    return t.length ? t.reduce((a, b) => a + b, 0) / t.length : 0;
+  };
+  return {
+    score,
+    target,
+    entryScore,
+    projectScore,
+    relevance: pool.experience.map((e) => e.bullets.map((b) => relevance(b))),
+    projectRelevance: (pool.projects ?? []).map((p) => top2(p.bullets.map((b) => relevance(b)))),
+  };
 }
 
 function describe(pool: ResumeDoc, key: Key): string {
@@ -179,13 +213,52 @@ function bulletCut(pool: ResumeDoc, off: Set<Key>, rk: Ranking, floorOf: (i: num
   return best ? `x:${best.i}:${best.j}` : null;
 }
 
+/** How much more a project's bullets must show of the job before a role's bullet gives way to it. */
+const PROJECT_MARGIN = 0.5;
+/** A role keeps at least this many bullets when giving way to a project. */
+const KEEP_FOR_PROJECTS = 3;
+
+/** The role bullet with the least relevance under `below`, from a role above KEEP_FOR_PROJECTS bullets. */
+function weakBullet(pool: ResumeDoc, off: Set<Key>, rel: number[][], score: number[][], below: number): Key | null {
+  let best: { i: number; j: number } | null = null;
+  for (let i = 0; i < pool.experience.length; i++) {
+    if (off.has(`X:${i}`)) continue;
+    const vis = visibleBullets(pool, off, i);
+    if (vis.length <= KEEP_FOR_PROJECTS) continue;
+    for (const j of vis) {
+      if (rel[i][j] >= below) continue;
+      if (!best || rel[i][j] < rel[best.i][best.j] || (rel[i][j] === rel[best.i][best.j] && score[i][j] <= score[best.i][best.j])) best = { i, j };
+    }
+  }
+  return best ? `x:${best.i}:${best.j}` : null;
+}
+
 /** The next piece to leave off, least relevant first, or null when nothing more can go. */
 function nextCut(pool: ResumeDoc, off: Set<Key>, rk: Ranking): Key | null {
   // 1. Leadership goes first: her rule is "include only if space remains".
   for (let i = pool.leadership.length - 1; i >= 0; i--) if (!off.has(`L:${i}`)) return `L:${i}`;
 
-  // 1b. Project bullets beyond the first, then whole projects (last listed first).
+  // 1b. Project bullets beyond the first, then whole projects (last listed first). With a job focus,
+  //     least relevant first, and a fourth role less relevant than every project still shown goes
+  //     before them (a teaching role gives way to a project that shows the job's stack).
   const projects = pool.projects ?? [];
+  if (rk.projectScore) {
+    const ps = rk.projectScore;
+    const live = projects.map((_, i) => i).filter((i) => !off.has(`P:${i}`)).sort((a, b) => ps[a] - ps[b] || b - a);
+    const weakRole = droppableRole(pool, off, rk);
+    if (weakRole !== undefined && live.length && rk.entryScore[weakRole] < ps[live[0]]) return `X:${weakRole}`;
+    // A role's bullet that shows clearly less of this job than the weakest project still shown
+    // goes before that project (a frontend bullet gives way to a project built on the payments stack).
+    if (live.length && rk.relevance && rk.projectRelevance) {
+      const weak = weakBullet(pool, off, rk.relevance, rk.score, rk.projectRelevance[live[0]] - PROJECT_MARGIN);
+      if (weak) return weak;
+    }
+    // The least relevant project goes first: its second bullet, then the project.
+    if (live.length) {
+      const vis = projects[live[0]].bullets.map((_, j) => j).filter((j) => !off.has(`p:${live[0]}:${j}`));
+      return vis.length > 1 ? `p:${live[0]}:${vis[vis.length - 1]}` : `P:${live[0]}`;
+    }
+  }
   for (let i = projects.length - 1; i >= 0; i--) {
     if (off.has(`P:${i}`)) continue;
     const vis = projects[i].bullets.map((_, j) => j).filter((j) => !off.has(`p:${i}:${j}`));
@@ -205,11 +278,8 @@ function nextCut(pool: ResumeDoc, off: Set<Key>, rk: Ranking): Key | null {
 
   // 4. A fourth role: the least relevant one goes whole, never the most recent (her rule: always
   //    keep the most recent real production role), rather than squeezing every role to 2 bullets.
-  const shown = pool.experience.map((_, i) => i).filter((i) => !off.has(`X:${i}`));
-  if (shown.length > MIN_ROLES) {
-    const drop = shown.filter((i) => i !== 0).sort((a, b) => rk.entryScore[a] - rk.entryScore[b] || b - a)[0];
-    if (drop !== undefined) return `X:${drop}`;
-  }
+  const drop = droppableRole(pool, off, rk);
+  if (drop !== undefined) return `X:${drop}`;
 
   // 5. Bullets down to two per role.
   const belowTarget = bulletCut(pool, off, rk, () => MIN_BULLETS_PER_ENTRY);
@@ -227,6 +297,13 @@ function nextCut(pool: ResumeDoc, off: Set<Key>, rk: Ranking): Key | null {
   return null;
 }
 
+/** The least relevant role that may go whole: only beyond MIN_ROLES, and never the first (most recent). */
+function droppableRole(pool: ResumeDoc, off: Set<Key>, rk: Ranking): number | undefined {
+  const shown = pool.experience.map((_, i) => i).filter((i) => !off.has(`X:${i}`));
+  if (shown.length <= MIN_ROLES) return undefined;
+  return shown.filter((i) => i !== 0).sort((a, b) => rk.entryScore[a] - rk.entryScore[b] || b - a)[0];
+}
+
 /** A piece only shows when its role is shown: restoring a bullet of a role that's off does nothing. */
 const parentShown = (key: Key, off: Set<Key>) =>
   key.startsWith("x:") ? !off.has(`X:${key.split(":")[1]}`) : key.startsWith("p:") ? !off.has(`P:${key.split(":")[1]}`) : true;
@@ -239,7 +316,7 @@ export function fitToPage(pool: ResumeDoc, measure: MeasureFn, opts: FitOptions 
   const limit = opts.limit ?? FIT_LIMIT;
   const fillTarget = opts.fillTarget ?? FILL_TARGET;
   const maxSteps = opts.maxSteps ?? 80;
-  const rk = rank(pool, opts.relevance);
+  const rk = rank(pool, opts);
   const off = new Set<Key>();
   const cut: Key[] = [];
 
@@ -274,7 +351,13 @@ export function fitToPage(pool: ResumeDoc, measure: MeasureFn, opts: FitOptions 
 
   const { doc, map } = build(pool, off);
   const leftOff = cut.filter((k) => off.has(k));
+  const leftOffEntries = leftOff.flatMap((k): FitResult["leftOffEntries"] => {
+    const [kind, a] = k.split(":");
+    const e = kind === "X" ? pool.experience[Number(a)] : kind === "P" ? pool.projects?.[Number(a)] : undefined;
+    return e ? [{ kind: kind === "X" ? "role" : "project", title: e.title, company: e.company }] : [];
+  });
   return {
+    leftOffEntries,
     doc,
     removed: leftOff.map((k) => describe(pool, k)),
     restored: restored.map((k) => describe(pool, k)),

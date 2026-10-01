@@ -1,6 +1,7 @@
 import { mentionedSkills } from "../intake/analyze";
 import { readBreakdown } from "../intake/stored";
 import type { Application } from "../types";
+import { buildJobFocus, type JobFocus } from "./engine/focus";
 import { hasSkill, isSoftSkill } from "./master/skills";
 
 // "How much of what this job asks for is on the page": the job's skills (as analyzed), and the
@@ -16,6 +17,19 @@ export function jobSkills(app: Pick<Application, "fitBreakdown" | "jdText">, mas
     return m ? [...m.have, ...m.gap] : [];
   })();
   return [...new Set(skills.filter((x) => !isSoftSkill(x)))];
+}
+
+/**
+ * What this job is about (engine/focus.ts), from the saved analysis: required skills are the
+ * must-haves and preferred ones the nice-to-haves. A job analyzed without skills lists uses the
+ * technologies its text mentions as must-haves.
+ */
+export function jobFocusFor(app: Pick<Application, "fitBreakdown" | "jdText" | "role">, masterProfile: string): JobFocus {
+  const s = readBreakdown(app)?.skills;
+  const soft = (xs: string[]) => xs.filter((x) => !isSoftSkill(x));
+  const must = s ? soft([...s.required.have, ...s.required.gap]) : [];
+  const nice = s ? soft([...s.preferred.have, ...s.preferred.gap]) : [];
+  return buildJobFocus({ role: app.role, jdText: app.jdText, must: must.length || nice.length ? must : jobSkills(app, masterProfile), nice });
 }
 
 /** How many of `skills` a piece of text (one bullet) shows; the fit step's relevance signal. */

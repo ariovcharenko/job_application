@@ -44,11 +44,14 @@ export function metricsIn(text: string): string[] {
 
 export const hasRealMetric = (text: string) => metricsIn(text).length > 0;
 
-/** Scores `text` by how many of the job's skills it shows. Returns 0 when there's no job context. */
+/**
+ * Scores `text` by how much it shows of what the job asks for, in skill-hit units (one job skill =
+ * 1; see focus.ts focusRelevance for the full version). Returns 0 when there's no job context.
+ */
 export type RelevanceFn = (plainText: string) => number;
 
 const SKILL_WEIGHT = 2;
-const MAX_SKILL_HITS = 3;
+const MAX_SKILL_HITS = 4;
 const METRIC_WEIGHT = 1.5;
 const RANK_WEIGHT = 2;
 
