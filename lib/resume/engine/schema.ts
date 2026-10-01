@@ -75,7 +75,8 @@ const RESUME_DOC_PROPERTIES = {
       dates: str,
       bullets: {
         ...strArr,
-        description: "Most relevant to this job first. 6 to 7 for the most relevant role, fewer for the others; the app leaves off the last ones of the least relevant roles if the page is full.",
+        description:
+          "Every bullet of this role's MASTER PROFILE entry that has any relevance to this job, each rewritten for it, most relevant first (at least 6 for the most relevant role when the source has them). The app leaves off the last ones of the least relevant roles if the page is full.",
       },
     }),
   },

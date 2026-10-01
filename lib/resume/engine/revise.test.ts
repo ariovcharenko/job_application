@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { findQuote } from "./highlight";
-import { buildRevisionPrompt, carryApprovals, fillPageComment } from "./revise";
+import { buildJobFocus } from "./focus";
+import { buildRevisionPrompt, carryApprovals, fillPageComment, MAX_RETAILOR, retailorComments, retailorNote } from "./revise";
+import { fitToPage } from "./trim";
 import type { ResumeDoc } from "./schema";
 import type { Flag } from "./validate";
 
@@ -11,6 +13,32 @@ const doc: ResumeDoc = {
   leadership: [],
   meta: { matchedKeywords: [], gaps: [], valuesReflected: [] },
 };
+
+describe("retailorComments", () => {
+  const focus = buildJobFocus({ role: "Frontend Engineer", jdText: "About the role\nBuild accessible web apps.", must: ["React", "TypeScript"] });
+
+  it("asks for each copied bullet to be rewritten, on its spot in the pool, naming what the job cares about", () => {
+    const pool: ResumeDoc = { ...doc, experience: [{ ...doc.experience[0], bullets: ["Built **React** app", "Wrote docs", "Fixed bugs"] }] };
+    // The page shows pool bullets 0 and 2; page bullet 1 is pool bullet 2.
+    const fit = fitToPage(pool, (d) => d.experience[0].bullets.length / 2, { limit: 1, focus });
+    expect(fit.doc.experience[0].bullets).toHaveLength(2);
+    const shown = fit.map.experience[0].bullets;
+    const comments = retailorComments(fit.doc, fit.map, [{ entry: 0, bullet: 1 }], focus);
+    expect(comments).toHaveLength(1);
+    expect(comments[0].target).toEqual({ section: "experience", entry: 0, bullet: shown[1] });
+    expect(comments[0].quote).toBe(fit.doc.experience[0].bullets[1].replace(/\*\*/g, ""));
+    expect(comments[0].note).toMatch(/React, TypeScript/);
+    expect(retailorNote(focus)).not.toMatch(/[–—]/);
+  });
+
+  it("sends at most MAX_RETAILOR", () => {
+    const many = Array.from({ length: 10 }, (_, i) => `Bullet ${i}`);
+    const pool: ResumeDoc = { ...doc, experience: [{ ...doc.experience[0], bullets: many }] };
+    const fit = fitToPage(pool, () => 0.5, { limit: 1 });
+    const comments = retailorComments(fit.doc, fit.map, many.map((_, i) => ({ entry: 0, bullet: i })), focus);
+    expect(comments).toHaveLength(MAX_RETAILOR);
+  });
+});
 
 describe("buildRevisionPrompt", () => {
   it("numbers her comments, quoting the selected text, and includes the current resume", () => {

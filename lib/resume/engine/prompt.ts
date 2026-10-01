@@ -4,6 +4,9 @@
 // system prompt is stable per user and can be prompt-cached. Anything job-specific (including the
 // have/gap skill lists computed by code) goes in the user message instead.
 
+import { cleanTitle, parseMasterExperiences } from "../master/experiences";
+import { entryRelevance, focusSkillsIn, preferredTitle, showsDomain, type JobFocus } from "./focus";
+
 const RULES = `You are an expert technical recruiter and resume writer. You take the candidate's MASTER PROFILE (below) and a JOB DESCRIPTION, and produce the content of a one-page resume tailored to that job. Goal: a recruiter or hiring manager at this company reads it in 7 seconds and wants to interview the candidate.
 
 The header (name, location, email, LinkedIn, GitHub, Portfolio links) is added by the app. Do not produce it.
@@ -42,6 +45,8 @@ Step 1: Analyze the job description: required and preferred skills, responsibili
 Step 2: Match against the MASTER PROFILE. Each job skill is have (exact), have_synonym (same thing, different name; see hard rule 2), or gap. Only have and have_synonym skills can appear in the resume.
 
 If the request lists the job skills the candidate HAS and the GAPS, those lists are the result of Steps 1 and 2: use them as given (the job's spelling, most important first) and only read the job description for responsibilities and values.
+
+If the request has a JOB FOCUS and an EXPERIENCE PLAN, they are the app's reading of this job and its ranking of the MASTER PROFILE for it: follow them in Steps 3 to 5 (which roles get the most bullets, what each role's bullets lead with, the must-haves first). Make the page plainly about this job's work: a payments job reads as payments work, a frontend job as frontend work, wherever the candidate's real experience allows. They never override a hard rule.
 
 Step 3: Select experiences. Rank every experience by relevance (keyword overlap + responsibility overlap + recency). Choose 3 to 4 experiences total (hard rule 3). Always include the most recent real production role: the latest paid job or internship where the candidate did real work in this field (not a class project), even when an older entry matches more keywords. Match the role family: prefer the experiences whose day-to-day work looks most like this job's (building software, analyzing data, training or shipping models, running infrastructure, securing systems, testing, managing a product, designing interfaces, building hardware), even when another entry has a more impressive title. A project or research entry may replace a less relevant job when it shows the core work of this role better: for roles centered on product, UX or design, an entry with user research or studies; for AI or ML roles, the entry with the most hands-on AI work. Keep experiences in reverse-chronological order on the page.
 
@@ -92,17 +97,76 @@ export interface JobSkills {
   gaps: string[];
 }
 
-export function buildUserPrompt(company: string, jdText: string, jobSkills?: JobSkills): string {
+export function buildUserPrompt(company: string, jdText: string, jobSkills?: JobSkills, focusBrief?: string): string {
   const skills = jobSkills
     ? `\n\nJob skills the candidate HAS (use these exact spellings; the most important ones belong near the top): ${jobSkills.have.join(", ") || "(none)"}
 GAPS (never mention anywhere, including bullets): ${jobSkills.gaps.join(", ") || "(none)"}`
     : "";
+  const brief = focusBrief?.trim() ? `\n\n${focusBrief.trim()}` : "";
   return `Company: ${company || "(not stated)"}
 
 Job description:
 """
 ${jdText.trim()}
-"""${skills}
+"""${skills}${brief}
 
 Tailor the resume to this role following every rule in the system prompt.`;
+}
+
+const bulletCount = (block: string) => block.split("\n").filter((l) => /^\s*[-*•]\s+\S/.test(l)).length;
+const sameSkill = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/**
+ * What code worked out about this job (focus.ts), for the user message: the kind of role, what the
+ * team works on, its top responsibilities and must-haves, and a plan for each MASTER PROFILE entry
+ * (most relevant first, what it shows for this job, how many of its bullets to rewrite). Asking for
+ * every bullet of a relevant role, rewritten, means the page filler rarely has to add her lines
+ * word for word. `have`, when given, keeps gap skills out of the lists (they are listed as GAPS).
+ */
+export function buildFocusBrief(focus: JobFocus, master: string, have?: string[]): string {
+  const keep = (xs: string[]) => (have ? xs.filter((x) => have.some((h) => sameSkill(h, x))) : xs);
+  const must = keep(focus.must);
+  const nice = keep(focus.nice);
+  const entries = parseMasterExperiences(master);
+  const shaped = entries.map((m) => ({ m, e: { title: m.title, company: m.company, dates: m.dates, bullets: m.block.split("\n").filter((l) => /^\s*[-*•]\s+\S/.test(l)) } }));
+  const all = shaped.map((x) => x.e);
+  const ranked = (section: RegExp) =>
+    shaped
+      .filter((x) => section.test(x.m.section))
+      .map((x) => ({ ...x, score: entryRelevance(focus, x.e, all) }))
+      .sort((a, b) => b.score - a.score);
+  const shows = (block: string) => {
+    const skills = keep(focusSkillsIn(focus, block));
+    const domains = focus.domains.filter((d) => showsDomain(block, d.id)).map((d) => d.label);
+    return [...skills, ...domains].join(", ");
+  };
+  const roles = ranked(/experience|work|employment/i);
+  const projects = ranked(/project/i);
+  const lines: string[] = ["JOB FOCUS (worked out by the app from this posting; use it to choose, order and word the content, within every hard rule):"];
+  if (focus.family !== "Other") lines.push(`- Kind of role: ${focus.family}`);
+  if (focus.domains.length) lines.push(`- What this team works on: ${focus.domains.map((d) => d.label).join(", ")}`);
+  if (focus.responsibilities.length) lines.push(`- Top responsibilities: ${focus.responsibilities.map((r) => `"${r}"`).join("; ")}`);
+  if (must.length) lines.push(`- Must-have skills the candidate has (lead with these, in this order): ${must.join(", ")}`);
+  if (nice.length) lines.push(`- Nice-to-have skills the candidate has: ${nice.join(", ")}`);
+  if (roles.length) {
+    lines.push(
+      "",
+      "EXPERIENCE PLAN (the app's ranking of the MASTER PROFILE's experiences for this job, most relevant first. On the page, experience stays in reverse-chronological order; the ranking decides how many bullets each role gets and which bullets lead):",
+    );
+    roles.forEach(({ m }, i) => {
+      const n = bulletCount(m.block);
+      const what = shows(m.block);
+      const title = preferredTitle(m.title, focus);
+      const titleNote = title !== cleanTitle(m.title) ? ` Use the title "${title}" for this job.` : "";
+      const advice =
+        i === roles.length - 1 && roles.length > 3
+          ? "Least relevant: include it with its strongest bullets; the app leaves it off first if the page is full."
+          : `Rewrite all ${n} of its bullets for this job, most relevant first, so the app can keep the best ones; its first bullet leads with ${what ? "what it shows for this job" : "its strongest result"}.`;
+      lines.push(`${i + 1}. ${m.company} (${cleanTitle(m.title)})${what ? `: shows ${what}` : ": shows none of the job's skills directly"}. ${advice}${titleNote}`);
+    });
+  }
+  if (projects.length) {
+    lines.push(`Projects, most relevant first: ${projects.map(({ m }) => (shows(m.block) ? `${m.company} (shows ${shows(m.block)})` : m.company)).join("; ")}.`);
+  }
+  return lines.join("\n");
 }

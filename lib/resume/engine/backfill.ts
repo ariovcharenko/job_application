@@ -56,6 +56,37 @@ export function autoBold(text: string, inventory: string[], master: string): str
   return out.replace(/\*\*\*\*/g, "");
 }
 
+/** A role's own bullet lines in the master profile, without their "- " markers. */
+function sourceBullets(entry: MasterEntry): string[] {
+  return entry.block
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => /^[-*•]\s+/.test(l))
+    .map((l) => l.replace(/^[-*•]\s+/, "").trim())
+    .filter((l) => l.length > 0);
+}
+
+const loose = (s: string) => s.replace(/\*\*/g, "").toLowerCase().replace(/[^a-z0-9%+$]+/g, " ").trim();
+
+/**
+ * The experience bullets on `doc` that are her source lines word for word (what the page filler
+ * adds), as positions: rewriting them for the job is worth a comment when a revision call is being
+ * made anyway.
+ */
+export function copiedBullets(doc: ResumeDoc, master: string): { entry: number; bullet: number }[] {
+  const entries = parseMasterExperiences(master);
+  const out: { entry: number; bullet: number }[] = [];
+  doc.experience.forEach((e, i) => {
+    const entry = entryFor(entries, e.company);
+    if (!entry) return;
+    const source = new Set(sourceBullets(entry).map(loose));
+    e.bullets.forEach((b, j) => {
+      if (source.has(loose(b))) out.push({ entry: i, bullet: j });
+    });
+  });
+  return out;
+}
+
 function entryFor(entries: MasterEntry[], company: string): MasterEntry | undefined {
   const c = company.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   return entries.find((m) => m.company.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() === c);
@@ -76,12 +107,7 @@ export function backfillFromExperience(
   const experience = doc.experience.map((e) => {
     const entry = entryFor(entries, e.company);
     if (!entry) return e;
-    const source = entry.block
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => /^[-*•]\s+/.test(l))
-      .map((l) => l.replace(/^[-*•]\s+/, "").trim())
-      .filter((l) => l.length > 0);
+    const source = sourceBullets(entry);
     const everything = doc.experience.flatMap((x) => x.bullets);
     const unused = source
       .filter((s) => !everything.some((b) => overlap(b, s) >= ALREADY_SAID))

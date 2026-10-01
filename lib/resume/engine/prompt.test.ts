@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildSystemPrompt, buildUserPrompt } from "./prompt";
+import { DEMO_EXPERIENCE, DEMO_JOBS } from "../../demo/data";
+import { MASTER } from "./__fixtures__/master";
+import { buildJobFocus } from "./focus";
+import { buildFocusBrief, buildSystemPrompt, buildUserPrompt } from "./prompt";
 
 describe("buildSystemPrompt", () => {
   const p = buildSystemPrompt("MASTER");
@@ -62,5 +65,49 @@ describe("buildUserPrompt", () => {
     const p = buildUserPrompt("Acme", "We use React.", { have: ["React", "Postgres"], gaps: ["Kubernetes"] });
     expect(p).toContain("Job skills the candidate HAS (use these exact spellings; the most important ones belong near the top): React, Postgres");
     expect(p).toContain("GAPS (never mention anywhere, including bullets): Kubernetes");
+  });
+
+  it("adds the job focus after the job skills when given", () => {
+    const p = buildUserPrompt("Acme", "We use React.", { have: ["React"], gaps: [] }, "JOB FOCUS (x):\n- Kind of role: Frontend/Web");
+    expect(p.indexOf("JOB FOCUS")).toBeGreaterThan(p.indexOf("GAPS"));
+    expect(p).toMatch(/Tailor the resume to this role/);
+  });
+});
+
+describe("buildFocusBrief", () => {
+  const focusOf = (company: string) => {
+    const j = DEMO_JOBS.find((x) => x.signals.company === company)!;
+    return buildJobFocus({ role: j.signals.role, jdText: j.jd, must: j.signals.mustHaveSkills, nice: j.signals.niceToHaveSkills });
+  };
+
+  it("ranks her experiences for the job and asks for every bullet of a relevant role, rewritten", () => {
+    const brief = buildFocusBrief(focusOf("Lumen Health"), DEMO_EXPERIENCE);
+    expect(brief).toMatch(/Kind of role: Frontend\/Web/);
+    expect(brief).toMatch(/What this team works on: front end/);
+    expect(brief).toMatch(/1\. Lumen Health \(Frontend Engineer Intern\): shows React, TypeScript, Jest/);
+    expect(brief).toMatch(/Rewrite all 5 of its bullets/);
+    expect(brief).toMatch(/reverse-chronological/);
+    // The teaching role ranks last for an engineering job.
+    expect(brief).toMatch(/4\. University of Washington \(Teaching Assistant, Data Structures\)[^\n]*Least relevant/);
+    expect(brief).toMatch(/Projects, most relevant first: Trailhead/);
+  });
+
+  it("puts the payments role first for the payments job", () => {
+    const brief = buildFocusBrief(focusOf("Cobalt Payments"), DEMO_EXPERIENCE);
+    expect(brief).toMatch(/1\. Cobalt Payments \(Software Engineer Intern\): shows Go, PostgreSQL, AWS/);
+    expect(brief).toMatch(/What this team works on: payments/);
+  });
+
+  it("keeps gap skills out of the must-have list when the have list is given", () => {
+    expect(buildFocusBrief(focusOf("Pinecrest Robotics"), DEMO_EXPERIENCE, [])).not.toMatch(/Rust/);
+  });
+
+  it("suggests her alternate title when it fits the job better", () => {
+    const design = buildJobFocus({ role: "Product Designer", jdText: "", must: [] });
+    expect(buildFocusBrief(design, MASTER)).toContain('Use the title "Product & UX Engineer" for this job.');
+  });
+
+  it("has no em or en dashes", () => {
+    for (const j of DEMO_JOBS) expect(buildFocusBrief(focusOf(j.signals.company), DEMO_EXPERIENCE)).not.toMatch(/[–—]/);
   });
 });

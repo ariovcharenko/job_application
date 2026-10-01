@@ -3,6 +3,8 @@ import { describeTarget, type Target } from "./edit";
 import { ENGINE_MAX_TOKENS } from "./index";
 import { buildSystemPrompt } from "./prompt";
 import { RESUME_REVISION_JSON_SCHEMA, ResumeRevisionSchema, type ResumeDoc, type ResumeRevision } from "./schema";
+import type { JobFocus } from "./focus";
+import { toPoolTarget, type PoolMap } from "./trim";
 import type { Flag } from "./validate";
 
 // Her comments on a generated resume, sent back to the model to fix. Same system prompt as
@@ -28,6 +30,29 @@ const JD_CHAR_LIMIT = 20000;
  */
 export function fillPageComment(percent: number): string {
   return `The page only uses about ${percent}% of its height. Add content so it fills one page: more bullets for the roles most relevant to this job (up to 6 or 7 for the top role), taken only from that role's own lines in the MASTER PROFILE and rewritten by the rules, most relevant first; if the roles run out, add a relevant role, project or research entry from the MASTER PROFILE that isn't on the page, in reverse-chronological order. Longer bullets are fine up to two lines. Keep everything already on the page and never invent anything.`;
+}
+
+/** At most this many copied bullets are sent back to be rewritten in one revision. */
+export const MAX_RETAILOR = 6;
+
+/** The comment asking for one copied bullet to be rewritten for this job. */
+export function retailorNote(focus: JobFocus): string {
+  const cares = [...focus.must.slice(0, 3), ...focus.domains.slice(0, 2).map((d) => d.label)];
+  return `This bullet is the candidate's own line, copied word for word to fill the page. Rewrite it for this job by the rules${cares.length ? `, leading with what this job cares about (${cares.join(", ")}) where this bullet truly shows it` : ""}. Keep every fact and number from that role's own text in the MASTER PROFILE, add nothing it doesn't say, and keep it to 1 or 2 lines.`;
+}
+
+/**
+ * Comments that ask for the copied bullets shown on the page (backfill.ts copiedBullets) to be
+ * rewritten for this job, each on its exact spot in the pool. Only sent along with a revision that
+ * is being made anyway, so they never cost an extra call.
+ */
+export function retailorComments(page: ResumeDoc, map: PoolMap, copied: { entry: number; bullet: number }[], focus: JobFocus): ResumeComment[] {
+  const note = retailorNote(focus);
+  return copied.slice(0, MAX_RETAILOR).flatMap((c, i) => {
+    const target = toPoolTarget(map, { section: "experience", entry: c.entry, bullet: c.bullet });
+    const text = page.experience[c.entry]?.bullets[c.bullet];
+    return target && text ? [{ id: `retailor-${i}`, quote: text.replace(/\*\*/g, ""), note, target }] : [];
+  });
 }
 
 /** "On experience[1] (Brightloop, bullet 2) "…"", "On the whole resume", or "On "…"" with no target. */

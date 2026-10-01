@@ -1,6 +1,7 @@
 import type { AIProvider } from "../../ai/provider";
 import type { Profile } from "../../types";
-import { buildSystemPrompt, buildUserPrompt, type JobSkills } from "./prompt";
+import type { JobFocus } from "./focus";
+import { buildFocusBrief, buildSystemPrompt, buildUserPrompt, type JobSkills } from "./prompt";
 import { RESUME_DOC_JSON_SCHEMA, ResumeDocSchema, type ResumeDoc, type ResumeHeader } from "./schema";
 
 export type { ResumeDoc, ResumeHeader } from "./schema";
@@ -37,7 +38,9 @@ export function buildHeader(p: Profile): ResumeHeader {
 /**
  * One call to the smart model. The system prompt (rules + master profile) is cached.
  * `jobSkills`, when given, is code's have/gap split of the job's skills (matchSkills), so the model
- * uses those instead of re-deriving them.
+ * uses those instead of re-deriving them. `focus`, when given, adds code's reading of the job and
+ * its ranking of her experiences (prompt.ts buildFocusBrief) to the user message only, so the cached
+ * system prompt stays the same for every job.
  */
 export async function generateResume(
   provider: AIProvider,
@@ -45,14 +48,16 @@ export async function generateResume(
   company: string,
   jdText: string,
   jobSkills?: JobSkills,
+  focus?: JobFocus,
 ): Promise<ResumeDoc> {
+  const brief = focus ? buildFocusBrief(focus, masterProfile, jobSkills?.have) : undefined;
   return provider.completeJson<ResumeDoc>({
     tier: "smart",
     effort: "medium",
     maxTokens: ENGINE_MAX_TOKENS,
     system: buildSystemPrompt(masterProfile),
     cacheSystem: true,
-    prompt: buildUserPrompt(company, jdText.slice(0, JD_CHAR_LIMIT), jobSkills),
+    prompt: buildUserPrompt(company, jdText.slice(0, JD_CHAR_LIMIT), jobSkills, brief),
     schema: RESUME_DOC_JSON_SCHEMA,
     parse: (raw) => ResumeDocSchema.parse(raw),
   });

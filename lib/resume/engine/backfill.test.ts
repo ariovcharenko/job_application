@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MASTER } from "./__fixtures__/master";
-import { autoBold, backfillFromExperience, overlap } from "./backfill";
+import { autoBold, backfillFromExperience, copiedBullets, overlap } from "./backfill";
 import type { ResumeDoc } from "./schema";
 import { validateResume } from "./validate";
 import { parseSkillInventory } from "../master/skills";
@@ -38,6 +38,16 @@ describe("backfillFromExperience", () => {
   it("orders the added bullets by relevance", () => {
     const r = backfillFromExperience(base([]), MASTER, (t) => (/Jest/.test(t) ? 10 : 0));
     expect(r.doc.experience[0].bullets[0]).toMatch(/Jest/);
+  });
+});
+
+describe("copiedBullets", () => {
+  it("finds the bullets that are her source lines word for word, bold and casing aside", () => {
+    const filled = backfillFromExperience(base(["Delivered **6 production features** across Brightloop's checkout and payments platform."]), MASTER).doc;
+    const copied = copiedBullets(filled, MASTER);
+    expect(copied.length).toBeGreaterThan(0);
+    expect(copied.every((c) => c.entry === 0 && c.bullet >= 1)).toBe(true);
+    expect(copiedBullets(base(["Wrote **Jest** tests for every checkout feature"]), MASTER)).toEqual([]);
   });
 });
 
