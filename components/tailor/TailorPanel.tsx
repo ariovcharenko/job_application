@@ -10,7 +10,8 @@ import { PAGE_CSS, renderResumeHtml } from "@/lib/resume/engine/html";
 import { renderResumeDocx } from "@/lib/resume/engine/render";
 import { exportResume, getJobResume, storeJobResume, type ExportResult } from "@/lib/resume/engine/save";
 import { createDebouncedSave } from "@/lib/resume/engine/autosave";
-import { fitToPage, toPoolTarget } from "@/lib/resume/engine/trim";
+import { fitResume, toPoolTarget } from "@/lib/resume/engine/trim";
+import { verifyResume } from "@/lib/resume/engine/verify";
 import { backfillFromExperience } from "@/lib/resume/engine/backfill";
 import { addSkill, describeTarget, removeTarget, targetFromElement, type Target } from "@/lib/resume/engine/edit";
 import { editTarget, textOfTarget } from "@/lib/resume/engine/editText";
@@ -141,7 +142,7 @@ export default function TailorPanel({
     Promise.all([getMasterProfile(), getProfile(), getJobResume(application.id)]).then(([m, p, existing]) => {
       // Reopen the resume already saved for this job, with her ticks, instead of an empty panel.
       if (existing && m.trim()) {
-        const reopened = validateResume(existing.stored.doc, m);
+        const reopened = validateResume(existing.stored.doc, m, { jobSkills: skillsForJob });
         // Older saves stored ticks with the previous "master profile" wording.
         const ticked = new Set(existing.stored.approved.map(normalizeFlagMessage));
         loadedFromStore.current = true;
@@ -175,7 +176,7 @@ export default function TailorPanel({
         have,
         gaps: skills.filter((s) => !hasSkill(s, inventory, master)),
       });
-      let checked = validateResume(raw, master);
+      let checked = validateResume(raw, master, { jobSkills: skillsForJob });
       let polishNotes: string[] = [];
       // Her own rule: when a check fails, send that issue back to the model once. Code has already
       // fixed what it can (dashes, bold count, casing, duplicate skills); what's left here is writing
@@ -183,7 +184,7 @@ export default function TailorPanel({
       // only when needed; if it fails, the first draft stands.
       if (header) {
         const pool = applyApprovals(checked.doc, checked.flags, new Set());
-        const fit = fitToPage(pool, (d) => pageFill(header, d), { relevance: (text) => skillHits(skillsForJob, text) });
+        const fit = fitResume(pool, (d) => pageFill(header, d), { relevance: (text) => skillHits(skillsForJob, text) });
         const s = readBreakdown(application)?.skills;
         const required = s ? [...s.required.have, ...s.required.gap] : [];
         const fixIssues = lintResume(fit.doc, { jobSkills: have, requiredSkills: required }).filter((i) => i.severity === "fix");
@@ -195,7 +196,7 @@ export default function TailorPanel({
           try {
             const out = await reviseResume(provider, master, application.company, application.jdText, pool, repairs);
             const { changes: done, ...doc } = out;
-            checked = validateResume(doc, master);
+            checked = validateResume(doc, master, { jobSkills: skillsForJob });
             polishNotes = [`Polished automatically: fixed ${fixIssues.length} writing issue${fixIssues.length === 1 ? "" : "s"} in one extra pass.`, ...done];
           } catch {
             polishNotes = [];
@@ -208,10 +209,10 @@ export default function TailorPanel({
       if (header) {
         const relevance = (text: string) => skillHits(skillsForJob, text);
         const pool = applyApprovals(checked.doc, checked.flags, new Set());
-        if (fitToPage(pool, (d) => pageFill(header, d), { relevance }).underfilled) {
+        if (fitResume(pool, (d) => pageFill(header, d), { relevance }).underfilled) {
           const filled = backfillFromExperience(checked.doc, master, relevance);
           if (filled.added > 0) {
-            checked = validateResume(filled.doc, master);
+            checked = validateResume(filled.doc, master, { jobSkills: skillsForJob });
             polishNotes = [...polishNotes, `Filled the page with ${filled.added} more of your own bullets, kept only where they fit.`];
           }
         }
@@ -252,7 +253,7 @@ export default function TailorPanel({
   // put back whatever still fits, measured on the real HTML rendering.
   const fitted = useMemo(() => {
     if (!untrimmed || !header) return null;
-    return fitToPage(untrimmed, (d) => pageFill(header, d), { relevance: (text) => skillHits(skillsForJob, text) });
+    return fitResume(untrimmed, (d) => pageFill(header, d), { relevance: (text) => skillHits(skillsForJob, text) });
   }, [untrimmed, header, skillsForJob]);
 
   // Share of the job's skills the page shows, vs. how many of them the full master profile has.
@@ -414,7 +415,7 @@ export default function TailorPanel({
   const commitDoc = (next: ResumeDoc, confirmedSkills: string[] = []) => {
     // While an update is running its answer would replace this edit, so edits wait for it.
     if (!result || !master || phase !== "ready") return;
-    const checked = validateResume(next, master);
+    const checked = validateResume(next, master, { jobSkills: skillsForJob });
     const keep = carryApprovals(result.flags, approved, checked.flags);
     // A skill she just said she has is approved by that click.
     for (const f of checked.flags) {
@@ -483,7 +484,7 @@ export default function TailorPanel({
     try {
       const out = await reviseResume(await getProvider(), master, application.company, application.jdText, untrimmed ?? fitted.doc, all);
       const { changes: done, ...doc } = out;
-      const next = validateResume(doc, master);
+      const next = validateResume(doc, master, { jobSkills: skillsForJob });
       setHistory((h) => [...h, { result, approved }]);
       // Her current ticks, including any made while the update was running.
       setApproved((current) => carryApprovals(result.flags, current, next.flags));
@@ -572,9 +573,11 @@ export default function TailorPanel({
   const targetLabel = selection?.target ? describeTarget(fitted.doc, selection.target) : null;
   const editable = selection?.target ? textOfTarget(fitted.doc, selection.target) : null;
   const fillPercent = Math.round(fitted.fill * 100);
+  // Her final check of the finished page (lib/resume/engine/verify.ts), plus what code fixed.
+  const verified = verifyResume({ header, doc: fitted.doc, fits: fitted.fits, fill: fitted.fill, master });
   const checks = [
-    { ok: true, text: "No double dashes, em dashes or en dashes" + (fixes.length ? ` (${fixes.join(" ")})` : "") },
-    { ok: true, text: "Header links come from your Profile, exactly as saved" },
+    ...verified.filter((c) => c.id !== "one-page" && c.id !== "fill").map((c) => ({ ok: c.ok, text: c.label })),
+    ...(fixes.length || fitted.steps.length ? [{ ok: true, text: `Fixed automatically: ${[...fixes, ...fitted.steps].join(" ")}` }] : []),
     {
       ok: flags.length === 0,
       text:
@@ -696,7 +699,7 @@ export default function TailorPanel({
           <style>{`::highlight(${HIGHLIGHT_NAME}){background-color:rgba(123,63,228,.2)}`}</style>
           <div className="mx-auto shadow-lift" style={{ width: `${8.5 * scale}in`, height: `${11 * scale}in`, overflow: "hidden" }}>
             <div ref={pageRef} style={{ transform: `scale(${scale})`, transformOrigin: "top left", width: "8.5in" }}>
-              <style>{PAGE_CSS}</style>
+              <style dangerouslySetInnerHTML={{ __html: PAGE_CSS }} />
               {/* renderResumeHtml escapes every string; no model output is inserted as raw HTML. */}
               <div dangerouslySetInnerHTML={{ __html: renderResumeHtml(header, fitted.doc) }} />
             </div>

@@ -27,7 +27,7 @@ describe("renderResumeHtml", () => {
 
   it("measures like Word: space above a header adds to the line before it, no kerning", () => {
     // Margins would collapse (3pt + 5pt = 5pt in CSS, 8pt in Word); padding adds up like Word.
-    expect(PAGE_CSS).toMatch(/\.rp \.h\{[^}]*padding-top:5pt/);
+    expect(PAGE_CSS).toMatch(/\.rp \.h\{[^}]*padding-top:calc\(var\(--m\) \* 5pt\)/);
     expect(PAGE_CSS).not.toMatch(/\.rp \.h\{[^}]*margin-top/);
     expect(PAGE_CSS).toMatch(/font-kerning:none/);
     expect(PAGE_CSS).toMatch(/font-variant-ligatures:none/);
@@ -37,7 +37,17 @@ describe("renderResumeHtml", () => {
     const html = renderResumeHtml({ name: "A", location: "", links: [] }, doc);
     expect(html).toContain('<div class="r t"><span>Engineer</span><span style="font-weight:normal">May 2025 - Aug 2025</span></div>');
     expect(html).toContain('<div class="r s"><span>Acme</span><span>Irvine, CA</span></div>');
-    expect(PAGE_CSS).toMatch(/\.rp \.s\{font-style:italic;font-size:9pt\}/);
+    expect(PAGE_CSS).toMatch(/\.rp \.s\{font-style:italic;font-size:calc\(var\(--b\) \* 1pt \+ 0pt\)\}/);
     expect(html).toContain("<b>Languages:</b> TypeScript");
+  });
+
+  it("sets the fitted layout on the page and renders Projects after Experience", () => {
+    const html = renderResumeHtml(
+      { name: "A", location: "", links: [] },
+      { ...doc, layout: { body: 10.5, spacing: 1.1 }, projects: [{ title: "Builder", company: "DemoDeck", location: "", dates: "Jun 2025 - Aug 2025", bullets: ["Built it"] }] },
+    );
+    expect(html).toContain('style="--b:10.5;--m:1.1"');
+    expect(html.indexOf("PROJECTS")).toBeGreaterThan(html.indexOf("EXPERIENCE"));
+    expect(html).toContain('data-sec="projects"');
   });
 });

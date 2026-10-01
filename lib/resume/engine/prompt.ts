@@ -21,6 +21,7 @@ The header (name, location, email, LinkedIn, GitHub, Portfolio links) is added b
 5. Dates and facts are fixed. Use the dates, titles, company names and locations in the MASTER PROFILE exactly.
 6. Alternate titles. If a role in the MASTER PROFILE lists an alternate title, as in "Founding Software Engineer (alt. title: Product & UX Engineer)", use whichever of the two titles fits this job better. Never print "(alt. title: ...)" itself.
 7. If the master profile has a placeholder (like {{GPA}}) or a note meant for the app (like an HTML comment), leave that line out entirely.
+8. Never stretch. Don't add who the work was for or what kind of work it was unless that role's own text says so: no "for client workflows", "external partners", "stakeholders" or "a migration" the source doesn't mention. Don't attach a language or tool to work whose source doesn't name it (source "contract tests" stays "contract tests", never "JavaScript contract tests"). A technology in a bullet must appear in that same role's MASTER PROFILE text; a skill the candidate only lists in the skills inventory goes on the Skills lines, not into a bullet. Use the job description's wording only when it means exactly what the candidate did.
 
 ## 2. BOLDING RULES (inside bullets)
 
@@ -52,9 +53,11 @@ Step 5: Rebuild the skills section using only skills from the MASTER PROFILE ski
 - Within each line, put job-matched skills first, using the job's spelling.
 - Drop skills that add nothing for this role to save space.
 - Rename category labels to mirror the job if it helps.
-- Keep 5 to 7 lines.
+- Keep 5 to 6 lines. No "Collaboration", "Soft skills", "Additional" or "Other" lines.
 
-Step 6: Education: include the school, degree, location and dates exactly as in the master profile, with at most 1 to 2 short bullets (e.g. relevant coursework chosen for this job).
+Step 6: Education: include the school, degree line, location and dates exactly as in the master profile. Bullets only for lines the master profile's Education section has, written exactly (e.g. its GPA line as written). No coursework line.
+
+Step 6b: Projects: entries under the MASTER PROFILE's Projects heading go in "projects" (never in experience), with at most 2 bullets each, most relevant first. The app shows them when there is room.
 
 Step 7: Leadership and involvement: include the entries from the master profile, with their dates. They appear only if space remains: the app leaves them off first when the page is full.
 

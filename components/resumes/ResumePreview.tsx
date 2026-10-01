@@ -20,7 +20,7 @@ export default function ResumePreview({ doc, width = 240 }: { doc: ResumeDoc; wi
     >
       {header && (
         <div style={{ transform: `scale(${scale})`, transformOrigin: "top left", width: "8.5in" }}>
-          <style>{PAGE_CSS}</style>
+          <style dangerouslySetInnerHTML={{ __html: PAGE_CSS }} />
           {/* renderResumeHtml escapes every string; no model output is inserted as raw HTML. */}
           <div dangerouslySetInnerHTML={{ __html: renderResumeHtml(header, doc) }} />
         </div>

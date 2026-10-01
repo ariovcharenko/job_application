@@ -87,7 +87,7 @@ export const EXAMPLE_EXPERIENCE = `### Education
 **Software Engineer Intern | Brightpath Health | Austin, TX | May 2025 - Aug 2025**
 - Built a React and TypeScript appointment reminder page used by **12 clinics**
 - Added PostgreSQL indexes that cut the slowest report query from **4.1s to 0.6s**
-- Wrote Jest tests for the scheduling API, raising coverage from **48% to 81%**
+- Wrote Jest tests for the scheduling REST API, raising coverage from **48% to 81%**
 
 **Teaching Assistant, Data Structures | University of Texas at Austin | Austin, TX | Jan 2025 - May 2026**
 - Held weekly office hours for **200+ students** and wrote autograded Java assignments

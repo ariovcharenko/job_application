@@ -8,8 +8,9 @@ import type { ResumeDoc } from "./schema";
 /** The editable text of a spot: a bullet with its **bold** markers, or a skills line as "a, b, c". */
 export function textOfTarget(doc: ResumeDoc, t: Target): string | null {
   if (t.section === "skills") return doc.skills[t.entry]?.items.join(", ") ?? null;
-  if ((t.section === "experience" || t.section === "education") && t.bullet !== undefined) {
-    return doc[t.section][t.entry]?.bullets[t.bullet] ?? null;
+  if ((t.section === "experience" || t.section === "education" || t.section === "projects") && t.bullet !== undefined) {
+    const list = t.section === "projects" ? (doc.projects ?? []) : doc[t.section];
+    return list[t.entry]?.bullets[t.bullet] ?? null;
   }
   return null;
 }
@@ -22,9 +23,9 @@ export function editTarget(doc: ResumeDoc, t: Target, text: string): ResumeDoc {
     const items = value.split(",").map((s) => s.trim()).filter(Boolean);
     return { ...doc, skills: doc.skills.map((l, i) => (i === t.entry ? { ...l, items } : l)) };
   }
-  if ((t.section === "experience" || t.section === "education") && t.bullet !== undefined) {
+  if ((t.section === "experience" || t.section === "education" || t.section === "projects") && t.bullet !== undefined) {
     const key = t.section;
-    const entries = doc[key] as ResumeDoc["experience"] | ResumeDoc["education"];
+    const entries = (key === "projects" ? (doc.projects ?? []) : doc[key]) as ResumeDoc["experience"] | ResumeDoc["education"];
     return {
       ...doc,
       [key]: entries.map((e, i) => (i === t.entry ? { ...e, bullets: e.bullets.map((b, j) => (j === t.bullet ? value : b)) } : e)),

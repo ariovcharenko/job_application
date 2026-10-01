@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ResumeDoc } from "./schema";
-import { fitToPage, toPoolTarget } from "./trim";
+import { fitResume, fitToPage, toPoolTarget } from "./trim";
 
 // A fake page: every piece costs whole lines, a bullet one line per started 100 characters.
 // fill = lines / capacity, so each test can say exactly how much room there is.
@@ -155,5 +155,53 @@ describe("toPoolTarget", () => {
     expect(toPoolTarget(r.map, { section: "skills", entry: 0 })).toEqual({ section: "skills", entry: 0 });
     expect(toPoolTarget(r.map, { section: "leadership", entry: 0 })).toBeNull();
     expect(toPoolTarget(r.map, { section: "experience", entry: 0, bullet: 3 })).toBeNull();
+  });
+});
+
+describe("fitResume: her fill loop", () => {
+  // Height scales with the body font (relative to 10pt) and the spacing multiple; projects count too.
+  const scaled = (capacity: number) => (d: ResumeDoc) => {
+    const l = d.layout ?? { body: 10, spacing: 1 };
+    const proj = d.projects?.length ? 1 + d.projects.reduce((s, e) => s + 2 + e.bullets.length, 0) : 0;
+    return ((lines(d) + proj) * (l.body / 10) * l.spacing) / capacity;
+  };
+  const opts = { limit: 0.99, fillTarget: 0.93 };
+
+  it("raises the font first, then the spacing, never past 11pt and 1.15", () => {
+    const d = doc({ experience: [exp("A", ["a", "b", "c", "d", "e"])] }); // 10 lines
+    const r = fitResume(d, scaled(12), opts);
+    expect(r.layout.body).toBeGreaterThan(10);
+    expect(r.layout.body).toBeLessThanOrEqual(11);
+    expect(r.fill).toBeGreaterThanOrEqual(0.93);
+    expect(r.fill).toBeLessThanOrEqual(0.99);
+    expect(r.doc.layout).toEqual(r.layout);
+
+    const tiny = fitResume(doc({ experience: [exp("A", ["a"])] }), scaled(40), opts);
+    expect(tiny.layout).toEqual({ body: 11, spacing: 1.15 });
+    expect(tiny.underfilled).toBe(true);
+  });
+
+  it("over the page at 10pt: trims the least relevant content and never shrinks below 10pt", () => {
+    const d = doc({ experience: [exp("A", ["a", "b", "c", "d", "e", "f"]), exp("B", ["g", "h", "i", "j"])], leadership: [{ role: "Club", dates: "" }] });
+    const r = fitResume(d, scaled(12), opts);
+    expect(r.fits).toBe(true);
+    expect(r.layout.body).toBeGreaterThanOrEqual(10);
+    expect(r.removed[0]).toMatch(/Leadership/);
+  });
+
+  it("puts back no more than 5 bullets in a role when restoring", () => {
+    // Leadership is cut first and frees a lot; restoring then may only refill role A up to 5.
+    const d = doc({ experience: [exp("A", ["a", "b", "c", "d", "e", "f", "g", "h"])], leadership: [{ role: veryLong("Club"), dates: "" }] });
+    const measure = (x: ResumeDoc) => (x.experience[0].bullets.length + (x.leadership.length ? 6 : 0)) / 7;
+    const r = fitToPage(d, measure, { limit: 1, fillTarget: 0.93, maxBulletsPerRole: 5 });
+    expect(r.doc.experience[0].bullets.length).toBeLessThanOrEqual(7);
+    const capped = fitToPage(doc({ experience: [exp("A", ["a", "b", "c", "d", "e", "f", "g", "h"])] }), (x) => (x.experience[0].bullets.length > 2 ? 2 : 0.5), { limit: 1, maxBulletsPerRole: 5 });
+    expect(capped.doc.experience[0].bullets.length).toBeLessThanOrEqual(5);
+  });
+
+  it("shows at most 2 bullets per project", () => {
+    const d = doc({ experience: [exp("A", ["a", "b"])], projects: [exp("P", ["1", "2", "3", "4"])] });
+    const r = fitResume(d, scaled(30), opts);
+    expect(r.doc.projects?.[0].bullets).toEqual(["1", "2"]);
   });
 });

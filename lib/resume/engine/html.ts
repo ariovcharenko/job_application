@@ -1,4 +1,4 @@
-import { boldSegments, FONT, LINE_HEIGHT, LINK_COLOR, PAGE, SECTION_TITLES, SIZE, SPACE } from "./layout";
+import { boldSegments, DEFAULT_LAYOUT, FONT, LINE_HEIGHT, LINK_COLOR, PAGE, SECTION_TITLES } from "./layout";
 import type { ResumeDoc, ResumeHeader } from "./schema";
 
 // An HTML rendering of the same layout as render.ts. Used twice: as the on-screen preview, and in
@@ -20,24 +20,29 @@ const rich = (s: string) => boldSegments(s).map((p) => (p.bold ? `<b>${esc(p.tex
 
 const safeHref = (url: string) => (/^(https?:|mailto:)/i.test(url) ? esc(url) : "#");
 
+// Sizes come from two CSS variables set on each page (renderResumeHtml): --b, the body font size in
+// points, and --m, the line/section spacing multiple (layout.ts sizesFor / spaceFor, same offsets).
+const pt = (offset: number) => `calc(var(--b) * 1pt + ${offset}pt)`;
+const sp = (base: number) => `calc(var(--m) * ${base}pt)`;
+
 export const PAGE_CSS = `
-.rp{box-sizing:border-box;width:${PAGE.widthIn}in;min-height:${PAGE.heightIn}in;padding:${PAGE.marginYIn}in ${PAGE.marginXIn}in;background:#fff;color:#000;font-family:"${FONT}",Tinos,"Liberation Serif",serif;line-height:${LINE_HEIGHT};font-size:${SIZE.bullet}pt;font-kerning:none;font-variant-ligatures:none;letter-spacing:0;word-spacing:0}
+.rp{--b:${DEFAULT_LAYOUT.body};--m:${DEFAULT_LAYOUT.spacing};box-sizing:border-box;width:${PAGE.widthIn}in;min-height:${PAGE.heightIn}in;padding:${PAGE.marginYIn}in ${PAGE.marginXIn}in;background:#fff;color:#000;font-family:"${FONT}",Tinos,"Liberation Serif",serif;line-height:calc(${LINE_HEIGHT} * var(--m));font-size:${pt(0)};font-kerning:none;font-variant-ligatures:none;letter-spacing:0;word-spacing:0}
 .rp *{margin:0;padding:0}
-.rp .n{text-align:center;font-weight:bold;font-size:${SIZE.name}pt;margin-bottom:${SPACE.afterName}pt}
-.rp .c{text-align:center;font-size:${SIZE.contact}pt;margin-bottom:${SPACE.afterContact}pt}
+.rp .n{text-align:center;font-weight:bold;font-size:${pt(8)};margin-bottom:1pt}
+.rp .c{text-align:center;font-size:${pt(0.5)};margin-bottom:${sp(3)}}
 .rp .c a{color:#${LINK_COLOR};text-decoration:underline}
-.rp .h{font-weight:bold;font-size:${SIZE.sectionHeader}pt;border-bottom:0.75pt solid #000;padding-top:${SPACE.beforeSection}pt;padding-bottom:1pt;margin-bottom:${SPACE.afterSectionHeader}pt}
+.rp .h{font-weight:bold;font-size:${pt(1)};border-bottom:0.75pt solid #000;padding-top:${sp(5)};padding-bottom:1pt;margin-bottom:${sp(2)}}
 .rp .r{display:flex;justify-content:space-between;gap:12pt}
 .rp .r>span:last-child{white-space:nowrap;flex-shrink:0}
 .rp [data-b],.rp [data-sec]{cursor:pointer}
 .rp [data-b]:focus-visible,.rp [data-sec]:focus-visible{outline:2px solid #7B3FE4;outline-offset:1px}
-.rp .t{font-weight:bold;font-size:${SIZE.entryTitle}pt}
-.rp .s{font-style:italic;font-size:${SIZE.entrySub}pt}
-.rp .e+.e{margin-top:${SPACE.beforeEntry}pt}
+.rp .t{font-weight:bold;font-size:${pt(0.5)}}
+.rp .s{font-style:italic;font-size:${pt(0)}}
+.rp .e+.e{margin-top:${sp(3)}}
 .rp ul{list-style:none}
-.rp li{position:relative;padding-left:0.1875in;font-size:${SIZE.bullet}pt}
+.rp li{position:relative;padding-left:0.1875in;font-size:${pt(0)}}
 .rp li:before{content:"\\2022";position:absolute;left:0.0625in}
-.rp .k{font-size:${SIZE.skills}pt}
+.rp .k{font-size:${pt(0)}}
 `;
 
 export function renderResumeHtml(h: ResumeHeader, doc: ResumeDoc): string {
@@ -55,6 +60,7 @@ export function renderResumeHtml(h: ResumeHeader, doc: ResumeDoc): string {
     (bullets.length ? `<ul>${bullets.map((b, j) => `<li data-b="${j}" tabindex="0">${rich(b)}</li>`).join("")}</ul>` : "") +
     `</div>`;
 
+  const projects = doc.projects ?? [];
   const parts = [`<div class="n">${esc(h.name)}</div>`, `<div class="c">${contact}</div>`];
   if (doc.education.length) {
     parts.push(`<div class="h">${SECTION_TITLES.education}</div>`);
@@ -63,6 +69,10 @@ export function renderResumeHtml(h: ResumeHeader, doc: ResumeDoc): string {
   if (doc.experience.length) {
     parts.push(`<div class="h">${SECTION_TITLES.experience}</div>`);
     parts.push(...doc.experience.map((e, i) => entry("experience", i, e.title, e.dates, e.company, e.location, e.bullets)));
+  }
+  if (projects.length) {
+    parts.push(`<div class="h">${SECTION_TITLES.projects}</div>`);
+    parts.push(...projects.map((e, i) => entry("projects", i, e.title, e.dates, e.company, e.location, e.bullets)));
   }
   if (doc.skills.length) {
     parts.push(`<div class="h">${SECTION_TITLES.skills}</div>`);
@@ -74,5 +84,6 @@ export function renderResumeHtml(h: ResumeHeader, doc: ResumeDoc): string {
       `<ul>${doc.leadership.map((l, i) => `<li data-sec="leadership" data-e="${i}" tabindex="0"><div class="r"><span>${esc(l.role)}</span><span>${esc(l.dates)}</span></div></li>`).join("")}</ul>`,
     );
   }
-  return `<div class="rp">${parts.join("")}</div>`;
+  const layout = doc.layout ?? DEFAULT_LAYOUT;
+  return `<div class="rp" style="--b:${Number(layout.body)};--m:${Number(layout.spacing)}">${parts.join("")}</div>`;
 }

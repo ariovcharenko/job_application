@@ -1,4 +1,5 @@
 import type { Target } from "./edit";
+import { BODY_STEP_PT, DEFAULT_LAYOUT, MAX_BODY_PT, MAX_SPACING, PAGE, SPACING_STEP, type Layout } from "./layout";
 import { bulletScore, type RelevanceFn } from "./relevance";
 import type { ResumeDoc } from "./schema";
 
@@ -23,10 +24,21 @@ const MIN_ROLES = 3;
 /** Bullets each role aims for, by relevance rank: more for the most relevant role, fewer after. */
 const TARGET_BY_RANK = [6, 5, 4, 3];
 
-/** The largest share of the page's usable height (inside the margins) that still counts as fitting. */
-export const FIT_LIMIT = 0.97;
-/** Below this share, the page looks unfinished: fill it, or offer to ask for more content. */
-export const FILL_TARGET = 0.92;
+/**
+ * The largest share of the page's usable height (inside the margins) that still counts as fitting.
+ * Her spec is 93 to 99% full; 98.5% keeps a hair of room for Word laying text out slightly taller
+ * than the browser, since a second page is worse than a sliver of white space.
+ */
+export const FIT_LIMIT = 0.985;
+/**
+ * The least a finished page fills: her spec says 93%, and never more than 0.5in blank at the
+ * bottom, which on a 10.4in usable page is the stricter of the two (about 95.2%).
+ */
+export const FILL_TARGET = Math.max(0.93, 1 - 0.5 / (PAGE.heightIn - 2 * PAGE.marginYIn));
+/** Her rule: when restoring bullets to fill the page, a role gets at most this many. */
+export const MAX_RESTORED_BULLETS = 5;
+/** Projects show at most this many bullets each. */
+export const MAX_PROJECT_BULLETS = 2;
 
 /** Measures a candidate page: its content height as a share of the usable page height (1 = full). */
 export type MeasureFn = (doc: ResumeDoc) => number;
@@ -35,6 +47,7 @@ export type MeasureFn = (doc: ResumeDoc) => number;
 export interface PoolMap {
   education: { entry: number; bullets: number[] }[];
   experience: { entry: number; bullets: number[] }[];
+  projects: { entry: number; bullets: number[] }[];
   skills: number[];
   leadership: number[];
 }
@@ -60,16 +73,21 @@ export interface FitOptions {
   limit?: number;
   fillTarget?: number;
   maxSteps?: number;
+  /** false: trim only, don't put cut pieces back (fitResume grows the type first, then restores). */
+  restore?: boolean;
+  /** Restoring never takes a role above this many bullets. */
+  maxBulletsPerRole?: number;
 }
 
 // Keys for the pieces that can be left off: "L:i" leadership item, "X:i" a whole role, "x:i:j" a
-// role's bullet, "e:i:j" an education detail, "S:i" a skills line.
+// role's bullet, "P:i" a whole project, "p:i:j" a project's bullet, "e:i:j" an education detail,
+// "S:i" a skills line.
 type Key = string;
 
 const plain = (s: string) => s.replace(/\*\*/g, "");
 
 function build(pool: ResumeDoc, off: Set<Key>): { doc: ResumeDoc; map: PoolMap } {
-  const map: PoolMap = { education: [], experience: [], skills: [], leadership: [] };
+  const map: PoolMap = { education: [], experience: [], projects: [], skills: [], leadership: [] };
   const education = pool.education.map((e, i) => {
     const bullets = e.bullets.map((_, j) => j).filter((j) => !off.has(`e:${i}:${j}`));
     map.education.push({ entry: i, bullets });
@@ -82,6 +100,13 @@ function build(pool: ResumeDoc, off: Set<Key>): { doc: ResumeDoc; map: PoolMap }
     map.experience.push({ entry: i, bullets });
     experience.push({ ...e, bullets: bullets.map((j) => e.bullets[j]) });
   });
+  const projects: ResumeDoc["experience"] = [];
+  (pool.projects ?? []).forEach((e, i) => {
+    if (off.has(`P:${i}`)) return;
+    const bullets = e.bullets.map((_, j) => j).filter((j) => !off.has(`p:${i}:${j}`));
+    map.projects.push({ entry: i, bullets });
+    projects.push({ ...e, bullets: bullets.map((j) => e.bullets[j]) });
+  });
   map.skills = pool.skills.map((_, i) => i).filter((i) => !off.has(`S:${i}`));
   map.leadership = pool.leadership.map((_, i) => i).filter((i) => !off.has(`L:${i}`));
   return {
@@ -89,6 +114,7 @@ function build(pool: ResumeDoc, off: Set<Key>): { doc: ResumeDoc; map: PoolMap }
       ...pool,
       education,
       experience,
+      ...(pool.projects ? { projects } : {}),
       skills: map.skills.map((i) => pool.skills[i]),
       leadership: map.leadership.map((i) => pool.leadership[i]),
     },
@@ -123,6 +149,8 @@ function describe(pool: ResumeDoc, key: Key): string {
   if (kind === "L") return `Leadership: ${plain(pool.leadership[i].role)}`;
   if (kind === "X") return `Role: ${pool.experience[i].title}, ${pool.experience[i].company}`;
   if (kind === "x") return `${pool.experience[i].company}: "${plain(pool.experience[i].bullets[j])}"`;
+  if (kind === "P") return `Project: ${pool.projects![i].company}`;
+  if (kind === "p") return `${pool.projects![i].company}: "${plain(pool.projects![i].bullets[j])}"`;
   if (kind === "e") return `${pool.education[i].school}: "${plain(pool.education[i].bullets[j])}"`;
   return `Skills line: ${pool.skills[i].category}`;
 }
@@ -155,6 +183,15 @@ function bulletCut(pool: ResumeDoc, off: Set<Key>, rk: Ranking, floorOf: (i: num
 function nextCut(pool: ResumeDoc, off: Set<Key>, rk: Ranking): Key | null {
   // 1. Leadership goes first: her rule is "include only if space remains".
   for (let i = pool.leadership.length - 1; i >= 0; i--) if (!off.has(`L:${i}`)) return `L:${i}`;
+
+  // 1b. Project bullets beyond the first, then whole projects (last listed first).
+  const projects = pool.projects ?? [];
+  for (let i = projects.length - 1; i >= 0; i--) {
+    if (off.has(`P:${i}`)) continue;
+    const vis = projects[i].bullets.map((_, j) => j).filter((j) => !off.has(`p:${i}:${j}`));
+    if (vis.length > 1) return `p:${i}:${vis[vis.length - 1]}`;
+  }
+  for (let i = projects.length - 1; i >= 0; i--) if (!off.has(`P:${i}`)) return `P:${i}`;
 
   // 2. Bullets beyond each role's aim, least relevant first.
   const aboveTarget = bulletCut(pool, off, rk, (i) => rk.target[i]);
@@ -191,7 +228,8 @@ function nextCut(pool: ResumeDoc, off: Set<Key>, rk: Ranking): Key | null {
 }
 
 /** A piece only shows when its role is shown: restoring a bullet of a role that's off does nothing. */
-const parentShown = (key: Key, off: Set<Key>) => !key.startsWith("x:") || !off.has(`X:${key.split(":")[1]}`);
+const parentShown = (key: Key, off: Set<Key>) =>
+  key.startsWith("x:") ? !off.has(`X:${key.split(":")[1]}`) : key.startsWith("p:") ? !off.has(`P:${key.split(":")[1]}`) : true;
 
 /**
  * Trims `pool` to one page, then fills the page back up. `measure` gives the content height as a
@@ -218,9 +256,11 @@ export function fitToPage(pool: ResumeDoc, measure: MeasureFn, opts: FitOptions 
   // Fill: the last cut usually freed more room than it had to. Try everything trimmed, most
   // valuable first (the reverse of the cut order), and keep each piece that still fits.
   const restored: Key[] = [];
-  if (fits) {
+  const cap = opts.maxBulletsPerRole ?? Infinity;
+  if (fits && opts.restore !== false) {
     for (const key of [...cut].reverse()) {
       if (!parentShown(key, off)) continue;
+      if (key.startsWith("x:") && visibleBullets(pool, off, Number(key.split(":")[1])).length >= cap) continue;
       off.delete(key);
       const next = measure(build(pool, off).doc);
       if (next <= limit) {
@@ -249,9 +289,69 @@ export function fitToPage(pool: ResumeDoc, measure: MeasureFn, opts: FitOptions 
 export function toPoolTarget(map: PoolMap, t: Target): Target | null {
   if (t.section === "skills") return map.skills[t.entry] === undefined ? null : { section: "skills", entry: map.skills[t.entry] };
   if (t.section === "leadership") return map.leadership[t.entry] === undefined ? null : { section: "leadership", entry: map.leadership[t.entry] };
+  if (t.section === "projects" && !map.projects) return null;
   const e = map[t.section][t.entry];
   if (!e) return null;
   if (t.bullet === undefined) return { section: t.section, entry: e.entry };
   const b = e.bullets[t.bullet];
   return b === undefined ? null : { section: t.section, entry: e.entry, bullet: b };
+}
+
+/** Measures a candidate page at a given layout (fit.ts pageFill reads doc.layout). */
+export type LayoutMeasureFn = (doc: ResumeDoc) => number;
+
+export interface ResumeFitResult extends FitResult {
+  layout: Layout;
+  /** Plain notes on what the loop changed, for the Checks list. */
+  steps: string[];
+}
+
+const withLayout = (doc: ResumeDoc, layout: Layout): ResumeDoc => ({ ...doc, layout });
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Her fit loop, deterministic: one US Letter page, FILL_TARGET to FIT_LIMIT full.
+ *  - Over the limit at the smallest type (10pt, single spacing): drop the least relevant content
+ *    (leadership, extra project bullets, then bullets by relevance; fitToPage).
+ *  - Under the target: (a) raise the body font 0.25pt at a time up to 11pt, (b) raise line and
+ *    section spacing up to 1.15, (c) restore the next most relevant bullets (at most 5 per role),
+ *    (d) add back Projects and Leadership & Involvement. Each step is kept only if the page still fits.
+ * Projects are capped at 2 bullets. `measure` must honor doc.layout.
+ */
+export function fitResume(pool: ResumeDoc, measure: LayoutMeasureFn, opts: Omit<FitOptions, "restore" | "maxBulletsPerRole"> = {}): ResumeFitResult {
+  const limit = opts.limit ?? FIT_LIMIT;
+  const fillTarget = opts.fillTarget ?? FILL_TARGET;
+  const capped: ResumeDoc = pool.projects ? { ...pool, projects: pool.projects.map((p) => ({ ...p, bullets: p.bullets.slice(0, MAX_PROJECT_BULLETS) })) } : pool;
+  const steps: string[] = [];
+  let layout: Layout = { ...DEFAULT_LAYOUT };
+  const at = (l: Layout) => (d: ResumeDoc) => measure(withLayout(d, l));
+
+  // Trim to fit at the smallest type, without putting anything back yet.
+  let r = fitToPage(capped, at(layout), { ...opts, limit, fillTarget, restore: false });
+  if (!r.fits) return { ...r, doc: withLayout(r.doc, layout), layout, steps };
+
+  const grow = (next: (l: Layout) => Layout | null, label: (l: Layout) => string) => {
+    let changed = false;
+    for (let guard = 0; guard < 20 && r.fill < fillTarget; guard++) {
+      const candidate = next(layout);
+      if (!candidate) break;
+      const f = measure(withLayout(r.doc, candidate));
+      if (f > limit) break;
+      layout = candidate;
+      r = { ...r, fill: f, underfilled: f < fillTarget };
+      changed = true;
+    }
+    if (changed) steps.push(label(layout));
+  };
+  // (a) body font, (b) spacing.
+  grow((l) => (l.body < MAX_BODY_PT ? { ...l, body: Math.min(MAX_BODY_PT, round2(l.body + BODY_STEP_PT)) } : null), (l) => `Body text set to ${l.body}pt to fill the page.`);
+  grow((l) => (l.spacing < MAX_SPACING ? { ...l, spacing: Math.min(MAX_SPACING, round2(l.spacing + SPACING_STEP)) } : null), (l) => `Line spacing set to ${l.spacing} to fill the page.`);
+
+  // (c) bullets, at most 5 per role, then (d) projects and leadership: the cut list put back in
+  // reverse (most valuable first), keeping each piece that still fits.
+  if (r.fill < fillTarget) {
+    const restored = fitToPage(capped, at(layout), { ...opts, limit, fillTarget, maxBulletsPerRole: MAX_RESTORED_BULLETS });
+    if (restored.fits) r = restored;
+  }
+  return { ...r, doc: withLayout(r.doc, layout), layout, underfilled: r.fits && r.fill < fillTarget, steps };
 }

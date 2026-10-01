@@ -35,7 +35,7 @@ function SampleResume() {
         aria-label="Sample tailored resume for Jordan Lee"
       >
         <div style={{ transform: `scale(${scale})`, transformOrigin: "top left", width: "8.5in" }} aria-hidden="true">
-          <style>{PAGE_CSS}</style>
+          <style dangerouslySetInnerHTML={{ __html: PAGE_CSS }} />
           <div dangerouslySetInnerHTML={{ __html: RESUME_HTML }} />
         </div>
       </div>

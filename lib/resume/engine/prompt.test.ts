@@ -30,7 +30,9 @@ describe("buildSystemPrompt", () => {
     expect(p).toMatch(/"ownership" becomes "owned end-to-end"/);
     expect(p).toMatch(/top 3 required skills/);
     expect(p).toMatch(/At least 70%/);
-    expect(p).toMatch(/Keep 5 to 7 lines/);
+    expect(p).toMatch(/Keep 5 to 6 lines/);
+    expect(p).toMatch(/Never stretch/);
+    expect(p).toMatch(/No coursework line/);
     expect(p).toMatch(/job-matched skills first/);
     expect(p).toMatch(/only if space remains/);
   });

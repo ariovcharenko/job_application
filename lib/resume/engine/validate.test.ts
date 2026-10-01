@@ -125,14 +125,28 @@ describe("validateResume: tools inside bullets", () => {
   });
 
   it("passes tools she has, true synonyms, and ordinary bold phrases", () => {
-    expect(withBullet("Built a **design system** in **React** with **Prometheus** dashboards").flags).toEqual([]);
-    expect(withBullet("Stored uploads in **Amazon S3** behind **RESTful web services**").flags).toEqual([]);
+    expect(withBullet("Built a **design system** in **React** with **Jest** tests").flags).toEqual([]);
+    expect(withBullet("Wrote tests in **React Testing Library** for the **checkout** flow").flags).toEqual([]);
     expect(withBullet("**Owned** the matchmaking feature end-to-end").flags).toEqual([]);
+  });
+
+  it("flags a skill she has when this role's own text never mentions it", () => {
+    // Prisma ORM and REST are on her skills list but not in the Brightloop role: Skills line only.
+    const tools = withBullet("Stored records with **Prisma ORM** behind **RESTful web services**").flags.map((f) => f.message);
+    expect(tools).toHaveLength(2);
+    expect(tools[0]).toMatch(/Prisma ORM/);
+  });
+
+  it("flags claims the role's own text doesn't make", () => {
+    const r = withBullet("Shipped features for **client** workflows with **external partners**");
+    expect(r.flags.map((f) => f.kind)).toContain("claim");
+    expect(r.flags.find((f) => f.kind === "claim")?.message).toMatch(/client", "partner/);
+    expect(withBullet("Shipped **6 production features** to the checkout platform").flags).toEqual([]);
   });
 
   it("checks education bullets too, but accepts coursework the education entry lists", () => {
     const d = doc();
-    d.education[0].bullets = ["Relevant coursework: Machine Learning, Cloud Computing", "Built a **Kubernetes** lab"];
+    d.education[0].bullets = ["Studied **Machine Learning** and **Cloud Computing**", "Built a **Kubernetes** lab"];
     const r = validateResume(d, MASTER);
     expect(r.flags).toEqual([expect.objectContaining({ kind: "skill", target: { section: "education", entry: 0, bullet: 1 } })]);
   });

@@ -11,7 +11,7 @@ import {
   TextRun,
   type ParagraphChild,
 } from "docx";
-import { boldSegments, contentWidthTwips, FONT, LINK_COLOR, PAGE, SECTION_TITLES, SIZE, SPACE, TWIPS_PER_IN } from "./layout";
+import { boldSegments, contentWidthTwips, DEFAULT_LAYOUT, FONT, LINK_COLOR, PAGE, SECTION_TITLES, sizesFor, spaceFor, TWIPS_PER_IN, type Layout } from "./layout";
 import type { ResumeDoc, ResumeHeader } from "./schema";
 
 // Renders a tailored resume to .docx in her exact format: Times New Roman, the sizes in layout.ts,
@@ -19,6 +19,9 @@ import type { ResumeDoc, ResumeHeader } from "./schema";
 // All text is black; only header links are #0563C1 and underlined.
 
 const pt = (n: number) => Math.round(n * 2); // docx sizes are half-points
+// The sizes and spacing of the layout being rendered (set at the start of buildResumeParagraphs).
+let SIZE = sizesFor();
+let SPACE = spaceFor();
 const spacePt = (n: number) => Math.round(n * 20); // paragraph spacing is in twips
 const BULLETS = "resume-bullets";
 // Dates sit at a right tab stop on the right margin. The tab itself must be Word's <w:tab/>
@@ -76,7 +79,15 @@ function bullet(text: string, size: number): Paragraph {
   return new Paragraph({ numbering: { reference: BULLETS, level: 0 }, children: runs(text, size) });
 }
 
+/** Word line spacing ("multiple", in 240ths) for a layout: single (1.15 for Times New Roman) times the spacing multiple. */
+export function lineTwips(layout: Layout = DEFAULT_LAYOUT): number {
+  return Math.round(240 * layout.spacing);
+}
+
 export function buildResumeParagraphs(h: ResumeHeader, doc: ResumeDoc): Paragraph[] {
+  const layout = doc.layout ?? DEFAULT_LAYOUT;
+  SIZE = sizesFor(layout);
+  SPACE = spaceFor(layout);
   const out: Paragraph[] = [...header(h)];
 
   if (doc.education.length) {
@@ -91,6 +102,16 @@ export function buildResumeParagraphs(h: ResumeHeader, doc: ResumeDoc): Paragrap
   if (doc.experience.length) {
     out.push(sectionHeader(SECTION_TITLES.experience));
     doc.experience.forEach((e, i) => {
+      out.push(splitLine([new TextRun({ text: e.title, bold: true, size: pt(SIZE.entryTitle), font: FONT })], e.dates, SIZE.entryTitle, { before: i ? SPACE.beforeEntry : 0 }));
+      out.push(splitLine([new TextRun({ text: e.company, italics: true, size: pt(SIZE.entrySub), font: FONT })], e.location, SIZE.entrySub, { italics: true }));
+      e.bullets.forEach((b) => out.push(bullet(b, SIZE.bullet)));
+    });
+  }
+
+  const projects = doc.projects ?? [];
+  if (projects.length) {
+    out.push(sectionHeader(SECTION_TITLES.projects));
+    projects.forEach((e, i) => {
       out.push(splitLine([new TextRun({ text: e.title, bold: true, size: pt(SIZE.entryTitle), font: FONT })], e.dates, SIZE.entryTitle, { before: i ? SPACE.beforeEntry : 0 }));
       out.push(splitLine([new TextRun({ text: e.company, italics: true, size: pt(SIZE.entrySub), font: FONT })], e.location, SIZE.entrySub, { italics: true }));
       e.bullets.forEach((b) => out.push(bullet(b, SIZE.bullet)));
@@ -130,14 +151,16 @@ export function buildResumeParagraphs(h: ResumeHeader, doc: ResumeDoc): Paragrap
 }
 
 export async function renderResumeDocx(h: ResumeHeader, doc: ResumeDoc): Promise<ArrayBuffer> {
+  const layout = doc.layout ?? DEFAULT_LAYOUT;
+  const children = buildResumeParagraphs(h, doc);
   const document = new Document({
     creator: h.name,
     title: `${h.name} Resume`,
     styles: {
       default: {
         document: {
-          run: { font: FONT, size: pt(SIZE.bullet), color: "000000" },
-          paragraph: { spacing: { before: 0, after: 0, line: 240 } },
+          run: { font: FONT, size: pt(sizesFor(layout).bullet), color: "000000" },
+          paragraph: { spacing: { before: 0, after: 0, line: lineTwips(layout) } },
         },
       },
     },
@@ -170,7 +193,7 @@ export async function renderResumeDocx(h: ResumeHeader, doc: ResumeDoc): Promise
             },
           },
         },
-        children: buildResumeParagraphs(h, doc),
+        children,
       },
     ],
   });

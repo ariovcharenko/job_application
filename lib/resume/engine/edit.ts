@@ -3,7 +3,7 @@ import type { ResumeDoc } from "./schema";
 // Edits she makes by hand on the visible resume, applied by code with no AI call: remove a bullet,
 // an entry or a skills line, and add a skill she confirmed. Pure functions over ResumeDoc.
 
-export type Section = "education" | "experience" | "skills" | "leadership";
+export type Section = "education" | "experience" | "projects" | "skills" | "leadership";
 
 /** A spot on the page, read from the preview's data attributes (see html.ts). */
 export interface Target {
@@ -22,6 +22,11 @@ export function describeTarget(doc: ResumeDoc, t: Target): string {
     if (!e) return "this part";
     return t.bullet === undefined ? `the ${e.company} role` : `${e.company}, bullet ${t.bullet + 1}`;
   }
+  if (t.section === "projects") {
+    const e = doc.projects?.[t.entry];
+    if (!e) return "this part";
+    return t.bullet === undefined ? `the ${e.company} project` : `${e.company}, bullet ${t.bullet + 1}`;
+  }
   if (t.section === "education") {
     const e = doc.education[t.entry];
     if (!e) return "this part";
@@ -37,7 +42,7 @@ export function removeTarget(doc: ResumeDoc, t: Target): ResumeDoc {
   if (t.section === "skills") return { ...doc, skills: drop(doc.skills, t.entry) };
   if (t.section === "leadership") return { ...doc, leadership: drop(doc.leadership, t.entry) };
   const key = t.section;
-  const entries = doc[key] as ResumeDoc["experience"] | ResumeDoc["education"];
+  const entries = (key === "projects" ? (doc.projects ?? []) : doc[key]) as ResumeDoc["experience"] | ResumeDoc["education"];
   if (t.bullet === undefined) return { ...doc, [key]: drop(entries as never[], t.entry) };
   return {
     ...doc,

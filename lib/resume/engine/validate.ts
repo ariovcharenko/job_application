@@ -9,7 +9,7 @@ import type { ResumeDoc } from "./schema";
 // silently. Anything that might be an invented fact (a skill, number, employer or date the master
 // profile doesn't contain) becomes a Flag: left OUT of the resume unless she ticks it.
 
-export type FlagKind = "skill" | "number" | "employer" | "education" | "leadership";
+export type FlagKind = "skill" | "number" | "employer" | "education" | "leadership" | "claim";
 
 export interface Flag {
   id: string;
@@ -19,6 +19,7 @@ export interface Flag {
   target:
     | { section: "skills"; line: number; item: number }
     | { section: "experience"; entry: number; bullet?: number }
+    | { section: "projects"; entry: number; bullet?: number }
     | { section: "education"; entry: number; bullet?: number }
     | { section: "leadership"; entry: number };
 }
@@ -48,11 +49,16 @@ export function fixDashes(text: string): { text: string; count: number } {
   return { text: out, count };
 }
 
-/** Drops ** markers if they don't pair up, so a stray one never shows as literal asterisks. */
+/**
+ * Drops ** markers if they don't pair up, so a stray one never shows as literal asterisks, and
+ * removes empty bold spans ("****", "** **") while keeping their space. (It used to strip "** **"
+ * wholesale, which also ate the space between two bold spans: "**Java 17** **Spring Boot**"
+ * became "**Java 17Spring Boot**".)
+ */
 export function fixBoldMarkers(text: string): string {
-  const n = (text.match(/\*\*/g) ?? []).length;
-  if (n % 2 === 0) return text.replace(/\*\*\s*\*\*/g, "");
-  return text.replace(/\*\*/g, "");
+  const parts = text.split("**");
+  if (parts.length % 2 === 0) return text.replace(/\*\*/g, "");
+  return parts.map((p, i) => (i % 2 === 1 ? (p.trim() ? `**${p}**` : p) : p)).join("");
 }
 
 export const plain = (text: string) => text.replace(/\*\*/g, "");
@@ -79,6 +85,13 @@ const allWordsIn = (phrase: string, text: string) => {
 };
 
 function mapStrings(doc: ResumeDoc, fn: (s: string) => string): ResumeDoc {
+  const entry = (e: ResumeDoc["experience"][number]) => ({
+    title: fn(e.title),
+    company: fn(e.company),
+    location: fn(e.location),
+    dates: fn(e.dates),
+    bullets: e.bullets.map(fn),
+  });
   return {
     education: doc.education.map((e) => ({
       school: fn(e.school),
@@ -87,16 +100,12 @@ function mapStrings(doc: ResumeDoc, fn: (s: string) => string): ResumeDoc {
       dates: fn(e.dates),
       bullets: e.bullets.map(fn),
     })),
-    experience: doc.experience.map((e) => ({
-      title: fn(e.title),
-      company: fn(e.company),
-      location: fn(e.location),
-      dates: fn(e.dates),
-      bullets: e.bullets.map(fn),
-    })),
+    experience: doc.experience.map(entry),
+    ...(doc.projects ? { projects: doc.projects.map(entry) } : {}),
     skills: doc.skills.map((l) => ({ category: fn(l.category), items: l.items.map(fn) })),
     leadership: doc.leadership.map((l) => ({ role: fn(l.role), dates: fn(l.dates) })),
     meta: doc.meta,
+    ...(doc.layout ? { layout: doc.layout } : {}),
   };
 }
 
@@ -207,6 +216,20 @@ const looksLikeTool = (span: string) =>
   /[A-Z.+#/]/.test(span);
 
 /**
+ * Claims about who the work was for or what kind of work it was. Easy to add in a rewrite and
+ * not true unless the role's own text says so ("for client workflows", "external partners", "a UI
+ * migration"). Each is a word stem; the role's text must use the same stem.
+ */
+const CLAIM_STEMS = ["client", "customer", "partner", "stakeholder", "enterprise", "vendor", "executive", "migrat"];
+
+/** Claim words in a bullet that its own master entry (`block`) never uses. */
+export function unknownClaims(bullet: string, block: string): string[] {
+  const text = plain(bullet).toLowerCase();
+  const source = block.toLowerCase();
+  return CLAIM_STEMS.filter((stem) => new RegExp(`\\b${stem}`).test(text) && !new RegExp(`\\b${stem}`).test(source));
+}
+
+/**
  * Technologies a bullet mentions that her master profile doesn't have: its bold spans, plus known
  * technology names written in their usual capitalization. A known technology passes if she has
  * the skill or this entry's own master text names it (coursework under Education); any other bold
@@ -224,16 +247,24 @@ function unknownTools(bullet: string, block: string, inventory: string[], master
     const key = normalizeSkill(name);
     if (seen.has(key)) continue;
     seen.add(key);
+    // Her rule: a technology in a bullet must be in THAT role's own text (a skill she only listed,
+    // or ticked "I have this" for, belongs on the Skills line, not in a bullet about a role that
+    // never used it). Synonyms and "implied by" pairs still count, within the role.
     const ok =
-      hasSkill(name, inventory, master) ||
       mentionsTerm(block, name) ||
-      (!TECH_KEYS.has(key) && containsLoose(master, name));
+      hasSkill(name, inventory.filter((i) => mentionsTerm(block, i)), block) ||
+      (!TECH_KEYS.has(key) && containsLoose(block, name));
     if (!ok) out.push(name);
   }
   return out;
 }
 
-export function validateResume(raw: ResumeDoc, masterProfile: string): ValidationResult {
+export interface ValidateOptions {
+  /** The job's skills, so skills lines are ordered by what this job cares about most. */
+  jobSkills?: string[];
+}
+
+export function validateResume(raw: ResumeDoc, masterProfile: string, opts: ValidateOptions = {}): ValidationResult {
   const fixes: string[] = [];
   let dashCount = 0;
   const doc = mapStrings(raw, (s) => {
@@ -247,10 +278,10 @@ export function validateResume(raw: ResumeDoc, masterProfile: string): Validatio
   for (const e of doc.experience) Object.assign(e, { title: plain(e.title), company: plain(e.company) });
   for (const l of doc.skills) Object.assign(l, { category: plain(l.category), items: l.items.map(plain) });
   // Date ranges always read "Mon YYYY - Mon YYYY".
-  for (const e of [...doc.experience, ...doc.education, ...doc.leadership]) e.dates = spaceDateDashes(e.dates);
+  for (const e of [...doc.experience, ...(doc.projects ?? []), ...doc.education, ...doc.leadership]) e.dates = spaceDateDashes(e.dates);
   // Mechanical polish by code: at most 4 bold spans per bullet, the usual casing of well-known
   // technologies, no skill listed twice (lib/resume/engine/polish.ts).
-  const polished = polishResume(doc);
+  const polished = polishResume(doc, { inventory: parseSkillInventory(masterProfile), jobSkills: opts.jobSkills });
   Object.assign(doc, polished.doc);
   fixes.push(...polished.notes);
 
@@ -262,7 +293,9 @@ export function validateResume(raw: ResumeDoc, masterProfile: string): Validatio
 
   doc.skills.forEach((line, li) =>
     line.items.forEach((item, ii) => {
-      if (!hasSkill(item, inventory, master)) {
+      // Only skills she listed (or ticked "I have this" for, which adds them to her list). A word
+      // that merely appears in a bullet ("metrics", "testing") isn't a skill she listed.
+      if (!hasSkill(item, inventory, "")) {
         flags.push({
           id: `skill-${li}-${ii}`,
           kind: "skill",
@@ -283,6 +316,15 @@ export function validateResume(raw: ResumeDoc, masterProfile: string): Validatio
         target,
       }),
     );
+    const claims = unknownClaims(b, block);
+    if (claims.length) {
+      flags.push({
+        id: `${idPrefix}claim`,
+        kind: "claim",
+        message: `Says "${claims.join('", "')}", which ${where === "education" ? "your education" : "this role"} in your experience doesn't: "${plain(b)}"`,
+        target,
+      });
+    }
     const unknown = [...unknownNumbers(b, block, master), ...unknownNumberWords(b, block)];
     if (unknown.length) {
       flags.push({
@@ -293,6 +335,18 @@ export function validateResume(raw: ResumeDoc, masterProfile: string): Validatio
       });
     }
   };
+
+  // Something her experience lists under Projects goes in Projects, even if the model put it under
+  // Experience.
+  if (entries.length) {
+    const isProject = (e: ResumeDoc["experience"][number]) => /project/i.test(findEntry(entries, e)?.section ?? "");
+    const moved = doc.experience.filter(isProject);
+    if (moved.length) {
+      doc.experience = doc.experience.filter((e) => !isProject(e));
+      doc.projects = [...(doc.projects ?? []), ...moved];
+      fixes.push(`Moved ${moved.map((e) => e.company).join(", ")} to Projects, where your experience lists it.`);
+    }
+  }
 
   let headersCorrected = 0;
   doc.experience.forEach((e, ei) => {
@@ -340,7 +394,37 @@ export function validateResume(raw: ResumeDoc, masterProfile: string): Validatio
     e.bullets.forEach((b, bi) => checkBullet(b, block, `${e.company}, bullet ${bi + 1}`, `exp-${ei}-${bi}-`, { section: "experience", entry: ei, bullet: bi }));
   });
 
+  // Projects: same checks as roles, against the master's project entries.
+  (doc.projects ?? []).forEach((e, pi) => {
+    const entry = entries.length ? findEntry(entries, e) : undefined;
+    if (entry) {
+      const before = `${e.title}|${e.dates}|${e.location}`;
+      const resolved = resolveTitle(e.title, entry);
+      if (resolved) e.title = resolved;
+      if (entry.dates) e.dates = spaceDateDashes(entry.dates);
+      e.location = entry.location;
+      if (`${e.title}|${e.dates}|${e.location}` !== before) headersCorrected++;
+      if (!titleMatches(e.title, entry)) {
+        flags.push({ id: `proj-${pi}`, kind: "employer", message: `title "${e.title}" doesn't match your ${entry.company} project in your experience.`, target: { section: "projects", entry: pi } });
+      }
+    } else {
+      flags.push({ id: `proj-${pi}`, kind: "employer", message: `project "${e.company}" not found in your experience.`, target: { section: "projects", entry: pi } });
+    }
+    const block = entry?.block ?? "";
+    e.bullets.forEach((b, bi) => checkBullet(b, block, `${e.company}, bullet ${bi + 1}`, `proj-${pi}-${bi}-`, { section: "projects", entry: pi, bullet: bi }));
+  });
+
   const eduText = sectionText(master, /education/i) || master;
+  // Her rules for Education: no coursework line, and when her experience gives a major GPA, never
+  // any other GPA.
+  const majorGpa = /major\s+gpa/i.test(eduText);
+  let eduDropped = 0;
+  for (const e of doc.education) {
+    const keep = e.bullets.filter((b) => !/^\s*(relevant\s+)?coursework\b/i.test(plain(b)) && !(majorGpa && /\bgpa\b/i.test(b) && !/major\s+gpa/i.test(b)));
+    eduDropped += e.bullets.length - keep.length;
+    e.bullets = keep;
+  }
+  if (eduDropped) fixes.push(`Left off ${eduDropped} coursework or overall GPA line${eduDropped === 1 ? "" : "s"} from Education.`);
   if (headersCorrected) fixes.push(`Used your exact title, dates and location for ${headersCorrected} role${headersCorrected === 1 ? "" : "s"}.`);
 
   doc.education.forEach((e, ei) => {
@@ -384,7 +468,7 @@ export function validateResume(raw: ResumeDoc, masterProfile: string): Validatio
   });
 
   // An "(alt. title: X)" note is for choosing a title, never for the page.
-  for (const e of doc.experience) e.title = cleanTitle(e.title);
+  for (const e of [...doc.experience, ...(doc.projects ?? [])]) e.title = cleanTitle(e.title);
 
   return { doc, flags, fixes };
 }
@@ -408,6 +492,16 @@ export function applyApprovals(doc: ResumeDoc, flags: Flag[], approved: Set<stri
         bullets: e.bullets.filter((_, bi) => !dropped((f) => f.target.section === "experience" && f.target.entry === ei && bulletOf(f) === bi)),
       }))
       .filter((_, ei) => !dropped((f) => f.target.section === "experience" && f.target.entry === ei && bulletOf(f) === undefined)),
+    ...(doc.projects
+      ? {
+          projects: doc.projects
+            .map((e, pi) => ({
+              ...e,
+              bullets: e.bullets.filter((_, bi) => !dropped((f) => f.target.section === "projects" && f.target.entry === pi && bulletOf(f) === bi)),
+            }))
+            .filter((_, pi) => !dropped((f) => f.target.section === "projects" && f.target.entry === pi && bulletOf(f) === undefined)),
+        }
+      : {}),
     skills: doc.skills
       .map((l, li) => ({
         ...l,
@@ -423,6 +517,7 @@ export function resumeText(doc: ResumeDoc): string {
   return [
     ...doc.education.flatMap((e) => [e.school, e.degree, ...e.bullets]),
     ...doc.experience.flatMap((e) => [e.title, e.company, ...e.bullets]),
+    ...(doc.projects ?? []).flatMap((e) => [e.title, e.company, ...e.bullets]),
     ...doc.skills.map((l) => `${l.category}: ${l.items.join(", ")}`),
     ...doc.leadership.map((l) => l.role),
   ]

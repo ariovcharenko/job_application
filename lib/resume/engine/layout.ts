@@ -11,32 +11,60 @@ export const PAGE = {
 export const FONT = "Times New Roman";
 export const LINK_COLOR = "0563C1";
 
-/** Sizes in points. */
-export const SIZE = {
-  name: 17,
-  contact: 9.5,
-  sectionHeader: 10,
-  entryTitle: 9.5,
-  entrySub: 9,
-  bullet: 9,
-  skills: 9,
-};
+/**
+ * What the fit loop may change to fill the page: the body font size (pt) and a multiple applied to
+ * line height and to the space between sections and entries. Everything else scales from these.
+ */
+export interface Layout {
+  body: number;
+  spacing: number;
+}
+
+export const MIN_BODY_PT = 10;
+export const MAX_BODY_PT = 11;
+export const BODY_STEP_PT = 0.25;
+export const MIN_SPACING = 1;
+export const MAX_SPACING = 1.15;
+export const SPACING_STEP = 0.05;
+
+export const DEFAULT_LAYOUT: Layout = { body: MIN_BODY_PT, spacing: MIN_SPACING };
+
+/** Sizes in points for a layout: the name, headers and titles keep their offsets from the body text. */
+export function sizesFor(layout: Layout = DEFAULT_LAYOUT) {
+  const b = layout.body;
+  return {
+    name: b + 8,
+    contact: b + 0.5,
+    sectionHeader: b + 1,
+    entryTitle: b + 0.5,
+    entrySub: b,
+    bullet: b,
+    skills: b,
+  };
+}
 
 /** Word's "single" line height for Times New Roman is ~1.15x the font size. */
 export const LINE_HEIGHT = 1.15;
 
-/** Vertical spacing, in points. */
-export const SPACE = {
-  afterName: 1,
-  afterContact: 3,
-  beforeSection: 5,
-  afterSectionHeader: 2,
-  beforeEntry: 3,
-};
+/** Vertical spacing in points for a layout. */
+export function spaceFor(layout: Layout = DEFAULT_LAYOUT) {
+  const m = layout.spacing;
+  return {
+    afterName: 1,
+    afterContact: 3 * m,
+    beforeSection: 5 * m,
+    afterSectionHeader: 2 * m,
+    beforeEntry: 3 * m,
+  };
+}
+
+export const SIZE = sizesFor();
+export const SPACE = spaceFor();
 
 export const SECTION_TITLES = {
   education: "EDUCATION",
   experience: "EXPERIENCE",
+  projects: "PROJECTS",
   skills: "TECHNICAL SKILLS",
   leadership: "LEADERSHIP & INVOLVEMENT",
 };

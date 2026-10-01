@@ -5,6 +5,17 @@ import type { JsonSchema } from "../../ai/provider";
 // this: it's built by code from the Profile so the links can never be mistyped or "fixed".
 // Bullet text marks bold spans with **double asterisks**.
 
+const EntrySchema = z.object({
+  title: z.string(),
+  company: z.string(),
+  location: z.string(),
+  dates: z.string(),
+  bullets: z.array(z.string()),
+});
+
+/** Body font size (pt) and line/section spacing multiple the page was fitted at (lib/resume/engine/layout.ts). */
+export const LayoutSchema = z.object({ body: z.number(), spacing: z.number() });
+
 export const ResumeDocSchema = z.object({
   education: z.array(
     z.object({
@@ -15,15 +26,9 @@ export const ResumeDocSchema = z.object({
       bullets: z.array(z.string()),
     }),
   ),
-  experience: z.array(
-    z.object({
-      title: z.string(),
-      company: z.string(),
-      location: z.string(),
-      dates: z.string(),
-      bullets: z.array(z.string()),
-    }),
-  ),
+  experience: z.array(EntrySchema),
+  /** Entries from the master profile's Projects section, same shape as a role (company = project name). */
+  projects: z.array(EntrySchema).optional(),
   skills: z.array(z.object({ category: z.string(), items: z.array(z.string()) })),
   leadership: z.array(z.object({ role: z.string(), dates: z.string() })),
   meta: z.object({
@@ -31,6 +36,8 @@ export const ResumeDocSchema = z.object({
     gaps: z.array(z.string()),
     valuesReflected: z.array(z.string()),
   }),
+  /** Set by code when fitting the page, never by the model. Absent = DEFAULT_LAYOUT. */
+  layout: LayoutSchema.optional(),
 });
 
 export type ResumeDoc = z.infer<typeof ResumeDocSchema>;
@@ -70,9 +77,14 @@ const RESUME_DOC_PROPERTIES = {
       },
     }),
   },
+  projects: {
+    type: "array",
+    description: "Entries from the MASTER PROFILE's Projects section only (company = the project's name), at most 2 bullets each. Empty if it has none.",
+    items: obj({ title: str, company: str, location: str, dates: str, bullets: strArr }),
+  },
   skills: {
     type: "array",
-    description: "5 to 7 lines. Items only from the skills inventory.",
+    description: "5 to 6 lines, the categories the job cares about most first. Items only from the skills inventory.",
     items: obj({ category: str, items: strArr }),
   },
   leadership: { type: "array", items: obj({ role: str, dates: str }) },

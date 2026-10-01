@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { capBoldSpans, dedupeSkills, fixTechCasing, polishResume } from "./polish";
+import { boldOnlyTechAndNumbers, boldSpansTouch, capBoldSpans, dedupeSkills, fixTechCasing, MAX_SKILL_LINES, orderSkillLines, polishResume, separateBoldSpans, tidySkillLines } from "./polish";
+import { fixBoldMarkers } from "./validate";
 import type { ResumeDoc } from "./schema";
 
 describe("fixTechCasing", () => {
@@ -41,21 +42,86 @@ describe("dedupeSkills", () => {
   });
 });
 
+describe("separateBoldSpans", () => {
+  it("puts a space between bold spans that touch, and between bold and a word it runs into", () => {
+    expect(separateBoldSpans("Built with **Java 17****Spring Boot**")).toBe("Built with **Java 17** **Spring Boot**");
+    expect(separateBoldSpans("**Java 17**Spring and use**React**")).toBe("**Java 17** Spring and use **React**");
+  });
+  it("leaves punctuation and properly spaced spans alone", () => {
+    const t = "**React**, **Next.js** and **TypeScript** (**~35%**)";
+    expect(separateBoldSpans(t)).toBe(t);
+  });
+});
+
+describe("fixBoldMarkers (validate.ts)", () => {
+  it("keeps the space between two adjacent bold spans (the Java 17Spring Boot bug)", () => {
+    expect(fixBoldMarkers("**Java 17** **Spring Boot** backend")).toBe("**Java 17** **Spring Boot** backend");
+    expect(fixBoldMarkers("an **** empty span")).toBe("an  empty span");
+  });
+});
+
+describe("boldOnlyTechAndNumbers", () => {
+  it("unbolds phrases that are neither a technology nor a number", () => {
+    expect(boldOnlyTechAndNumbers("**Led** an **end-to-end** rewrite in **React** for **80+ users**", []).text).toBe(
+      "Led an end-to-end rewrite in **React** for **80+ users**",
+    );
+  });
+  it("keeps a technology from her skills list", () => {
+    expect(boldOnlyTechAndNumbers("Built on **Prisma ORM**", ["Prisma ORM"]).changed).toBe(false);
+  });
+});
+
+describe("skills lines", () => {
+  it("drops non-technical lines and merges Additional into Tools", () => {
+    const r = tidySkillLines([
+      { category: "Languages", items: ["TypeScript"] },
+      { category: "Collaboration", items: ["Agile"] },
+      { category: "Tools", items: ["Git"] },
+      { category: "Additional", items: ["Figma"] },
+    ]);
+    expect(r.skills).toEqual([
+      { category: "Languages", items: ["TypeScript"] },
+      { category: "Tools", items: ["Git", "Figma"] },
+    ]);
+  });
+  it("orders lines by the job's skills and keeps at most six", () => {
+    const lines = ["A", "B", "C", "D", "E", "F", "G"].map((c, i) => ({ category: c, items: [`Skill${i}`] }));
+    lines[6].items = ["Kubernetes"];
+    const out = orderSkillLines(lines, ["Kubernetes"]);
+    expect(out[0].category).toBe("G");
+    expect(out).toHaveLength(MAX_SKILL_LINES);
+  });
+});
+
 describe("polishResume", () => {
+  const doc: ResumeDoc = {
+    education: [],
+    experience: [
+      {
+        title: "SWE",
+        company: "Acme",
+        location: "",
+        dates: "",
+        bullets: ["Built **Java 17** **Spring Boot**, **React**, **Docker**, **Redis** and **Jest** in Javascript for **80+ users**", "**Owned** the **Java 17****Spring Boot** API"],
+      },
+    ],
+    skills: [
+      { category: "Languages", items: ["Javascript"] },
+      { category: "Web", items: ["JavaScript"] },
+    ],
+    leadership: [],
+    meta: { matchedKeywords: [], gaps: [], valuesReflected: [] },
+  };
+
   it("applies all fixes and reports them", () => {
-    const doc: ResumeDoc = {
-      education: [],
-      experience: [{ title: "SWE", company: "Acme", location: "", dates: "", bullets: ["Built **a** **b** **c** **d** **e** in Javascript"] }],
-      skills: [
-        { category: "Languages", items: ["Javascript"] },
-        { category: "Web", items: ["JavaScript"] },
-      ],
-      leadership: [],
-      meta: { matchedKeywords: [], gaps: [], valuesReflected: [] },
-    };
     const r = polishResume(doc);
-    expect(r.doc.experience[0].bullets[0]).toBe("Built **a** **b** **c** **d** e in JavaScript");
+    expect(r.doc.experience[0].bullets[0]).toBe("Built **Java 17** **Spring Boot**, **React**, Docker, Redis and Jest in JavaScript for **80+ users**");
+    expect(r.doc.experience[0].bullets[1]).toBe("Owned the **Java 17** **Spring Boot** API");
     expect(r.doc.skills).toEqual([{ category: "Languages", items: ["JavaScript"] }]);
-    expect(r.notes).toHaveLength(2);
+  });
+
+  it("never leaves two bold spans touching without a space", () => {
+    const r = polishResume(doc);
+    for (const b of r.doc.experience.flatMap((e) => e.bullets)) expect(boldSpansTouch(b)).toBe(false);
   });
 });
