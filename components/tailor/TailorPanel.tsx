@@ -4,44 +4,47 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getProvider } from "@/lib/ai";
 import { getMasterProfile, getProfile, saveMasterProfile } from "@/lib/db";
-import { buildHeader, generateResume, type ResumeHeader } from "@/lib/resume/engine";
+import { buildHeader, type ResumeHeader } from "@/lib/resume/engine";
+import { linesShort } from "@/lib/resume/engine/budget";
 import { pageFill } from "@/lib/resume/engine/fit";
 import { PAGE_CSS, renderResumeHtml } from "@/lib/resume/engine/html";
 import { renderResumeDocx } from "@/lib/resume/engine/render";
 import { exportResume, getJobResume, storeJobResume, type ExportResult } from "@/lib/resume/engine/save";
 import { createDebouncedSave } from "@/lib/resume/engine/autosave";
-import { fitResume, toPoolTarget } from "@/lib/resume/engine/trim";
+import { fitResume, toPoolTarget, toVisibleSpot } from "@/lib/resume/engine/trim";
 import { verifyResume } from "@/lib/resume/engine/verify";
-import { backfillFromExperience, copiedBullets } from "@/lib/resume/engine/backfill";
-import { focusRelevance } from "@/lib/resume/engine/focus";
+import { tailorResume } from "@/lib/resume/engine/pipeline";
 import { explainTailoring } from "@/lib/resume/engine/tailored";
-import { addSkill, describeTarget, removeTarget, targetFromElement, type Target } from "@/lib/resume/engine/edit";
+import { addSkill, describeTarget, removeSpot, removeTarget, spotOn, targetFromElement, type Target } from "@/lib/resume/engine/edit";
 import { editTarget, textOfTarget } from "@/lib/resume/engine/editText";
-import { findQuote } from "@/lib/resume/engine/highlight";
 import { popoverPlacement, PREVIEW_SCALE, previewScale } from "@/lib/resume/engine/preview";
 import type { ResumeDoc } from "@/lib/resume/engine/schema";
-import { cleanTitle, entriesNotOnPage } from "@/lib/resume/master/experiences";
-import { appendSkillToMaster, appendUsageNote, hasSkill, parseSkillInventory } from "@/lib/resume/master/skills";
-import { carryApprovals, fillPageComment, retailorComments, reviseResume, type ResumeComment } from "@/lib/resume/engine/revise";
-import { applyApprovals, normalizeFlagMessage, resumeText, validateResume, type ValidationResult } from "@/lib/resume/engine/validate";
+import { cleanTitle, entriesNotOnPage, parseMasterExperiences } from "@/lib/resume/master/experiences";
+import { appendSkillToMaster, appendUsageNote, hasSkill, parseSkillInventory, type RoleKey } from "@/lib/resume/master/skills";
+import { carryApprovals, fillComment, placementComment, reviseResume, type ResumeComment } from "@/lib/resume/engine/revise";
+import { applyApprovals, normalizeFlagMessage, resumeText, validateResume, type Flag, type ValidationResult } from "@/lib/resume/engine/validate";
 import { jobFocusFor, jobSkills, skillCoverage, skillHits } from "@/lib/resume/coverage";
 import { tailoredFileName } from "@/lib/resume/repo";
 import type { Application } from "@/lib/types";
-import { Button, Checkbox, inputClass, Notice, Spinner } from "@/components/ui";
+import { Button, inputClass, Notice, Spinner } from "@/components/ui";
 import AIErrorNotice from "@/components/resumes/AIErrorNotice";
-import SkillGapsCard from "./SkillGapsCard";
+import SkillGapsCard, { type PlaceOption } from "./SkillGapsCard";
+import PreTailorCard from "./PreTailorCard";
+import { applyConfirmations, confirmedForPrompt, placeChoices, preTailorGaps, type ConfirmedSkill } from "@/lib/resume/gaps";
+import AskForChanges from "./AskForChanges";
 import QualityCard from "./QualityCard";
 import TailoredForCard from "./TailoredForCard";
 import { lintResume } from "@/lib/resume/quality/lint";
 import { issuesToComments, qualityScore } from "@/lib/resume/quality/summary";
 import { readBreakdown } from "@/lib/intake/stored";
 
-/** Rough cost of one tailoring call on Sonnet-class pricing, shown before she spends it. */
-export const TAILOR_COST_HINT = "about 5 to 9¢";
+/**
+ * Rough cost of one tailoring run on Sonnet-class pricing, shown before she spends it: one call at
+ * high effort, plus one short follow-up only when the page ends short or needs a writing fix.
+ */
+export const TAILOR_COST_HINT = "about 6 to 12¢";
 /** A revision reuses the cached system prompt (rules + master profile), so it's a bit cheaper. */
 export const REVISE_COST_HINT = "about 4¢";
-
-const HIGHLIGHT_NAME = "resume-comments";
 
 function PopoverAction({ label, hint, onClick, danger }: { label: string; hint: string; onClick: () => void; danger?: boolean }) {
   return (
@@ -65,28 +68,37 @@ function CheckIcon({ ok }: { ok: boolean }) {
   );
 }
 
-/** Paints the quotes she commented on in the preview (Chrome's CSS Custom Highlight API). */
-function paintHighlights(root: HTMLElement | null, quotes: string[]) {
-  const registry = (globalThis.CSS as unknown as { highlights?: Map<string, unknown> })?.highlights;
-  const HighlightCtor = (globalThis as unknown as { Highlight?: new (...r: Range[]) => unknown }).Highlight;
-  if (!registry || !HighlightCtor) return;
-  registry.delete(HIGHLIGHT_NAME);
-  if (!root || quotes.length === 0) return;
-  const nodes: Text[] = [];
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  while (walker.nextNode()) nodes.push(walker.currentNode as Text);
-  const texts = nodes.map((n) => n.data);
-  const ranges: Range[] = [];
-  for (const q of quotes) {
-    const span = findQuote(texts, q);
-    if (!span) continue;
-    const r = document.createRange();
-    r.setStart(nodes[span.startNode], span.startOffset);
-    r.setEnd(nodes[span.endNode], span.endOffset);
-    ranges.push(r);
-  }
-  if (ranges.length) registry.set(HIGHLIGHT_NAME, new HighlightCtor(...ranges));
+/** One flagged line: what's wrong, and Keep / Remove. */
+function FlagRow({ flag, onKeep, onRemove, disabled }: { flag: Flag; onKeep: () => void; onRemove: () => void; disabled?: boolean }) {
+  return (
+    <li className="flex flex-wrap items-start justify-between gap-2 text-[13px]">
+      <span className="min-w-0 flex-1">
+        <span className={`mr-1.5 inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${flag.severity === "block" ? "bg-bad-soft text-bad" : "bg-white text-ink"}`}>
+          {flag.severity === "block" ? "Left out" : "Check"}
+        </span>
+        {flag.message}
+      </span>
+      <span className="flex shrink-0 gap-1">
+        <button type="button" disabled={disabled} onClick={onKeep} className="rounded-full bg-black/[0.05] px-2.5 py-0.5 text-xs font-medium hover:bg-accent-soft hover:text-accent-deep disabled:opacity-40">
+          Keep
+        </button>
+        <button type="button" disabled={disabled} onClick={onRemove} className="rounded-full px-2.5 py-0.5 text-xs font-medium text-bad hover:bg-bad-soft disabled:opacity-40">
+          Remove
+        </button>
+      </span>
+    </li>
+  );
 }
+
+/** A skill she placed in a role, waiting for the one call that writes it into that role's bullets. */
+interface Placement {
+  skill: string;
+  how: string;
+  role: RoleKey;
+  label: string;
+}
+
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
 export default function TailorPanel({
   application,
@@ -102,7 +114,13 @@ export default function TailorPanel({
   /** Called with the tailored resume's id each time the current version is saved to this job. */
   onSaved?: (tailoredResumeId: number) => void;
 }) {
-  const [master, setMaster] = useState<string | null>(null);
+  const [master, setMasterState] = useState<string | null>(null);
+  // The latest experience text, also for calls that start in the same click that changed it.
+  const masterRef = useRef("");
+  const setMaster = (m: string) => {
+    masterRef.current = m;
+    setMasterState(m);
+  };
   const [header, setHeader] = useState<ResumeHeader | null>(null);
   const [fullName, setFullName] = useState("");
   const [phase, setPhase] = useState<"idle" | "generating" | "ready" | "saving" | "revising">("idle");
@@ -110,6 +128,7 @@ export default function TailorPanel({
   // An AI call that failed, shown with the link that fixes it (credit, key, rate limit...).
   const [aiError, setAiError] = useState<unknown>(null);
   const [result, setResult] = useState<ValidationResult | null>(null);
+  // Flags she decided to keep: a blocked line she confirmed, or a note she looked at.
   const [approved, setApproved] = useState<Set<string>>(new Set());
   const [saved, setSaved] = useState<(ExportResult & { fileName: string }) | null>(null);
   // Every version is saved to this job automatically; this tracks that, not the download.
@@ -118,8 +137,10 @@ export default function TailorPanel({
   const loadedFromStore = useRef(false);
   const [saver] = useState(() => createDebouncedSave(600));
   const started = useRef(false);
-  // Review comments: select text in the preview, comment, then send them all back to fix.
-  const [comments, setComments] = useState<ResumeComment[]>([]);
+  const [placements, setPlacements] = useState<Placement[]>([]);
+  // The before-tailoring question: skills she already answered (ticked or not) aren't asked again.
+  const [answered, setAnswered] = useState<Set<string>>(new Set());
+  const [preStep, setPreStep] = useState(false);
   const [selection, setSelection] = useState<{
     quote: string;
     x: number;
@@ -135,15 +156,28 @@ export default function TailorPanel({
   const popoverRef = useRef<HTMLDivElement>(null);
   const openedFrom = useRef<HTMLElement | null>(null);
   const [note, setNote] = useState("");
-  const [generalNote, setGeneralNote] = useState("");
   const [changes, setChanges] = useState<string[]>([]);
   const [history, setHistory] = useState<{ result: ValidationResult; approved: Set<string> }[]>([]);
   const previewBox = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
 
+  // The job's skills and what the job is about (must-haves, domains, responsibilities, role family).
+  const { fitBreakdown, jdText, role } = application;
+  const skillsForJob = useMemo(() => (master ? jobSkills({ fitBreakdown, jdText }, master) : []), [fitBreakdown, jdText, master]);
+  const focus = useMemo(() => (master ? jobFocusFor({ fitBreakdown, jdText, role }, master) : null), [fitBreakdown, jdText, role, master]);
+  const checkOpts = useMemo(() => ({ jobSkills: skillsForJob, focus: focus ?? undefined }), [skillsForJob, focus]);
+  const fitOpts = useMemo(
+    () => (focus ? { focus } : { relevance: (text: string) => skillHits(skillsForJob, text) }),
+    [focus, skillsForJob],
+  );
+  const requiredSkills = useMemo(() => {
+    const s = readBreakdown({ fitBreakdown })?.skills;
+    return s ? [...s.required.have, ...s.required.gap] : [];
+  }, [fitBreakdown]);
+
   useEffect(() => {
     Promise.all([getMasterProfile(), getProfile(), getJobResume(application.id)]).then(([m, p, existing]) => {
-      // Reopen the resume already saved for this job, with her ticks, instead of an empty panel.
+      // Reopen the resume already saved for this job, with her decisions, instead of an empty panel.
       if (existing && m.trim()) {
         const reopened = validateResume(existing.stored.doc, m, { jobSkills: jobSkills(application, m), focus: jobFocusFor(application, m) });
         // Older saves stored ticks with the previous "master profile" wording.
@@ -162,82 +196,64 @@ export default function TailorPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [application.id]);
 
-  const generate = async () => {
-    if (!master?.trim()) return;
+  // The job's skills her experience doesn't show and she hasn't answered yet: asked before tailoring.
+  const pendingGaps = useMemo(
+    () => (master ? preTailorGaps({ fitBreakdown, jdText }, master).filter((g) => !answered.has(g.skill.toLowerCase())) : []),
+    [fitBreakdown, jdText, master, answered],
+  );
+  const masterPlaces = useMemo(() => (master ? placeChoices(master) : []), [master]);
+
+  /** "Tailor resume" / "Start over": ask about the job's missing skills first, when there are any. */
+  const start = () => {
+    if (pendingGaps.length) setPreStep(true);
+    else void generate([]);
+  };
+
+  /**
+   * One tailoring run. Her answers to the before-tailoring question are saved to her experience
+   * first (gaps.ts applyConfirmations), so the call and the checks both see them as hers.
+   */
+  const generate = async (confirmed: ConfirmedSkill[]) => {
+    let m = masterRef.current;
+    if (!m.trim() || !header) return;
     setError(null);
     setAiError(null);
     setSaved(null);
+    setPreStep(false);
+    setAnswered((a) => new Set([...a, ...pendingGaps.map((g) => g.skill.toLowerCase())]));
+    if (confirmed.length) {
+      const updated = applyConfirmations(m, confirmed);
+      if (updated !== m) {
+        try {
+          await saveMasterProfile(updated);
+        } catch (e) {
+          setError(`Couldn't save your skills to Your experience: ${e instanceof Error ? e.message : String(e)}`);
+          return;
+        }
+        setMaster(updated);
+        m = updated;
+      }
+    }
     setPhase("generating");
     try {
-      // The job's skills split into ones she has and gaps, so the model uses exact spellings and
-      // never mentions a gap (code already knows this; no need for the model to redo it).
-      const inventory = parseSkillInventory(master);
-      const skills = jobSkills(application, master);
-      const provider = await getProvider();
-      const have = skills.filter((s) => hasSkill(s, inventory, master));
-      // The job focus (what this job is about, worked out by code) goes into the request too, with
-      // code's ranking of her experiences for this job, so the model writes for this job's work.
-      const raw = await generateResume(
-        provider,
-        master,
-        application.company,
-        application.jdText,
-        { have, gaps: skills.filter((s) => !hasSkill(s, inventory, master)) },
-        focus ?? undefined,
-      );
-      let checked = validateResume(raw, master, checkOpts);
-      let polishNotes: string[] = [];
-      const measure = (d: ResumeDoc) => pageFill(header!, d);
-      // The model often writes less than a page. The rest is filled from her own bullets for the
-      // roles already on the page, word for word (true by construction, no extra call), most
-      // relevant to this job first; fitting then keeps only what fits.
-      const fillFromExperience = () => {
-        if (!header) return;
-        const pool = applyApprovals(checked.doc, checked.flags, new Set());
-        if (!fitResume(pool, measure, fitOpts).underfilled) return;
-        const filled = backfillFromExperience(checked.doc, master, fitOpts.focus ? focusRelevance(fitOpts.focus) : fitOpts.relevance);
-        if (filled.added === 0) return;
-        checked = validateResume(filled.doc, master, checkOpts);
-        polishNotes = [...polishNotes, `Filled the page with ${filled.added} more of your own bullets, kept only where they fit.`];
-      };
-      fillFromExperience();
-      // Her own rule: when a check fails, send that issue back to the model once. Code has already
-      // fixed what it can (dashes, bold count, casing, duplicate skills); what's left here is writing
-      // only the model can fix (repeated or weak verbs, buzzwords, overlong bullets). One extra call,
-      // only when needed; if it fails, the draft stands. That same call also rewrites, for this
-      // job, the bullets the page filler copied word for word (no call is made just for those).
-      if (header) {
-        const pool = applyApprovals(checked.doc, checked.flags, new Set());
-        const fit = fitResume(pool, measure, fitOpts);
-        const s = readBreakdown(application)?.skills;
-        const required = s ? [...s.required.have, ...s.required.gap] : [];
-        const fixIssues = lintResume(fit.doc, { jobSkills: have, requiredSkills: required }).filter((i) => i.severity === "fix");
-        if (fixIssues.length > 0) {
-          const repairs = issuesToComments(fixIssues).map((c) => {
-            const target = c.target ? toPoolTarget(fit.map, c.target) : null;
-            return { ...c, ...(target ? { target } : { target: undefined }) };
-          });
-          const retailor = focus ? retailorComments(fit.doc, fit.map, copiedBullets(fit.doc, master), focus) : [];
-          try {
-            const out = await reviseResume(provider, master, application.company, application.jdText, pool, [...repairs, ...retailor]);
-            const { changes: done, ...doc } = out;
-            checked = validateResume(doc, master, checkOpts);
-            polishNotes = [
-              `Polished automatically: fixed ${fixIssues.length} writing issue${fixIssues.length === 1 ? "" : "s"}${retailor.length ? ` and rewrote ${retailor.length} copied bullet${retailor.length === 1 ? "" : "s"} for this job` : ""} in one extra pass.`,
-              ...done,
-            ];
-          } catch {
-            polishNotes = [];
-          }
-          // A revision can leave the page short again: fill it the same way.
-          fillFromExperience();
-        }
-      }
-      setResult(checked);
+      // One call writes the final page to a plan computed from the real layout; a second, short one
+      // only when the measured page ends short or code found a writing fix (pipeline.ts).
+      const out = await tailorResume({
+        provider: await getProvider(),
+        master: m,
+        company: application.company,
+        jdText: application.jdText,
+        jobSkills: skillsForJob,
+        requiredSkills,
+        focus: focus ?? undefined,
+        measure: (d) => pageFill(header, d),
+        confirmed: confirmedForPrompt(confirmed),
+      });
+      setResult(out.result);
       setApproved(new Set());
-      setComments([]);
-      setChanges(polishNotes);
+      setChanges(out.notes);
       setHistory([]);
+      setPlacements([]);
       setPhase("ready");
     } catch (e) {
       setAiError(e);
@@ -249,57 +265,53 @@ export default function TailorPanel({
   useEffect(() => {
     if (autoStart && master?.trim() && header && !started.current) {
       started.current = true;
-      void generate();
+      start();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoStart, master, header]);
 
-  /**
-   * The resume with her ticks applied but before fitting to one page: the model's relevance-ranked
-   * pool. Fitting, hand edits (through toPoolTarget), adding a skill and "Update resume" all start
-   * from this, so something left off earlier comes back once there's room.
-   */
-  const untrimmed = useMemo(() => (result ? applyApprovals(result.doc, result.flags, approved) : null), [result, approved]);
-
-  // The job's skills, which rank bullets when the page is full (most job skills shown = kept).
-  const { fitBreakdown, jdText } = application;
-  const skillsForJob = useMemo(() => (master ? jobSkills({ fitBreakdown, jdText }, master) : []), [fitBreakdown, jdText, master]);
-  // What this job is about (must-haves, domains, responsibilities, role family): ranks bullets,
-  // roles, projects and skills lines everywhere content is chosen (lib/resume/engine/focus.ts).
-  const { role } = application;
-  const focus = useMemo(() => (master ? jobFocusFor({ fitBreakdown, jdText, role }, master) : null), [fitBreakdown, jdText, role, master]);
-  const checkOpts = useMemo(() => ({ jobSkills: skillsForJob, focus: focus ?? undefined }), [skillsForJob, focus]);
-  const fitOpts = useMemo(
-    () => (focus ? { focus } : { relevance: (text: string) => skillHits(skillsForJob, text) }),
-    [focus, skillsForJob],
-  );
-
-  // Fit the pool to exactly one page: leave off the least relevant content until it fits, then
-  // put back whatever still fits, measured on the real HTML rendering.
+  // The page as shown: the whole document measured on the real HTML rendering. Normally it already
+  // fits; if it runs over, the lowest-relevance bullet goes; if short, the type grows within 11pt.
   const fitted = useMemo(() => {
-    if (!untrimmed || !header) return null;
-    return fitResume(untrimmed, (d) => pageFill(header, d), fitOpts);
-  }, [untrimmed, header, fitOpts]);
+    if (!result || !header) return null;
+    return fitResume(result.doc, (d) => pageFill(header, d), fitOpts);
+  }, [result, header, fitOpts]);
 
-  // In plain words, what was done differently for this job (shown above the Checks).
-  const tailoredFor = useMemo(() => {
-    if (!fitted || !focus || !master) return [];
-    return explainTailoring(focus, fitted, { copied: copiedBullets(fitted.doc, master).length });
-  }, [fitted, focus, master]);
+  // Flags on the visible page, and the ones still waiting for her decision.
+  const visibleFlags = useMemo(() => {
+    if (!result || !fitted) return [];
+    return result.flags.flatMap((f) => {
+      const spot = toVisibleSpot(fitted.map, f.target);
+      return spot ? [{ flag: f, spot }] : [];
+    });
+  }, [result, fitted]);
+  const openFlags = useMemo(() => visibleFlags.filter((v) => !approved.has(v.flag.id)), [visibleFlags, approved]);
+
+  // What gets downloaded: the page without blocked lines she hasn't kept.
+  const finalDoc = useMemo(() => {
+    if (!fitted) return null;
+    return applyApprovals(
+      fitted.doc,
+      visibleFlags.map((v) => ({ ...v.flag, target: v.spot })),
+      approved,
+    );
+  }, [fitted, visibleFlags, approved]);
+
+  // In plain words, what was done differently for this job.
+  const tailoredFor = useMemo(() => (fitted && focus ? explainTailoring(focus, fitted) : []), [fitted, focus]);
 
   // Share of the job's skills the page shows, vs. how many of them the full master profile has.
   const coverage = useMemo(() => {
-    if (!fitted || !master) return null;
-    const skills = jobSkills(application, master);
-    const onPage = skillCoverage(skills, resumeText(fitted.doc));
-    const inProfile = skillCoverage(skills, master);
+    if (!finalDoc || !master) return null;
+    const onPage = skillCoverage(skillsForJob, resumeText(finalDoc));
+    const inProfile = skillCoverage(skillsForJob, master);
     if (!onPage || !inProfile) return null;
-    return { before: inProfile.percent, after: onPage.percent, total: skills.length, onPage: onPage.found.length, haveInProfile: inProfile.found.length };
-  }, [fitted, master, application]);
+    return { before: inProfile.percent, after: onPage.percent };
+  }, [finalDoc, master, skillsForJob]);
 
-  // Save each new version (a generation, a revision, a tick) to this job, shortly after it settles.
+  // Save each new version (a generation, a revision, a decision) to this job, shortly after it settles.
   useEffect(() => {
-    if (!fitted || !header || !result || phase !== "ready") return;
+    if (!finalDoc || !header || !result || phase !== "ready") return;
     if (loadedFromStore.current) {
       loadedFromStore.current = false; // just reopened: nothing new to save
       return;
@@ -307,14 +319,9 @@ export default function TailorPanel({
     setStoreState("saving");
     saver.schedule(async () => {
       try {
-        const bytes = await renderResumeDocx(header, fitted.doc);
+        const bytes = await renderResumeDocx(header, finalDoc);
         const approvedMessages = result.flags.filter((f) => approved.has(f.id)).map((f) => f.message);
-        const id = await storeJobResume(
-          application.id,
-          bytes,
-          { v: 2, doc: result.doc, approved: approvedMessages, final: fitted.doc },
-          coverage ?? { before: 0, after: 0 },
-        );
+        const id = await storeJobResume(application.id, bytes, { v: 2, doc: result.doc, approved: approvedMessages, final: finalDoc }, coverage ?? { before: 0, after: 0 });
         setStoredId(id);
         setStoreState("saved");
         onSaved?.(id);
@@ -324,16 +331,16 @@ export default function TailorPanel({
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fitted, phase]);
-  // Closing the panel right after a tick or an edit still saves it, instead of dropping it.
+  }, [finalDoc, phase]);
+  // Closing the panel right after a decision or an edit still saves it, instead of dropping it.
   useEffect(() => () => void saver.flush(), [saver]);
 
   const download = async () => {
-    if (!fitted || !header) return;
+    if (!finalDoc || !header) return;
     setPhase("saving");
     setError(null);
     try {
-      const bytes = await renderResumeDocx(header, fitted.doc);
+      const bytes = await renderResumeDocx(header, finalDoc);
       const fileName = tailoredFileName(fullName, application.company, application.role);
       setSaved({ fileName, ...(await exportResume(bytes, fileName, storedId ?? undefined)) });
     } catch (e) {
@@ -343,10 +350,6 @@ export default function TailorPanel({
     }
   };
 
-  useEffect(() => {
-    paintHighlights(pageRef.current, comments.map((c) => c.quote).filter(Boolean));
-  }, [comments, fitted]);
-  useEffect(() => () => paintHighlights(null, []), []);
   // The page preview scales to its box, so it fits a phone without scrolling sideways. A resize
   // closes the menu, whose position was measured against the old size.
   const hasPreview = fitted !== null;
@@ -366,7 +369,7 @@ export default function TailorPanel({
     return () => observer.disconnect();
   }, [hasPreview, phase]);
   // The open menu's target is a position in the page it was opened on; once the page changes
-  // (a tick, an undo) that position can point at a different bullet, so close it.
+  // (a decision, an undo) that position can point at a different bullet, so close it.
   useEffect(() => setSelection(null), [fitted]);
 
   /** Rough height of the open menu, so it can open above a line near the bottom of the page. */
@@ -414,8 +417,8 @@ export default function TailorPanel({
     openFor(el, (el as HTMLElement).innerText.replace(/\s+/g, " ").trim(), el.getBoundingClientRect());
   };
 
-  // While the menu is open: Escape and a click outside close only the menu (not the whole dialog,
-  // which would lose her queued comments), and keyboard focus moves into it.
+  // While the menu is open: Escape and a click outside close only the menu (not the whole dialog),
+  // and keyboard focus moves into it.
   useEffect(() => {
     if (!selection) return;
     const onKey = (e: KeyboardEvent) => {
@@ -442,51 +445,118 @@ export default function TailorPanel({
     first?.focus();
   }, [selection, popoverMode]);
 
-  /** Apply a hand edit (no AI): re-check it against the master profile, keep her ticks, allow undo. */
-  const commitDoc = (next: ResumeDoc, confirmedSkills: string[] = []) => {
+  /** Apply a hand edit (no AI): re-check it against her experience, keep her decisions, allow undo. */
+  const commitDoc = (next: ResumeDoc, masterText = masterRef.current) => {
     // While an update is running its answer would replace this edit, so edits wait for it.
-    if (!result || !master || phase !== "ready") return;
-    const checked = validateResume(next, master, checkOpts);
-    const keep = carryApprovals(result.flags, approved, checked.flags);
-    // A skill she just said she has is approved by that click.
-    for (const f of checked.flags) {
-      if (f.kind === "skill" && confirmedSkills.some((s) => f.message.startsWith(`"${s}"`))) keep.add(f.id);
-    }
+    if (!result || !masterText || phase !== "ready") return;
+    const checked = validateResume(next, masterText, checkOpts);
     setHistory((h) => [...h, { result, approved }]);
     setResult(checked);
-    setApproved(keep);
+    setApproved(carryApprovals(result.flags, approved, checked.flags));
     setChanges([]);
     setSaved(null);
   };
 
-  /**
-   * Remove and Edit act on what she clicked on the page, applied to the same spot in the pool, so
-   * content that was left off to fit can take the freed space.
-   */
+  /** Remove and Edit act on what she clicked on the page, applied to the same spot in the document. */
   const commitOnPool = (visible: Target, change: (pool: ResumeDoc, target: Target) => ResumeDoc) => {
-    if (!untrimmed || !fitted) return;
+    if (!result || !fitted) return;
     const target = toPoolTarget(fitted.map, visible);
-    if (target) commitDoc(change(untrimmed, target));
+    if (target) commitDoc(change(result.doc, target));
   };
 
-  const addSkills = async (skills: string[], opts: { confirmedByHer: boolean; saveToProfile: boolean; where?: string }) => {
-    if (!untrimmed || !master) return;
-    commitDoc(skills.reduce((d, s) => addSkill(d, s), untrimmed), opts.confirmedByHer ? skills : []);
-    // A note on where she used it: the next Update resume may add it to that role, as she put it.
-    if (opts.where) {
-      const where = opts.where;
-      setComments((c) => [
-        ...c,
-        ...skills.map((s) => ({ id: `skill-${s}-${Date.now()}`, quote: "", note: `I have ${s}: ${where}. Mention it in that role or project only, saying just what this note says.` })),
-      ]);
+  const keepFlag = (f: Flag) => setApproved((s) => new Set([...s, f.id]));
+  const removeFlagged = (f: Flag) => {
+    if (result) commitDoc(removeSpot(result.doc, f.target));
+  };
+
+  // Roles and projects on the page she can place a skill in, as written in her experience.
+  const places = useMemo(() => {
+    if (!finalDoc || !master) return [] as (PlaceOption & { role: RoleKey; section: "experience" | "projects" })[];
+    const entries = parseMasterExperiences(master);
+    const out: (PlaceOption & { role: RoleKey; section: "experience" | "projects" })[] = [];
+    (["experience", "projects"] as const).forEach((section) =>
+      (finalDoc[section] ?? []).forEach((e) => {
+        const m = entries.find((x) => norm(x.company) === norm(e.company));
+        if (!m) return;
+        const role = { company: m.company, title: cleanTitle(m.title) };
+        out.push({ key: `${section}:${norm(m.company)}:${norm(role.title)}`, label: section === "projects" ? m.company : `${m.company} (${role.title})`, role, section });
+      }),
+    );
+    return out;
+  }, [finalDoc, master]);
+
+  /** One comment per skill she placed in a role, on that role's spot in the document. */
+  const placementComments = (doc: ResumeDoc): ResumeComment[] =>
+    placements.map((p) => {
+      const find = (section: "experience" | "projects") => (doc[section] ?? []).findIndex((e) => norm(e.company) === norm(p.role.company));
+      const exp = find("experience");
+      const proj = exp < 0 ? find("projects") : -1;
+      const target: Target | undefined = exp >= 0 ? { section: "experience", entry: exp } : proj >= 0 ? { section: "projects", entry: proj } : undefined;
+      return placementComment(p.skill, p.how, target, p.label);
+    });
+
+  /**
+   * One revision call with everything she asked for, plus any skills waiting to be placed. Runs
+   * right away; the answer is checked like any generation (anything new still needs her OK).
+   */
+  const runRevision = async (requests: ResumeComment[]) => {
+    if (!result || phase !== "ready") return;
+    const all = [...requests, ...placementComments(result.doc)];
+    if (all.length === 0) return;
+    const m = masterRef.current;
+    setError(null);
+    setAiError(null);
+    setSaved(null);
+    setSelection(null);
+    setPhase("revising");
+    try {
+      const out = await reviseResume(await getProvider(), m, application.company, application.jdText, result.doc, all);
+      const { changes: done, ...doc } = out;
+      // A model answer: the job's skills she has go back on the Skills lines if it dropped any.
+      const next = validateResume(doc, m, { ...checkOpts, addJobSkills: true });
+      setHistory((h) => [...h, { result, approved }]);
+      // Her current decisions, including any made while the update was running.
+      setApproved((current) => carryApprovals(result.flags, current, next.flags));
+      setResult(next);
+      setChanges(done);
+      setPlacements([]);
+    } catch (e) {
+      setAiError(e);
+    } finally {
+      setPhase("ready");
     }
-    if (opts.confirmedByHer && opts.saveToProfile) {
-      const updated = skills.reduce((m, s) => (opts.where ? appendUsageNote(appendSkillToMaster(m, s), s, opts.where) : appendSkillToMaster(m, s)), master);
-      if (updated !== master) {
-        await saveMasterProfile(updated);
-        setMaster(updated);
+  };
+
+  /** A request on the spot she clicked, sent right away. */
+  const ask = (text: string) => {
+    if (!selection || !text.trim()) return;
+    const target = selection.target && fitted ? toPoolTarget(fitted.map, selection.target) : null;
+    void runRevision([{ id: `ask-${Date.now()}`, quote: selection.quote, note: text.trim(), ...(target ? { target } : {}) }]);
+  };
+
+  /**
+   * A job skill she added from the list. The skills section is updated right away (free). A skill
+   * that isn't in her experience is saved to it (her click is the confirmation, decision #6), and a
+   * role she chose is saved as a usage note tied to that exact role, so the validator accepts the
+   * skill in that role's bullets; the rewrite itself waits for "Apply".
+   */
+  const addGap = async (skill: string, placeKey: string, how: string) => {
+    if (!result || phase !== "ready") return;
+    let m = masterRef.current;
+    if (!hasSkill(skill, parseSkillInventory(m), m)) m = appendSkillToMaster(m, skill);
+    const place = places.find((p) => p.key === placeKey);
+    if (place) m = appendUsageNote(m, skill, how, place.role);
+    if (m !== masterRef.current) {
+      try {
+        await saveMasterProfile(m);
+      } catch (e) {
+        setError(`Couldn't save ${skill} to Your experience: ${e instanceof Error ? e.message : String(e)}`);
+        return;
       }
+      setMaster(m);
     }
+    commitDoc(addSkill(result.doc, skill), m);
+    if (place) setPlacements((ps) => [...ps.filter((p) => !(p.skill === skill && p.label === place.label)), { skill, how, role: place.role, label: place.label }]);
   };
 
   const closePopover = () => {
@@ -497,73 +567,28 @@ export default function TailorPanel({
     openedFrom.current = null;
   };
 
-  const queue = (text: string) => {
-    if (!selection) return;
-    // The revision is sent the pool (untrimmed), so the comment's spot is named in the pool too.
-    const target = selection.target && fitted ? toPoolTarget(fitted.map, selection.target) : null;
-    addComment(selection.quote, text, target ?? undefined);
-    closePopover();
-  };
-
-  /** The exact spot travels with the comment, so the revision changes only that spot. */
-  const addComment = (quote: string, text: string, target?: Target) => {
-    if (!text.trim()) return;
-    setComments((c) => [...c, { id: `${Date.now()}-${c.length}`, quote, note: text.trim(), ...(target ? { target } : {}) }]);
-    window.getSelection()?.removeAllRanges();
-  };
-
-  const revise = async () => {
-    if (!result || !fitted || !master) return;
-    const all = generalNote.trim() ? [...comments, { id: "general", quote: "", note: generalNote.trim() }] : comments;
-    if (all.length === 0) return;
-    setError(null);
-    setAiError(null);
-    setSaved(null);
-    setPhase("revising");
-    try {
-      const out = await reviseResume(await getProvider(), master, application.company, application.jdText, untrimmed ?? fitted.doc, all);
-      const { changes: done, ...doc } = out;
-      const next = validateResume(doc, master, checkOpts);
-      setHistory((h) => [...h, { result, approved }]);
-      // Her current ticks, including any made while the update was running.
-      setApproved((current) => carryApprovals(result.flags, current, next.flags));
-      setResult(next);
-      setChanges(done);
-      setComments([]);
-      setGeneralNote("");
-    } catch (e) {
-      setAiError(e);
-    } finally {
-      setPhase("ready");
-    }
-  };
-
-  // The job's skills the page doesn't show: ones her profile has, and ones it doesn't.
   // Writing quality, checked by code on the visible page: AI-sounding words, weak or repeated verbs,
   // lengths, bold use, repetition, and the job's keywords (lib/resume/quality).
   const quality = useMemo(() => {
-    if (!fitted || !master) return null;
+    if (!finalDoc || !master) return null;
     const inventory = parseSkillInventory(master);
-    const s = readBreakdown(application)?.skills;
-    const required = s ? [...s.required.have, ...s.required.gap] : [];
-    const jobSkillsHave = jobSkills(application, master).filter((x) => hasSkill(x, inventory, master));
-    const issues = lintResume(fitted.doc, { jobSkills: jobSkillsHave, requiredSkills: required });
+    const have = skillsForJob.filter((x) => hasSkill(x, inventory, master));
+    const issues = lintResume(finalDoc, { jobSkills: have, requiredSkills });
     return { issues, ...qualityScore(issues) };
-  }, [fitted, master, application]);
+  }, [finalDoc, master, skillsForJob, requiredSkills]);
 
+  // The job's skills the page doesn't show, and whether her experience has each one.
   const skillGaps = useMemo(() => {
-    if (!fitted || !master) return null;
-    const skills = jobSkills(application, master);
-    const onPage = skillCoverage(skills, resumeText(fitted.doc));
+    if (!finalDoc || !master) return null;
+    const onPage = skillCoverage(skillsForJob, resumeText(finalDoc));
     if (!onPage) return null;
     const inventory = parseSkillInventory(master);
     return {
-      total: skills.length,
+      total: skillsForJob.length,
       onPage: onPage.found.length,
-      inProfile: onPage.missing.filter((s) => hasSkill(s, inventory, master)),
-      notInProfile: onPage.missing.filter((s) => !hasSkill(s, inventory, master)),
+      gaps: onPage.missing.map((s) => ({ skill: s, inProfile: hasSkill(s, inventory, master) })),
     };
-  }, [fitted, master, application]);
+  }, [finalDoc, master, skillsForJob]);
 
   const undo = () => {
     const prev = history[history.length - 1];
@@ -591,164 +616,160 @@ export default function TailorPanel({
   if (phase === "generating") {
     return (
       <div className="rounded-xl border border-accent/15 bg-accent-soft/40 p-5">
-        <Spinner label="Tailoring your resume to this job. This usually takes 1 to 2 minutes..." />
+        <Spinner label="Writing your resume for this job. This usually takes about a minute..." />
       </div>
     );
   }
 
-  if (!result || !fitted) {
+  const preTailor = (
+    <PreTailorCard
+      gaps={pendingGaps}
+      places={masterPlaces}
+      cost={TAILOR_COST_HINT}
+      onTailor={(confirmed) => void generate(confirmed)}
+      onSkip={() => void generate([])}
+      disabled={phase === "revising"}
+    />
+  );
+
+  if (!result || !fitted || !finalDoc) {
+    // Before the first resume: the missing-skills question comes first, when the job has any.
+    if (pendingGaps.length) {
+      return (
+        <div className="grid gap-3">
+          {notStartedReason && <p className="text-sm text-muted">{notStartedReason}</p>}
+          {preTailor}
+          {error && <Notice kind="error">{error}</Notice>}
+          {aiError !== null && <AIErrorNotice error={aiError} />}
+        </div>
+      );
+    }
     return (
       <div className="rounded-2xl bg-paper p-4">
         {notStartedReason && <p className="mb-3 text-sm text-muted">{notStartedReason}</p>}
-        <Button onClick={generate}>Tailor resume ({TAILOR_COST_HINT})</Button>
+        <Button onClick={() => void generate([])}>Tailor resume ({TAILOR_COST_HINT})</Button>
         {error && <Notice kind="error">{error}</Notice>}
         {aiError !== null && <AIErrorNotice error={aiError} />}
       </div>
     );
   }
 
-  const { flags, fixes } = result;
+  const busy = phase !== "ready";
+  const { fixes } = result;
   const swapOptions = selection?.target?.section === "experience" && selection.target.bullet === undefined ? entriesNotOnPage(master, fitted.doc) : [];
   const targetLabel = selection?.target ? describeTarget(fitted.doc, selection.target) : null;
   const editable = selection?.target ? textOfTarget(fitted.doc, selection.target) : null;
+  const flagsHere = selection?.target ? openFlags.filter((v) => spotOn(v.spot, selection.target!)) : [];
   const fillPercent = Math.round(fitted.fill * 100);
+  const blocked = openFlags.filter((v) => v.flag.severity === "block").length;
+  const short = fitted.fits ? linesShort(fitted.baseFill) : 0;
+
   // Her final check of the finished page (lib/resume/engine/verify.ts), plus what code fixed.
-  // Skills she ticked (decision #6) count as hers for the final check, even if not saved to her list.
-  const tickedSkills = flags
-    .filter((f) => approved.has(f.id) && f.target.section === "skills")
-    .map((f) => (f.target.section === "skills" ? result.doc.skills[f.target.line]?.items[f.target.item] : undefined))
-    .filter((x): x is string => Boolean(x));
-  const verified = verifyResume({ header, doc: fitted.doc, fits: fitted.fits, fill: fitted.fill, master, extraSkills: tickedSkills });
+  const verified = verifyResume({ header, doc: finalDoc, fits: fitted.fits, fill: fitted.fill, master });
+  const qualityFixes = quality?.issues.filter((i) => i.severity === "fix") ?? [];
   const checks = [
     ...verified.filter((c) => c.id !== "one-page" && c.id !== "fill").map((c) => ({ ok: c.ok, text: c.label })),
-    ...(fixes.length || fitted.steps.length ? [{ ok: true, text: `Fixed automatically: ${[...fixes, ...fitted.steps].join(" ")}` }] : []),
     // Hard requirements of the job she may not meet, as the tailoring call saw them.
     ...(result.doc.meta.warnings ?? []).map((w) => ({ ok: false, text: `Heads-up: ${w}` })),
     {
-      ok: flags.length === 0,
+      ok: openFlags.length === 0,
       text:
-        flags.length === 0
+        openFlags.length === 0
           ? "Every skill, number, employer and date was found in Your experience"
-          : `${flags.length} item${flags.length === 1 ? "" : "s"} not found in Your experience (left out unless you tick them)`,
+          : `${openFlags.length} line${openFlags.length === 1 ? "" : "s"} marked on the page for you to keep or remove`,
     },
     {
       ok: fitted.fits && !fitted.underfilled,
       text: !fitted.fits
-        ? "Still over one page after trimming; check it in Word"
+        ? "Still over one page; check it in Word"
         : fitted.underfilled
-          ? `Fits on one page but uses only ${fillPercent}% of it. Everything tailoring wrote that fits is already on the page`
+          ? `Fits on one page but uses only ${fillPercent}% of it`
           : `Fits on one page and uses ${fillPercent}% of it`,
     },
+    { ok: qualityFixes.length === 0, text: qualityFixes.length ? `${qualityFixes.length} writing issue${qualityFixes.length === 1 ? "" : "s"} to fix` : "No weak verbs, buzzwords or overlong bullets" },
   ];
-  const fillQueued = comments.some((c) => c.id.startsWith("fill-"));
-  const qualityQueued = comments.some((c) => c.id.startsWith("quality:"));
-  /** Turns the "fix" issues into targeted comments (mapped to the pool) for the next Update resume. */
-  const queueQualityFixes = () => {
-    if (!quality || qualityQueued) return;
-    const toQueue = issuesToComments(quality.issues).map((c) => {
-      const target = c.target ? toPoolTarget(fitted.map, c.target) : null;
-      return { ...c, ...(target ? { target } : { target: undefined }) };
-    });
-    setComments((c) => [...c, ...toQueue]);
-  };
-  const askToFill = () => {
-    if (fillQueued) return;
-    setComments((c) => [...c, { id: `fill-${Date.now()}`, quote: "", note: fillPageComment(fillPercent) }]);
-  };
+  const failing = checks.filter((c) => !c.ok).length;
+  const autoFixed = [...fixes, ...fitted.steps, ...(fitted.removed.length ? [`Left off ${fitted.removed.length} less relevant line${fitted.removed.length === 1 ? "" : "s"} to fit one page.`] : [])];
+
+  const checksList = (
+    <>
+      <ul className="grid gap-1.5 text-sm">
+        {checks.map((c) => (
+          <li key={c.text} className="flex gap-2">
+            <CheckIcon ok={c.ok} />
+            <span>{c.text}</span>
+          </li>
+        ))}
+      </ul>
+      {autoFixed.length > 0 && <p className="mt-2 text-xs text-muted">Fixed automatically: {autoFixed.join(" ")}</p>}
+      {fitted.underfilled && short > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <Button variant="secondary" onClick={() => void runRevision([{ id: "fill", quote: "", note: fillComment(short) }])} disabled={busy}>
+            Fill the page ({REVISE_COST_HINT})
+          </Button>
+          <span className="text-xs text-muted">Adds about {short} line{short === 1 ? "" : "s"} from Your experience.</span>
+        </div>
+      )}
+      {quality && qualityFixes.length > 0 && (
+        <div className="mt-3">
+          <QualityCard
+            score={quality.score}
+            issues={quality.issues}
+            onFix={() =>
+              void runRevision(
+                issuesToComments(quality.issues).map((c) => {
+                  const target = c.target ? toPoolTarget(fitted.map, c.target) : null;
+                  return { ...c, target: target ?? undefined };
+                }),
+              )
+            }
+            queued={phase === "revising"}
+            disabled={busy}
+            costHint={REVISE_COST_HINT}
+          />
+        </div>
+      )}
+    </>
+  );
 
   return (
     <div className="grid gap-4">
+      {preStep && pendingGaps.length > 0 && preTailor}
       <TailoredForCard lines={tailoredFor} />
-      <div className="rounded-2xl bg-paper p-5">
-        <p className="mb-3 text-[15px] font-semibold tracking-display">Checks</p>
-        <ul className="grid gap-1.5 text-sm">
-          {checks.map((c) => (
-            <li key={c.text} className="flex gap-2">
-              <CheckIcon ok={c.ok} />
-              <span>{c.text}</span>
-            </li>
-          ))}
-        </ul>
-        {fitted.fits && fitted.underfilled && (
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <Button variant="secondary" onClick={askToFill} disabled={phase !== "ready" || fillQueued}>
-              {fillQueued ? "Fill the page: added to your comments" : "Fill the page"}
-            </Button>
-            <span className="text-xs text-muted">Adds a comment asking for more bullets from Your experience. Sent with Update resume ({REVISE_COST_HINT}).</span>
-          </div>
-        )}
-        {fitted.removed.length > 0 && (
-          <details className="mt-2 text-sm text-muted">
-            <summary className="cursor-pointer">
-              Left off {fitted.removed.length} less relevant item{fitted.removed.length === 1 ? "" : "s"} to fit one page
-            </summary>
-            <ul className="mt-1 list-disc pl-5 text-xs">
-              {fitted.removed.map((r) => (
-                <li key={r}>{r}</li>
-              ))}
-            </ul>
-          </details>
-        )}
-      </div>
 
-      {quality && (
-        <QualityCard
-          score={quality.score}
-          issues={quality.issues}
-          onFix={queueQualityFixes}
-          queued={qualityQueued}
-          disabled={phase !== "ready"}
-          costHint={REVISE_COST_HINT}
-        />
-      )}
-
-      {flags.length > 0 && (
-        <div className="rounded-2xl bg-warn-soft p-5">
-          <p className="text-sm font-medium">Not found in Your experience</p>
-          <p className="mb-3 text-xs text-muted">These are left off. Tick one only if it&apos;s true and you want it on the page.</p>
-          <div className="grid gap-2">
-            {flags.map((f) => (
-              <Checkbox
-                key={f.id}
-                label={f.message}
-                checked={approved.has(f.id)}
-                onChange={(on) =>
-                  setApproved((s) => {
-                    const next = new Set(s);
-                    if (on) next.add(f.id);
-                    else next.delete(f.id);
-                    return next;
-                  })
-                }
-              />
+      {openFlags.length > 0 && (
+        <section className="rounded-2xl bg-warn-soft p-5" aria-labelledby="flags-heading">
+          <h3 id="flags-heading" className="text-[15px] font-semibold tracking-display">
+            Check {openFlags.length} line{openFlags.length === 1 ? "" : "s"} on the page
+          </h3>
+          <p className="mb-3 mt-0.5 text-xs text-muted">
+            {blocked > 0 ? "Struck-through lines aren't in Your experience and stay out of the download unless you keep them. " : ""}
+            Highlighted lines are true but worth a look.
+          </p>
+          <ul className="grid gap-2">
+            {openFlags.map(({ flag }) => (
+              <FlagRow key={flag.id} flag={flag} onKeep={() => keepFlag(flag)} onRemove={() => removeFlagged(flag)} disabled={busy} />
             ))}
-          </div>
-        </div>
-      )}
-
-      {skillGaps && (
-        <SkillGapsCard
-          total={skillGaps.total}
-          onPage={skillGaps.onPage}
-          inProfile={skillGaps.inProfile}
-          notInProfile={skillGaps.notInProfile}
-          onAdd={addSkills}
-          disabled={phase !== "ready"}
-        />
+          </ul>
+        </section>
       )}
 
       <div>
         <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-          <p className="text-[15px] font-semibold tracking-display">Review</p>
-          <p className="text-xs text-muted">Click a bullet or role, or select any text, to change it.</p>
+          <p className="text-[15px] font-semibold tracking-display">Your resume</p>
+          <p className="text-xs text-muted">Click a line, or select any text, to change it.</p>
         </div>
         <div ref={previewBox} className="relative min-w-0 rounded-2xl bg-paper p-3" onMouseUp={onPreviewMouseUp} onKeyDown={onPreviewKeyDown}>
-          <style>{`::highlight(${HIGHLIGHT_NAME}){background-color:rgba(123,63,228,.2)}`}</style>
+          {phase === "revising" && (
+            <div className="absolute inset-x-3 top-3 z-10 rounded-xl bg-white/90 p-3 shadow-card">
+              <Spinner label="Updating your resume. This takes about 30 seconds..." />
+            </div>
+          )}
           <div className="mx-auto shadow-lift" style={{ width: `${8.5 * scale}in`, height: `${11 * scale}in`, overflow: "hidden" }}>
             <div ref={pageRef} style={{ transform: `scale(${scale})`, transformOrigin: "top left", width: "8.5in" }}>
               <style dangerouslySetInnerHTML={{ __html: PAGE_CSS }} />
               {/* renderResumeHtml escapes every string; no model output is inserted as raw HTML. */}
-              <div dangerouslySetInnerHTML={{ __html: renderResumeHtml(header, fitted.doc) }} />
+              <div dangerouslySetInnerHTML={{ __html: renderResumeHtml(header, fitted.doc, openFlags.map((v) => ({ kind: v.flag.severity, spot: v.spot }))) }} />
             </div>
           </div>
           {selection && (
@@ -756,12 +777,32 @@ export default function TailorPanel({
               ref={popoverRef}
               role="dialog"
               aria-label="Change this part of the resume"
-              className="absolute z-10 overflow-auto rounded-2xl bg-white p-4 shadow-card ring-1 ring-black/[0.08]"
+              className="absolute z-20 overflow-auto rounded-2xl bg-white p-4 shadow-card ring-1 ring-black/[0.08]"
               style={{ left: selection.x, top: selection.y, width: selection.width, maxHeight: selection.maxHeight }}
               onMouseUp={(e) => e.stopPropagation()}
             >
               {targetLabel && <p className="text-xs font-medium text-muted">{targetLabel[0].toUpperCase() + targetLabel.slice(1)}</p>}
               <p className="mt-1 line-clamp-2 border-l-2 border-accent pl-2 text-xs text-muted">{selection.quote}</p>
+
+              {flagsHere.length > 0 && popoverMode === "actions" && (
+                <ul className="mt-3 grid gap-2 rounded-xl bg-warn-soft p-2">
+                  {flagsHere.map(({ flag }) => (
+                    <FlagRow
+                      key={flag.id}
+                      flag={flag}
+                      onKeep={() => {
+                        keepFlag(flag);
+                        closePopover();
+                      }}
+                      onRemove={() => {
+                        removeFlagged(flag);
+                        closePopover();
+                      }}
+                      disabled={busy}
+                    />
+                  ))}
+                </ul>
+              )}
 
               {popoverMode === "actions" && (
                 <div className="mt-3 grid gap-1">
@@ -775,20 +816,18 @@ export default function TailorPanel({
                       hint="Free and instant. Words between ** stay bold"
                     />
                   )}
-                  {swapOptions.length > 0 && (
-                    <PopoverAction onClick={() => setPopoverMode("swap")} label="Swap for another experience" hint="Pick a role from Your experience" />
-                  )}
+                  {swapOptions.length > 0 && <PopoverAction onClick={() => setPopoverMode("swap")} label="Swap for another experience" hint="Pick a role from Your experience" />}
                   <PopoverAction
-                    onClick={() => queue("Rewrite this to match the job's wording and keywords. Keep every fact, number and technology.")}
+                    onClick={() => ask("Rewrite this to match the job's wording and keywords. Keep every fact, number and technology.")}
                     label="Rewrite for this job"
-                    hint="Added to your comments"
+                    hint={`Runs now, ${REVISE_COST_HINT}`}
                   />
                   <PopoverAction
-                    onClick={() => queue("Make this shorter, one line if possible, keeping its number and main technology.")}
+                    onClick={() => ask("Make this shorter, one line if possible, keeping its number and main technology.")}
                     label="Make it shorter"
-                    hint="Added to your comments"
+                    hint={`Runs now, ${REVISE_COST_HINT}`}
                   />
-                  <PopoverAction onClick={() => setPopoverMode("custom")} label="Write your own comment" hint="e.g. mention the Jest tests here" />
+                  <PopoverAction onClick={() => setPopoverMode("custom")} label="Ask for something else" hint="e.g. mention the Jest tests here" />
                   {selection.target && (
                     <PopoverAction
                       danger
@@ -812,7 +851,7 @@ export default function TailorPanel({
                         key={`${m.company}-${m.title}`}
                         type="button"
                         onClick={() =>
-                          queue(
+                          ask(
                             `Replace this whole role with my "${cleanTitle(m.title)} | ${m.company} | ${m.dates}" entry from Your experience (the master profile). Choose and rewrite its bullets that best match this job, about as many bullets as this role has now, and keep reverse-chronological order.`,
                           )
                         }
@@ -847,7 +886,7 @@ export default function TailorPanel({
                     className={`mt-3 ${inputClass} text-sm`}
                   />
                   <p className="mt-1 text-xs text-muted">
-                    {selection.target.section === "skills" ? "Separate skills with commas." : "Anything new that isn't in your experience still needs your tick."}
+                    {selection.target.section === "skills" ? "Separate skills with commas." : "Anything new that isn't in your experience is marked for you to keep."}
                   </p>
                   <div className="mt-2 flex justify-between gap-2">
                     <Button variant="secondary" onClick={() => setPopoverMode("actions")}>
@@ -874,17 +913,17 @@ export default function TailorPanel({
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) queue(note);
+                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) ask(note);
                     }}
                     placeholder="What should change? e.g. Mention that I used Docker here"
-                    className="mt-3 w-full rounded-xl border border-black/[0.12] px-3 py-2 text-sm outline-none focus:border-accent/50 focus:ring-2 focus:ring-accent/20"
+                    className={`mt-3 ${inputClass} text-sm`}
                   />
                   <div className="mt-2 flex justify-between gap-2">
                     <Button variant="secondary" onClick={() => setPopoverMode("actions")}>
                       Back
                     </Button>
-                    <Button onClick={() => queue(note)} disabled={!note.trim()}>
-                      Add comment
+                    <Button onClick={() => ask(note)} disabled={!note.trim()}>
+                      Run ({REVISE_COST_HINT})
                     </Button>
                   </div>
                 </>
@@ -894,58 +933,45 @@ export default function TailorPanel({
         </div>
       </div>
 
-      <div className="rounded-2xl bg-paper p-5">
-        <p className="mb-3 text-[15px] font-semibold tracking-display">Your comments</p>
-        {comments.length === 0 ? (
-          <p className="text-sm text-muted">None yet. Highlight a line or skill above, or add a note for the whole resume below.</p>
-        ) : (
-          <ol className="grid gap-2">
-            {comments.map((c, i) => (
-              <li key={c.id} className="flex items-start gap-3 text-sm">
-                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-soft text-[11px] font-semibold text-accent-deep">
-                  {i + 1}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="line-clamp-1 text-xs text-muted">{c.quote ? <>&ldquo;{c.quote}&rdquo;</> : "Whole resume"}</span>
-                  <span>{c.note}</span>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setComments((all) => all.filter((x) => x.id !== c.id))}
-                  className="text-xs text-muted hover:text-bad"
-                  aria-label={`Remove comment ${i + 1}`}
-                >
-                  Remove
-                </button>
-              </li>
-            ))}
-          </ol>
-        )}
-        <textarea
-          rows={2}
-          value={generalNote}
-          onChange={(e) => setGeneralNote(e.target.value)}
-          placeholder="A note on the whole resume (optional), e.g. Lead with the AI project"
-          className="mt-3 w-full rounded-lg border border-black/[0.12] px-3 py-2 text-sm outline-none focus:border-accent/50 focus:ring-2 focus:ring-accent/20"
+      <AskForChanges
+        onSend={(text) => void runRevision([{ id: `ask-${Date.now()}`, quote: "", note: text }])}
+        busy={phase === "revising"}
+        disabled={busy}
+        cost={REVISE_COST_HINT}
+        changes={changes}
+      />
+
+      {skillGaps && (
+        <SkillGapsCard
+          total={skillGaps.total}
+          onPage={skillGaps.onPage}
+          gaps={skillGaps.gaps}
+          places={places}
+          pending={placements.map((p) => ({ skill: p.skill, placeLabel: p.label }))}
+          onAdd={(skill, place, how) => void addGap(skill, place, how)}
+          onApply={() => void runRevision([])}
+          onCancel={(i) => setPlacements((ps) => ps.filter((_, k) => k !== i))}
+          applyCost={REVISE_COST_HINT}
+          disabled={busy}
         />
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs text-muted">Anything new your comments add that isn&apos;t in Your experience still needs your tick.</p>
-          <Button onClick={revise} disabled={phase !== "ready" || (comments.length === 0 && !generalNote.trim())}>
-            {phase === "revising" ? "Updating..." : `Update resume (${REVISE_COST_HINT})`}
-          </Button>
-        </div>
-        {phase === "revising" && <Spinner label="Applying your comments. This takes about 30 seconds..." />}
-        {changes.length > 0 && (
-          <div className="mt-3 rounded-lg bg-accent-soft/50 p-3 text-sm">
-            <p className="mb-1 font-medium">What changed</p>
-            <ul className="list-disc pl-5 text-black/70">
-              {changes.map((c, i) => (
-                <li key={i}>{c}</li>
-              ))}
-            </ul>
-          </div>
+      )}
+
+      <section className="rounded-2xl bg-paper p-5" aria-label="Checks">
+        {failing === 0 ? (
+          <details>
+            <summary className="flex cursor-pointer items-center gap-2 text-[15px] font-semibold tracking-display">
+              <CheckIcon ok />
+              All {checks.length} checks passed
+            </summary>
+            <div className="mt-3">{checksList}</div>
+          </details>
+        ) : (
+          <>
+            <p className="mb-3 text-[15px] font-semibold tracking-display">Checks</p>
+            {checksList}
+          </>
         )}
-      </div>
+      </section>
 
       {saved && (
         <Notice kind="ok">
@@ -959,19 +985,20 @@ export default function TailorPanel({
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={generate} disabled={phase !== "ready"}>
+          <Button variant="secondary" onClick={start} disabled={busy}>
             Start over ({TAILOR_COST_HINT})
           </Button>
           {history.length > 0 && (
-            <Button variant="secondary" onClick={undo} disabled={phase !== "ready"}>
+            <Button variant="secondary" onClick={undo} disabled={busy}>
               Undo
             </Button>
           )}
         </div>
         <span className="ml-auto text-xs text-muted" aria-live="polite">
           {storeState === "saving" ? "Saving to this job..." : storeState === "saved" ? "Saved to this job" : ""}
+          {blocked > 0 ? `${storeState !== "idle" ? ". " : ""}${blocked} struck line${blocked === 1 ? " is" : "s are"} left out of the download` : ""}
         </span>
-        <Button onClick={download} disabled={phase !== "ready"}>
+        <Button onClick={download} disabled={busy}>
           {phase === "saving" ? "Saving..." : "Download .docx"}
         </Button>
       </div>

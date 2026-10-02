@@ -59,9 +59,9 @@ export default function QualityCard({
               </ul>
               <div className="mt-3 flex flex-wrap items-center gap-3">
                 <Button variant="secondary" onClick={onFix} disabled={disabled || queued}>
-                  {queued ? "Added to your comments" : `Fix ${fix.length === 1 ? "it" : `these ${fix.length}`}`}
+                  {queued ? "Fixing..." : `Fix ${fix.length === 1 ? "it" : `these ${fix.length}`}`}
                 </Button>
-                <span className="text-xs text-muted">Adds one comment per spot. Sent with Update resume ({costHint}).</span>
+                <span className="text-xs text-muted">One update for all of them ({costHint}).</span>
               </div>
             </>
           )}
