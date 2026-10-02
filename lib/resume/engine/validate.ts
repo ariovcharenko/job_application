@@ -1,5 +1,5 @@
 import { altTitle, cleanTitle, parseMasterExperiences, type MasterEntry } from "../master/experiences";
-import { hasSkill, normalizeSkill, parseSkillInventory, parseUsageNotes } from "../master/skills";
+import { hasSkill, normalizeSkill, parseSkillInventory, parseUsageNotes, type UsageNote } from "../master/skills";
 import { mentionsTerm, TECH_TERMS } from "../master/techTerms";
 import type { JobFocus } from "./focus";
 import { polishResume } from "./polish";
@@ -7,14 +7,21 @@ import type { ResumeDoc } from "./schema";
 
 // Code-side enforcement of the tailoring rules. The prompt asks the model to follow them; this
 // checks the answer instead of trusting it. Mechanical rules (dashes, bold markers) are fixed
-// silently. Anything that might be an invented fact (a skill, number, employer or date the master
-// profile doesn't contain) becomes a Flag: left OUT of the resume unless she ticks it.
+// silently. Two kinds of Flag:
+//  - "block": a possible invention (a skill that appears nowhere in her experience, a number,
+//    employer, title, date, degree or leadership role she doesn't have). Shown on the page struck
+//    through and left OUT of the download unless she keeps it (decision #6).
+//  - "note": true but worth a look (a technology from elsewhere in her experience used in a role
+//    whose own text doesn't name it, or a "client"/"partner" claim that role doesn't make). Shown
+//    highlighted and kept, unless she removes it. Real work is never silently dropped.
 
 export type FlagKind = "skill" | "number" | "employer" | "education" | "leadership" | "claim";
+export type FlagSeverity = "block" | "note";
 
 export interface Flag {
   id: string;
   kind: FlagKind;
+  severity: FlagSeverity;
   message: string;
   /** Where the flagged content is, so an unticked flag can be removed from the document. */
   target:
@@ -231,33 +238,36 @@ export function unknownClaims(bullet: string, block: string): string[] {
 }
 
 /**
- * Technologies a bullet mentions that her master profile doesn't have: its bold spans, plus known
- * technology names written in their usual capitalization. A known technology passes if she has
- * the skill or this entry's own master text names it (coursework under Education); any other bold
- * phrase also passes if the master profile uses it anywhere.
+ * Technologies a bullet mentions (its bold spans, plus known technology names written in their
+ * usual capitalization), sorted by where her experience has them:
+ *  - `missing`: nowhere in her experience (skills list, any role, any project, or a synonym). A
+ *    possible invention: blocked until she keeps it.
+ *  - `elsewhere`: in her experience, but not in this role's own text (or a usage note placing it
+ *    there). True, so it stays; she gets a note to check it belongs in this role.
  */
-function unknownTools(bullet: string, block: string, inventory: string[], master: string): string[] {
+export function classifyTools(bullet: string, block: string, inventory: string[], master: string): { missing: string[]; elsewhere: string[] } {
   const text = plain(bullet);
   const spans = [...bullet.matchAll(/\*\*(.+?)\*\*/g)].map((m) => m[1].trim()).filter(looksLikeTool);
   const terms = TECH_TERMS.filter(
     (t) => mentionsTerm(text, t, { exactCase: !t.includes(" ") }) && !spans.some((s) => mentionsTerm(s, t)),
   );
   const seen = new Set<string>();
-  const out: string[] = [];
+  const missing: string[] = [];
+  const elsewhere: string[] = [];
   for (const name of [...spans, ...terms]) {
     const key = normalizeSkill(name);
     if (seen.has(key)) continue;
     seen.add(key);
-    // Her rule: a technology in a bullet must be in THAT role's own text (a skill she only listed,
-    // or ticked "I have this" for, belongs on the Skills line, not in a bullet about a role that
-    // never used it). Synonyms and "implied by" pairs still count, within the role.
-    const ok =
+    // In this role: its own text names it, or a skill this role names implies it (synonyms too).
+    const inRole =
       mentionsTerm(block, name) ||
       hasSkill(name, inventory.filter((i) => mentionsTerm(block, i)), block) ||
       (!TECH_KEYS.has(key) && containsLoose(block, name));
-    if (!ok) out.push(name);
+    if (inRole) continue;
+    const anywhere = hasSkill(name, inventory, master) || (!TECH_KEYS.has(key) && containsLoose(master, name));
+    (anywhere ? elsewhere : missing).push(name);
   }
-  return out;
+  return { missing, elsewhere };
 }
 
 export interface ValidateOptions {
@@ -265,6 +275,29 @@ export interface ValidateOptions {
   jobSkills?: string[];
   /** What the job is about (focus.ts): weights must-haves when ordering skills lines and their items. */
   focus?: JobFocus;
+  /**
+   * Add the job's skills she has (anywhere in her experience) that no skills line shows. Use right
+   * after the model writes, not on her own edits, so a skill she removed by hand stays removed.
+   */
+  addJobSkills?: boolean;
+}
+
+const sameText = (a: string, b: string) => normalizeLoose(a) !== "" && normalizeLoose(a) === normalizeLoose(b);
+
+/**
+ * Her usage notes that belong to this role: a note tied to it exactly (same company, and same main
+ * or alternate title when the note names one), or an older free-text note naming the company.
+ */
+export function notesForRole(notes: UsageNote[], company: string, title?: string): UsageNote[] {
+  const core = company.split(/[,(]/)[0].trim();
+  const titles = title ? [cleanTitle(title), altTitle(title)].filter(Boolean) : [];
+  return notes.filter((n) => {
+    if (n.role) {
+      if (!sameText(n.role.company, company)) return false;
+      return !n.role.title || titles.length === 0 || titles.some((t) => sameText(t, n.role!.title));
+    }
+    return core !== "" && containsLoose(n.where, core);
+  });
 }
 
 export function validateResume(raw: ResumeDoc, masterProfile: string, opts: ValidateOptions = {}): ValidationResult {
@@ -284,7 +317,13 @@ export function validateResume(raw: ResumeDoc, masterProfile: string, opts: Vali
   for (const e of [...doc.experience, ...(doc.projects ?? []), ...doc.education, ...doc.leadership]) e.dates = spaceDateDashes(e.dates);
   // Mechanical polish by code: at most 4 bold spans per bullet, the usual casing of well-known
   // technologies, no skill listed twice (lib/resume/engine/polish.ts).
-  const polished = polishResume(doc, { inventory: parseSkillInventory(masterProfile), jobSkills: opts.jobSkills, focus: opts.focus });
+  const polished = polishResume(doc, {
+    inventory: parseSkillInventory(masterProfile),
+    master: masterProfile,
+    jobSkills: opts.jobSkills,
+    focus: opts.focus,
+    addJobSkills: opts.addJobSkills,
+  });
   Object.assign(doc, polished.doc);
   fixes.push(...polished.notes);
 
@@ -295,20 +334,21 @@ export function validateResume(raw: ResumeDoc, masterProfile: string, opts: Vali
   const entries = parseMasterExperiences(master);
   // Her notes on where she used a skill she confirmed count as part of the role or project they name.
   const notes = parseUsageNotes(master);
-  const withNotes = (block: string, company: string) => {
-    const core = company.split(/[,(]/)[0].trim();
-    const extra = notes.filter((n) => core && containsLoose(n.where, core)).map((n) => `${n.skill}: ${n.where}`);
+  const withNotes = (block: string, company: string, title?: string) => {
+    const extra = notesForRole(notes, company, title).map((n) => `${n.skill}: ${n.where}`);
     return extra.length ? `${block}\n${extra.join("\n")}` : block;
   };
 
   doc.skills.forEach((line, li) =>
     line.items.forEach((item, ii) => {
-      // Only skills she listed (or ticked "I have this" for, which adds them to her list). A word
-      // that merely appears in a bullet ("metrics", "testing") isn't a skill she listed.
-      if (!hasSkill(item, inventory, "")) {
+      // A skill counts as hers if it's anywhere in her experience: her skills list (including the
+      // ones she confirmed), a role or project's text, or a synonym of one. Only a skill that
+      // appears nowhere is blocked.
+      if (!hasSkill(item, inventory, master)) {
         flags.push({
           id: `skill-${li}-${ii}`,
           kind: "skill",
+          severity: "block",
           message: `"${item}" isn't in your experience.`,
           target: { section: "skills", line: li, item: ii },
         });
@@ -318,19 +358,32 @@ export function validateResume(raw: ResumeDoc, masterProfile: string, opts: Vali
 
   /** Tool and number flags for one bullet, checked against its own entry's master text. */
   const checkBullet = (b: string, block: string, where: string, idPrefix: string, target: Flag["target"]) => {
-    unknownTools(b, block, inventory, master).forEach((tool, k) =>
+    const tools = classifyTools(b, block, inventory, master);
+    tools.missing.forEach((tool, k) =>
       flags.push({
         id: `${idPrefix}tool-${k}`,
         kind: "skill",
+        severity: "block",
         message: `"${tool}" isn't in your experience (${where}: "${plain(b)}")`,
         target,
       }),
     );
+    if (tools.elsewhere.length) {
+      const names = tools.elsewhere.map((t) => `"${t}"`).join(", ");
+      flags.push({
+        id: `${idPrefix}elsewhere`,
+        kind: "skill",
+        severity: "note",
+        message: `${names} ${tools.elsewhere.length === 1 ? "is" : "are"} in your experience, but not in ${where === "education" ? "your education" : "this role"} (${where}). Keep it only if you used ${tools.elsewhere.length === 1 ? "it" : "them"} here.`,
+        target,
+      });
+    }
     const claims = unknownClaims(b, block);
     if (claims.length) {
       flags.push({
         id: `${idPrefix}claim`,
         kind: "claim",
+        severity: "note",
         message: `Says "${claims.join('", "')}", which ${where === "education" ? "your education" : "this role"} in your experience doesn't: "${plain(b)}"`,
         target,
       });
@@ -340,6 +393,7 @@ export function validateResume(raw: ResumeDoc, masterProfile: string, opts: Vali
       flags.push({
         id: `${idPrefix}num`,
         kind: "number",
+        severity: "block",
         message: `Uses ${unknown.join(", ")}, which isn't in ${where === "education" ? "your education" : "this role"} in your experience: "${plain(b)}"`,
         target,
       });
@@ -382,6 +436,7 @@ export function validateResume(raw: ResumeDoc, masterProfile: string, opts: Vali
         flags.push({
           id: `exp-${ei}`,
           kind: "employer",
+          severity: "block",
           message: `${problems.join(", ")} doesn't match your ${entry.company} role in your experience (${entry.title} | ${entry.location ? `${entry.location} | ` : ""}${entry.dates}).`,
           target: { section: "experience", entry: ei },
         });
@@ -397,10 +452,10 @@ export function validateResume(raw: ResumeDoc, masterProfile: string, opts: Vali
         (x): x is string => Boolean(x),
       );
       if (problems.length) {
-        flags.push({ id: `exp-${ei}`, kind: "employer", message: `${problems.join(", ")} not found in your experience.`, target: { section: "experience", entry: ei } });
+        flags.push({ id: `exp-${ei}`, kind: "employer", severity: "block", message: `${problems.join(", ")} not found in your experience.`, target: { section: "experience", entry: ei } });
       }
     }
-    const block = withNotes(entry?.block ?? master, entry?.company ?? e.company);
+    const block = withNotes(entry?.block ?? master, entry?.company ?? e.company, entry?.title ?? e.title);
     e.bullets.forEach((b, bi) => checkBullet(b, block, `${e.company}, bullet ${bi + 1}`, `exp-${ei}-${bi}-`, { section: "experience", entry: ei, bullet: bi }));
   });
 
@@ -415,12 +470,12 @@ export function validateResume(raw: ResumeDoc, masterProfile: string, opts: Vali
       e.location = entry.location;
       if (`${e.title}|${e.dates}|${e.location}` !== before) headersCorrected++;
       if (!titleMatches(e.title, entry)) {
-        flags.push({ id: `proj-${pi}`, kind: "employer", message: `title "${e.title}" doesn't match your ${entry.company} project in your experience.`, target: { section: "projects", entry: pi } });
+        flags.push({ id: `proj-${pi}`, kind: "employer", severity: "block", message: `title "${e.title}" doesn't match your ${entry.company} project in your experience.`, target: { section: "projects", entry: pi } });
       }
     } else {
-      flags.push({ id: `proj-${pi}`, kind: "employer", message: `project "${e.company}" not found in your experience.`, target: { section: "projects", entry: pi } });
+      flags.push({ id: `proj-${pi}`, kind: "employer", severity: "block", message: `project "${e.company}" not found in your experience.`, target: { section: "projects", entry: pi } });
     }
-    const block = withNotes(entry?.block ?? "", entry?.company ?? e.company);
+    const block = withNotes(entry?.block ?? "", entry?.company ?? e.company, entry?.title ?? e.title);
     e.bullets.forEach((b, bi) => checkBullet(b, block, `${e.company}, bullet ${bi + 1}`, `proj-${pi}-${bi}-`, { section: "projects", entry: pi, bullet: bi }));
   });
 
@@ -451,6 +506,7 @@ export function validateResume(raw: ResumeDoc, masterProfile: string, opts: Vali
       flags.push({
         id: `edu-${ei}`,
         kind: "education",
+        severity: "block",
         message: `${problems.join(", ")} doesn't match your experience's education.`,
         target: { section: "education", entry: ei },
       });
@@ -472,6 +528,7 @@ export function validateResume(raw: ResumeDoc, masterProfile: string, opts: Vali
       flags.push({
         id: `lead-${li}`,
         kind: "leadership",
+        severity: "block",
         message: roleOk
           ? `"${l.role}": dates "${l.dates}" don't match your experience's leadership section.`
           : `"${l.role}" isn't in your experience's leadership section.`,
@@ -486,9 +543,12 @@ export function validateResume(raw: ResumeDoc, masterProfile: string, opts: Vali
   return { doc, flags, fixes };
 }
 
-/** The document with every flag she hasn't approved removed. Pure; the original is untouched. */
+/**
+ * The document as downloaded: every blocking flag she hasn't kept is removed. Notes never remove
+ * anything (she removes a noted line herself if she wants). Pure; the original is untouched.
+ */
 export function applyApprovals(doc: ResumeDoc, flags: Flag[], approved: Set<string>): ResumeDoc {
-  const drop = flags.filter((f) => !approved.has(f.id));
+  const drop = flags.filter((f) => f.severity !== "note" && !approved.has(f.id));
   const dropped = (pred: (f: Flag) => boolean) => drop.some(pred);
   const bulletOf = (f: Flag) => ("bullet" in f.target ? f.target.bullet : undefined);
   return {

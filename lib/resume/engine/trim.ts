@@ -1,25 +1,25 @@
-import type { Target } from "./edit";
+import type { FlagSpot, Target } from "./edit";
 import { BODY_STEP_PT, DEFAULT_LAYOUT, MAX_BODY_PT, MAX_SPACING, PAGE, SPACING_STEP, type Layout } from "./layout";
 import { entryRelevance, focusRelevance, type JobFocus } from "./focus";
 import { bulletScore, type RelevanceFn } from "./relevance";
 import type { ResumeDoc } from "./schema";
 
-// Fits the model's relevance-ranked pool to exactly one page, deterministically.
+// Measures the page and makes it fit exactly one page, deterministically.
 //
-// The model is asked for MORE than fits (prompt.ts): 3 to 4 roles, the most relevant ones with 6
-// or 7 bullets, each role's bullets most relevant first. Code then:
-//  1. trims the least relevant content until the page fits (her rule 3: "cut the least relevant
-//     bullets first, never the metrics"), and
-//  2. fills: puts trimmed content back, most valuable first, wherever it still fits, so the page
-//     ends near full instead of a quarter page early.
+// The model writes the final page to a space budget computed from this same layout (budget.ts),
+// so normally nothing here changes the content. When the page still runs over (a long bullet, a
+// line she kept), code:
+//  1. trims the least relevant content until the page fits: leadership, extra project bullets,
+//     then the lowest-relevance bullets. Never a skill, never education, never the header; and
+//  2. puts trimmed content back, most valuable first, wherever it still fits.
+// When it runs short, fitResume raises the type within 10 to 11pt as a last resort (the
+// tailoring pipeline asks the model for more content first).
 //
 // Everything here is pure. The page is measured by a function passed in (fit.ts measures the real
 // HTML rendering in the browser; tests pass a fake), so the same pool always gives the same page.
 
 /** Fewest bullets a role keeps before the role itself would go. */
 const MIN_BULLETS_PER_ENTRY = 2;
-/** Her rule: 5 to 7 skills lines. */
-const MIN_SKILL_LINES = 5;
 /** "Choose 3 to 4 experiences": a fourth role is the first whole role to go. */
 const MIN_ROLES = 3;
 /** Bullets each role aims for, by relevance rank: more for the most relevant role, fewer after. */
@@ -270,31 +270,13 @@ function nextCut(pool: ResumeDoc, off: Set<Key>, rk: Ranking): Key | null {
   const aboveTarget = bulletCut(pool, off, rk, (i) => rk.target[i]);
   if (aboveTarget) return aboveTarget;
 
-  // 3. Education details beyond the first.
-  for (let i = pool.education.length - 1; i >= 0; i--) {
-    const vis = pool.education[i].bullets.map((_, j) => j).filter((j) => !off.has(`e:${i}:${j}`));
-    if (vis.length > 1) return `e:${i}:${vis[vis.length - 1]}`;
-  }
-
-  // 4. A fourth role: the least relevant one goes whole, never the most recent (her rule: always
+  // 3. A fourth role: the least relevant one goes whole, never the most recent (her rule: always
   //    keep the most recent real production role), rather than squeezing every role to 2 bullets.
   const drop = droppableRole(pool, off, rk);
   if (drop !== undefined) return `X:${drop}`;
 
-  // 5. Bullets down to two per role.
-  const belowTarget = bulletCut(pool, off, rk, () => MIN_BULLETS_PER_ENTRY);
-  if (belowTarget) return belowTarget;
-
-  // 6. The remaining education detail lines.
-  for (let i = pool.education.length - 1; i >= 0; i--) {
-    const vis = pool.education[i].bullets.map((_, j) => j).filter((j) => !off.has(`e:${i}:${j}`));
-    if (vis.length > 0) return `e:${i}:${vis[vis.length - 1]}`;
-  }
-
-  // 7. Skills lines beyond five.
-  const lines = pool.skills.map((_, i) => i).filter((i) => !off.has(`S:${i}`));
-  if (lines.length > MIN_SKILL_LINES) return `S:${lines[lines.length - 1]}`;
-  return null;
+  // 4. Bullets down to two per role. Skills, education and the header are never cut.
+  return bulletCut(pool, off, rk, () => MIN_BULLETS_PER_ENTRY);
 }
 
 /** The least relevant role that may go whole: only beyond MIN_ROLES, and never the first (most recent). */
@@ -380,11 +362,34 @@ export function toPoolTarget(map: PoolMap, t: Target): Target | null {
   return b === undefined ? null : { section: t.section, entry: e.entry, bullet: b };
 }
 
+/**
+ * The reverse of toPoolTarget: a spot in the pool, translated to the same spot on the visible page,
+ * or null when fitting left it off. Used to mark flagged lines in the preview.
+ */
+export function toVisibleSpot<T extends FlagSpot>(map: PoolMap, t: T): T | null {
+  if (t.section === "skills") {
+    const line = map.skills.indexOf(t.line);
+    return line < 0 ? null : ({ ...t, line } as T);
+  }
+  if (t.section === "leadership") {
+    const entry = map.leadership.indexOf(t.entry);
+    return entry < 0 ? null : ({ ...t, entry } as T);
+  }
+  const entries = map[t.section];
+  const entry = entries.findIndex((e) => e.entry === t.entry);
+  if (entry < 0) return null;
+  if (t.bullet === undefined) return { ...t, entry } as T;
+  const bullet = entries[entry].bullets.indexOf(t.bullet);
+  return bullet < 0 ? null : ({ ...t, entry, bullet } as T);
+}
+
 /** Measures a candidate page at a given layout (fit.ts pageFill reads doc.layout). */
 export type LayoutMeasureFn = (doc: ResumeDoc) => number;
 
 export interface ResumeFitResult extends FitResult {
   layout: Layout;
+  /** Content height at the default 10pt layout, after any trimming and before the type grows. */
+  baseFill: number;
   /** Plain notes on what the loop changed, for the Checks list. */
   steps: string[];
 }
@@ -412,7 +417,8 @@ export function fitResume(pool: ResumeDoc, measure: LayoutMeasureFn, opts: Omit<
 
   // Trim to fit at the default type, then put back whatever fits, most valuable first.
   let r = fitToPage(capped, at(layout), { ...opts, limit, fillTarget, maxBulletsPerRole: MAX_RESTORED_BULLETS });
-  if (!r.fits) return { ...r, doc: withLayout(r.doc, layout), layout, steps };
+  const baseFill = r.fill;
+  if (!r.fits) return { ...r, doc: withLayout(r.doc, layout), layout, baseFill, steps };
 
   const grow = (next: (l: Layout) => Layout | null, label: (l: Layout) => string) => {
     let changed = false;
@@ -431,5 +437,5 @@ export function fitResume(pool: ResumeDoc, measure: LayoutMeasureFn, opts: Omit<
   grow((l) => (l.body < MAX_BODY_PT ? { ...l, body: Math.min(MAX_BODY_PT, round2(l.body + BODY_STEP_PT)) } : null), (l) => `Body text set to ${l.body}pt to fill the page.`);
   grow((l) => (l.spacing < MAX_SPACING ? { ...l, spacing: Math.min(MAX_SPACING, round2(l.spacing + SPACING_STEP)) } : null), (l) => `Line spacing set to ${l.spacing} to fill the page.`);
 
-  return { ...r, doc: withLayout(r.doc, layout), layout, underfilled: r.fits && r.fill < fillTarget, steps };
+  return { ...r, doc: withLayout(r.doc, layout), layout, baseFill, underfilled: r.fits && r.fill < fillTarget, steps };
 }

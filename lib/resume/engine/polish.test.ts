@@ -7,12 +7,12 @@ import {
   dedupeSkills,
   fixTechCasing,
   focusSkillLines,
+  addMissingJobSkills,
   itemMatches,
-  MAX_SKILL_LINES,
   orderSkillLines,
   polishResume,
   separateBoldSpans,
-  skillLineWraps,
+  skillLineCount,
   tidySkillLines,
 } from "./polish";
 import { fixBoldMarkers } from "./validate";
@@ -87,24 +87,24 @@ describe("boldOnlyTechAndNumbers", () => {
 });
 
 describe("skills lines", () => {
-  it("drops non-technical lines and merges Additional into Tools", () => {
+  it("drops soft-skill lines but keeps their technical items, and merges Additional into Tools", () => {
     const r = tidySkillLines([
       { category: "Languages", items: ["TypeScript"] },
-      { category: "Collaboration", items: ["Agile"] },
+      { category: "Collaboration", items: ["Agile", "Communication"] },
       { category: "Tools", items: ["Git"] },
       { category: "Additional", items: ["Figma"] },
     ]);
     expect(r.skills).toEqual([
       { category: "Languages", items: ["TypeScript"] },
-      { category: "Tools", items: ["Git", "Figma"] },
+      { category: "Tools", items: ["Git", "Figma", "Agile"] },
     ]);
   });
-  it("orders lines by the job's skills and keeps at most six", () => {
+  it("orders lines by the job's skills and never drops a line", () => {
     const lines = ["A", "B", "C", "D", "E", "F", "G"].map((c, i) => ({ category: c, items: [`Skill${i}`] }));
     lines[6].items = ["Kubernetes"];
     const out = orderSkillLines(lines, ["Kubernetes"]);
     expect(out[0].category).toBe("G");
-    expect(out).toHaveLength(MAX_SKILL_LINES);
+    expect(out).toHaveLength(7);
   });
 });
 
@@ -166,15 +166,13 @@ describe("focusSkillLines", () => {
     expect(out[1].items).toEqual(["Go", "TypeScript", "Python", "SQL"]);
   });
 
-  it("drops skills the job doesn't ask for from a line that would wrap, never one it asks for", () => {
+  it("keeps every skill on a line that wraps, the job's first (her complaint: it cut my skills)", () => {
     const long = { category: "Tools", items: ["Git", ...Array.from({ length: 30 }, (_, i) => `Toolname${i}`), "Figma"] };
-    expect(skillLineWraps(long)).toBe(true);
+    expect(skillLineCount(long)).toBeGreaterThan(1);
     const focus = buildJobFocus({ role: "Product Designer", jdText: "", must: ["Figma"] });
     const [line] = focusSkillLines([long], [], focus);
     expect(line.items[0]).toBe("Figma");
-    expect(line.items).toContain("Git");
-    expect(skillLineWraps(line)).toBe(false);
-    expect(line.items.length).toBeLessThan(long.items.length);
+    expect([...line.items].sort()).toEqual([...long.items].sort());
   });
 
   it("is used by polishResume when a focus is given", () => {
@@ -182,5 +180,36 @@ describe("focusSkillLines", () => {
     const empty: ResumeDoc = { education: [], experience: [], skills, leadership: [], meta: { matchedKeywords: [], gaps: [], valuesReflected: [] } };
     const out = polishResume(empty, { focus });
     expect(out.doc.skills[0]).toEqual({ category: "Frontend", items: ["React", "Next.js"] });
+  });
+});
+
+describe("addMissingJobSkills", () => {
+  const master = `### Experience
+**Engineer | Acme | Remote | May 2025 - Aug 2025**
+- Built services in Go with Docker
+### Skills
+- **Languages:** Go, Python
+- **Data:** PostgreSQL`;
+  const inventory = ["Go", "Python", "PostgreSQL"];
+
+  it("adds a job skill she has (skills list or any bullet) that no line shows, in the job's spelling", () => {
+    const r = addMissingJobSkills([{ category: "Languages", items: ["Python"] }], ["Go", "Docker", "Postgres"], inventory, master);
+    expect(r.added).toEqual(["Go", "Docker", "Postgres"]);
+    const all = r.skills.flatMap((l) => l.items);
+    expect(all).toEqual(expect.arrayContaining(["Python", "Go", "Docker", "Postgres"]));
+  });
+
+  it("never adds a gap, a soft skill, or a skill a line already shows under another name", () => {
+    const r = addMissingJobSkills([{ category: "Data", items: ["PostgreSQL"] }], ["Kubernetes", "Communication", "Postgres"], inventory, master);
+    expect(r.added).toEqual([]);
+    expect(r.skills).toEqual([{ category: "Data", items: ["PostgreSQL"] }]);
+  });
+
+  it("runs in polishResume only when asked (model answers, not her own edits)", () => {
+    const doc: ResumeDoc = { education: [], experience: [], skills: [{ category: "Languages", items: ["Python"] }], leadership: [], meta: { matchedKeywords: [], gaps: [], valuesReflected: [] } };
+    expect(polishResume(doc, { inventory, master, jobSkills: ["Go"] }).doc.skills.flatMap((l) => l.items)).toEqual(["Python"]);
+    const added = polishResume(doc, { inventory, master, jobSkills: ["Go"], addJobSkills: true });
+    expect(added.doc.skills.flatMap((l) => l.items)).toEqual(["Python", "Go"]);
+    expect(added.notes.join(" ")).toMatch(/Added Go to your skills/);
   });
 });

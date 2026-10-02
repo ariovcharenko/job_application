@@ -80,3 +80,28 @@ describe("section order", () => {
     expect(monthsOfExperience(["Jan 2026 - Jun 2026", "Mar 2026 - Apr 2026"])).toBe(6);
   });
 });
+
+describe("renderResumeHtml marks", () => {
+  const header = { name: "A", location: "", links: [] };
+  const d: ResumeDoc = { ...doc, skills: [{ category: "Languages", items: ["TypeScript", "Rust"] }] };
+
+  it("strikes a blocked line and highlights a noted one, on the exact spot", () => {
+    const html = renderResumeHtml(header, d, [
+      { kind: "block", spot: { section: "skills", line: 0, item: 1 } },
+      { kind: "note", spot: { section: "experience", entry: 0, bullet: 0 } },
+    ]);
+    expect(html).toContain('TypeScript, <span class="fb">Rust</span>');
+    expect(html).toContain('<li data-b="0" tabindex="0" class="fn">');
+    expect(PAGE_CSS).toMatch(/\.rp \.fb\{text-decoration:line-through/);
+  });
+
+  it("renders exactly as before without marks (the measure never changes)", () => {
+    expect(renderResumeHtml(header, d, [])).toBe(renderResumeHtml(header, d));
+    expect(renderResumeHtml(header, d)).not.toMatch(/class="f[bn]"/);
+  });
+
+  it("escapes a marked skill like any other text", () => {
+    const html = renderResumeHtml(header, { ...d, skills: [{ category: "L", items: ["<b>x</b>"] }] }, [{ kind: "block", spot: { section: "skills", line: 0, item: 0 } }]);
+    expect(html).toContain('<span class="fb">&lt;b&gt;x&lt;/b&gt;</span>');
+  });
+});

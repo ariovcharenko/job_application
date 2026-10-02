@@ -130,16 +130,26 @@ describe("validateResume: tools inside bullets", () => {
     expect(withBullet("**Owned** the matchmaking feature end-to-end").flags).toEqual([]);
   });
 
-  it("flags a skill she has when this role's own text never mentions it", () => {
-    // Prisma ORM and REST are on her skills list but not in the Brightloop role: Skills line only.
-    const tools = withBullet("Stored records with **Prisma ORM** behind **RESTful web services**").flags.map((f) => f.message);
-    expect(tools).toHaveLength(2);
-    expect(tools[0]).toMatch(/Prisma ORM/);
+  it("notes, without removing, a skill she has that this role's own text never mentions", () => {
+    // Prisma ORM and REST are on her skills list but not in the Brightloop role: true, so it stays
+    // on the page with one note to check, instead of the bullet silently vanishing.
+    const r = withBullet("Stored records with **Prisma ORM** behind **RESTful web services**");
+    expect(r.flags).toHaveLength(1);
+    expect(r.flags[0]).toMatchObject({ kind: "skill", severity: "note", target: { section: "experience", entry: 0, bullet: 0 } });
+    expect(r.flags[0].message).toMatch(/"Prisma ORM", "RESTful web services" are in your experience, but not in this role/);
+    expect(applyApprovals(r.doc, r.flags, new Set()).experience[0].bullets).toHaveLength(1);
   });
 
-  it("flags claims the role's own text doesn't make", () => {
+  it("blocks a technology that appears nowhere in her experience", () => {
+    const r = withBullet("Built services with **Kubernetes**");
+    expect(r.flags.map((f) => f.severity)).toEqual(["block"]);
+    expect(applyApprovals(r.doc, r.flags, new Set()).experience[0].bullets).toEqual([]);
+  });
+
+  it("notes claims the role's own text doesn't make, without removing the bullet", () => {
     const r = withBullet("Shipped features for **client** workflows with **external partners**");
     expect(r.flags.map((f) => f.kind)).toContain("claim");
+    expect(r.flags.find((f) => f.kind === "claim")?.severity).toBe("note");
     expect(r.flags.find((f) => f.kind === "claim")?.message).toMatch(/client", "partner/);
     expect(withBullet("Shipped **6 production features** to the checkout platform").flags).toEqual([]);
   });
@@ -151,7 +161,7 @@ describe("validateResume: tools inside bullets", () => {
     expect(r.flags).toEqual([expect.objectContaining({ kind: "skill", target: { section: "education", entry: 0, bullet: 1 } })]);
   });
 
-  it("drops the bullet unless every flagged tool in it is ticked", () => {
+  it("drops the bullet unless every blocked tool in it is kept", () => {
     const d = doc();
     d.experience[0].bullets = ["Built services with **Kubernetes** and **Redis**", "Wrote tests with **Jest**"];
     const { doc: v, flags } = validateResume(d, MASTER);
@@ -334,5 +344,24 @@ describe("validateResume: confirmed skills with usage notes", () => {
     expect(withRole(listed)).toHaveLength(1);
     expect(withRole(`${listed}\n\n### Usage notes\n- Kotlin: Android screens at Brightloop\n`)).toEqual([]);
     expect(withRole(`${listed}\n\n### Usage notes\n- Kotlin: a class project\n`)).toHaveLength(1);
+    // Listed but not in this role: a note to check, never a deletion.
+    expect(withRole(listed).map((f) => f.severity)).toEqual(["note"]);
+  });
+
+  it("accepts a skill placed in this exact role from the tailoring screen (stored by role, not free text)", () => {
+    const listed = MASTER.replace("- **Testing & Monitoring:**", "- **Additional:** Kotlin\n- **Testing & Monitoring:**");
+    expect(withRole(`${listed}\n\n### Usage notes\n- Kotlin @ Brightloop | Software Engineer Intern: used in this role\n`)).toEqual([]);
+    // Placed in another role: still only a note here.
+    expect(withRole(`${listed}\n\n### Usage notes\n- Kotlin @ Some Other Co | Engineer: used in this role\n`).map((f) => f.severity)).toEqual(["note"]);
+  });
+
+  it("doesn't flag a skills-line item her experience shows only in a bullet", () => {
+    const d = doc();
+    d.skills = [{ category: "Tools", items: ["Docker"] }];
+    const notListed = MASTER.replace("GCP, Docker, Railway", "GCP, Railway");
+    expect(notListed).not.toMatch(/Docker/);
+    const inBullet = notListed.replace("- Wrote", "- Containerized the API with Docker\n- Wrote");
+    expect(validateResume(d, inBullet).flags.filter((f) => f.target.section === "skills")).toEqual([]);
+    expect(validateResume(d, notListed).flags.filter((f) => f.target.section === "skills")).toEqual([expect.objectContaining({ severity: "block" })]);
   });
 });

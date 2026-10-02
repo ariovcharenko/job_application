@@ -190,3 +190,29 @@ describe("usage notes for confirmed skills", () => {
     expect(parseSkillInventory(m)).toEqual(["TypeScript"]);
   });
 });
+
+describe("usage notes tied to a role", () => {
+  const base = "### Skills inventory\n- **Languages:** TypeScript\n";
+  it("stores the exact role she placed a skill in, one note per role, and reads it back", async () => {
+    const { appendUsageNote, parseUsageNotes } = await import("./skills");
+    let m = appendUsageNote(base, "Kotlin", "", { company: "ShelfLife", title: "Hackathon project" });
+    m = appendUsageNote(m, "Kotlin", "wrote the Android client", { company: "Brightloop", title: "Software Engineer Intern" });
+    m = appendUsageNote(m, "Kotlin", "built the scanner screen", { company: "ShelfLife", title: "Hackathon project" });
+    expect(m).toContain("- Kotlin @ ShelfLife | Hackathon project: built the scanner screen");
+    expect(parseUsageNotes(m)).toEqual([
+      { skill: "Kotlin", where: "built the scanner screen", role: { company: "ShelfLife", title: "Hackathon project" } },
+      { skill: "Kotlin", where: "wrote the Android client", role: { company: "Brightloop", title: "Software Engineer Intern" } },
+    ]);
+    expect(parseSkillInventory(m)).toEqual(["TypeScript"]);
+  });
+
+  it("keeps a free-text note and a role note for the same skill apart", async () => {
+    const { appendUsageNote, parseUsageNotes } = await import("./skills");
+    let m = appendUsageNote(base, "Rust", "class project");
+    m = appendUsageNote(m, "Rust", "", { company: "Acme", title: "" });
+    expect(parseUsageNotes(m)).toEqual([
+      { skill: "Rust", where: "class project" },
+      { skill: "Rust", where: "used in this role", role: { company: "Acme", title: "" } },
+    ]);
+  });
+});

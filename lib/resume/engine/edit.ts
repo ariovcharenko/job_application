@@ -93,3 +93,30 @@ export function targetFromElement(el: { closest(sel: string): { getAttribute(nam
   const bullet = li ? Number(li.getAttribute("data-b")) : undefined;
   return { section, entry, ...(bullet !== undefined && !Number.isNaN(bullet) ? { bullet } : {}) };
 }
+
+/** A flag's spot (validate.ts): a skills item carries its line and item; everything else is a Target. */
+export type FlagSpot =
+  | { section: "skills"; line: number; item: number }
+  | { section: "experience" | "projects" | "education"; entry: number; bullet?: number }
+  | { section: "leadership"; entry: number };
+
+/** The Target (a bullet, an entry, a skills line) that holds a flag's spot. */
+export function spotTarget(spot: FlagSpot): Target {
+  if (spot.section === "skills") return { section: "skills", entry: spot.line };
+  return "bullet" in spot && spot.bullet !== undefined ? { section: spot.section, entry: spot.entry, bullet: spot.bullet } : { section: spot.section, entry: spot.entry };
+}
+
+/** Whether a flag's spot sits on (or inside) this Target: the same bullet, entry header or skills line. */
+export function spotOn(spot: FlagSpot, t: Target): boolean {
+  const s = spotTarget(spot);
+  return s.section === t.section && s.entry === t.entry && (spot.section === "skills" || s.bullet === t.bullet);
+}
+
+/** The document without a flagged spot: one skill item (its line goes when empty), or a bullet/entry. */
+export function removeSpot(doc: ResumeDoc, spot: FlagSpot): ResumeDoc {
+  if (spot.section !== "skills") return removeTarget(doc, spotTarget(spot));
+  const skills = doc.skills
+    .map((l, i) => (i === spot.line ? { ...l, items: l.items.filter((_, k) => k !== spot.item) } : l))
+    .filter((l) => l.items.length > 0);
+  return { ...doc, skills };
+}

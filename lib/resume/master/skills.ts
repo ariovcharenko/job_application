@@ -333,16 +333,43 @@ export function appendSkillToMaster(master: string, skill: string): string {
 }
 
 /**
- * Where she used a skill she confirmed ("I have this"), kept in her experience under this heading
- * as "- Kotlin: built an Android app in Mobile Development (class)". The heading avoids the word
- * "skill" on purpose, so these notes are never read as skills lines. A bullet may mention such a
- * skill only in the role or project its note names (validate.ts); with no note, Skills line only.
+ * Where she used a skill she confirmed, kept in her experience under this heading. Two forms:
+ *  - "- Kotlin @ ShelfLife | Hackathon project: built the Android client" when she placed it in a
+ *    role or project from the tailoring screen (the role is stored exactly, by company and title);
+ *  - "- Kotlin: built an Android app in Mobile Development (class)" for an older free-text note.
+ * The heading avoids the word "skill" on purpose, so these notes are never read as skills lines. A
+ * bullet may mention such a skill in the role its note names (validate.ts).
  */
 export const USAGE_NOTES_HEADING = "Usage notes";
 
+/** A role or project in her experience, by company (or project name) and title. */
+export interface RoleKey {
+  company: string;
+  title: string;
+}
+
 export interface UsageNote {
   skill: string;
+  /** Her words on how she used it ("" when she placed it without a note). */
   where: string;
+  /** The exact role she placed it in, when she chose one. */
+  role?: RoleKey;
+}
+
+const NOTE_LINE = /^[-*•]\s*([^:]{1,200}):\s*(.*)$/;
+
+function parseNoteLine(line: string): UsageNote | null {
+  const m = line.replace(/\*\*/g, "").match(NOTE_LINE);
+  if (!m) return null;
+  const [skillPart, rolePart] = m[1].split(/\s+@\s+/);
+  const skill = skillPart.trim();
+  const where = m[2].trim();
+  if (!skill) return null;
+  if (rolePart) {
+    const [company, ...title] = rolePart.split("|").map((p) => p.trim());
+    if (company) return { skill, where, role: { company, title: title.join(" | ") } };
+  }
+  return where ? { skill, where } : null;
 }
 
 export function parseUsageNotes(master: string): UsageNote[] {
@@ -356,24 +383,34 @@ export function parseUsageNotes(master: string): UsageNote[] {
       continue;
     }
     if (!inside) continue;
-    const m = line.replace(/\*\*/g, "").match(/^[-*•]\s*([^:]{1,60}):\s*(.+)$/);
-    if (m) out.push({ skill: m[1].trim(), where: m[2].trim() });
+    const note = parseNoteLine(line);
+    if (note) out.push(note);
   }
   return out;
 }
 
-/** Adds (or replaces) the note for one skill under the Usage notes heading, creating it if needed. */
-export function appendUsageNote(master: string, skill: string, where: string): string {
+const sameRole = (a?: RoleKey, b?: RoleKey) =>
+  (!a && !b) || (!!a && !!b && a.company.trim().toLowerCase() === b.company.trim().toLowerCase() && a.title.trim().toLowerCase() === b.title.trim().toLowerCase());
+
+/**
+ * Adds (or replaces) the note for one skill under the Usage notes heading, creating it if needed.
+ * With `role`, the note is tied to that exact role; a skill can then have one note per role.
+ */
+export function appendUsageNote(master: string, skill: string, where: string, role?: RoleKey): string {
   const name = skill.trim();
-  const text = where.replace(/\s+/g, " ").trim();
-  if (!name || !text) return master;
-  const line = `- ${name}: ${text}`;
+  const text = where.replace(/\s+/g, " ").replace(/^[-*•]\s*/, "").trim();
+  if (!name || (!text && !role)) return master;
+  const key = role ? `${name} @ ${role.company.trim()}${role.title.trim() ? ` | ${role.title.trim()}` : ""}` : name;
+  const line = `- ${key}: ${text || "used in this role"}`;
   const lines = master.split(/\r?\n/);
   const heading = lines.findIndex((l) => new RegExp(`^#{1,6}\\s+${USAGE_NOTES_HEADING}`, "i").test(l.trim()));
   if (heading < 0) return `${master.trimEnd()}\n\n### ${USAGE_NOTES_HEADING}\n${line}\n`;
   let end = heading + 1;
   while (end < lines.length && !/^#{1,6}\s/.test(lines[end].trim())) end++;
-  const existing = lines.slice(heading + 1, end).findIndex((l) => normalizeSkill(l.replace(/^[-*•]\s*/, "").split(":")[0] ?? "") === normalizeSkill(name));
+  const existing = lines.slice(heading + 1, end).findIndex((l) => {
+    const n = parseNoteLine(l.trim());
+    return !!n && normalizeSkill(n.skill) === normalizeSkill(name) && sameRole(n.role, role);
+  });
   if (existing >= 0) lines[heading + 1 + existing] = line;
   else {
     let last = end - 1;

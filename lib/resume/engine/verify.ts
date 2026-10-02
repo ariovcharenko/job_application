@@ -47,7 +47,7 @@ export function verifyResume(input: {
   fits: boolean;
   fill: number;
   master: string;
-  /** Skills she ticked "I have this" for in this session (already on her list after saving). */
+  /** Skills she confirmed in this session that aren't saved to her experience yet. */
   extraSkills?: string[];
 }): VerifyCheck[] {
   const { header, doc, fits, fill, master } = input;
@@ -62,7 +62,7 @@ export function verifyResume(input: {
   const badLinks = header.links.filter((l, i) => !linkOk(l.url) || urls.indexOf(urls[i]) !== i);
   const dashed = allText(header, doc).filter((t) => DASHES.test(t));
   const touching = bullets.filter(boldSpansTouch);
-  const unknownSkills = doc.skills.flatMap((l) => l.items).filter((i) => !hasSkill(i, inventory, ""));
+  const unknownSkills = doc.skills.flatMap((l) => l.items).filter((i) => !hasSkill(i, inventory, master));
   const unknownNumbers = [...new Set(bullets.flatMap((b) => numbersIn(plain(b))).filter((n) => !masterNumbers.has(n)))];
   const wrongDates = roles.filter((e) => {
     const m = entries.find((x) => x.company.toLowerCase() === e.company.toLowerCase());
@@ -86,7 +86,7 @@ export function verifyResume(input: {
     {
       id: "skills",
       ok: unknownSkills.length === 0,
-      label: unknownSkills.length ? `Not on your skills list: ${unknownSkills.join(", ")}.` : "Every skill is on your skills list.",
+      label: unknownSkills.length ? `Not in your experience: ${unknownSkills.join(", ")}.` : "Every skill is in your experience.",
     },
     {
       id: "numbers",

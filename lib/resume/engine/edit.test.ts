@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MASTER } from "./__fixtures__/master";
 import { cleanTitle, entriesNotOnPage, parseMasterExperiences } from "../master/experiences";
-import { addSkill, describeTarget, removeTarget, targetFromElement } from "./edit";
+import { addSkill, describeTarget, removeSpot, removeTarget, spotOn, spotTarget, targetFromElement } from "./edit";
 import type { ResumeDoc } from "./schema";
 
 const doc: ResumeDoc = {
@@ -104,5 +104,22 @@ describe("master experiences", () => {
     const missing = entriesNotOnPage(MASTER, doc).map((e) => e.company);
     expect(missing).toContain("Query Insights App");
     expect(missing).not.toContain("Brightloop");
+  });
+});
+
+describe("flag spots", () => {
+  it("maps a flag's spot to the line that holds it", () => {
+    expect(spotTarget({ section: "skills", line: 1, item: 3 })).toEqual({ section: "skills", entry: 1 });
+    expect(spotTarget({ section: "experience", entry: 0, bullet: 2 })).toEqual({ section: "experience", entry: 0, bullet: 2 });
+    expect(spotOn({ section: "skills", line: 0, item: 2 }, { section: "skills", entry: 0 })).toBe(true);
+    expect(spotOn({ section: "experience", entry: 0, bullet: 1 }, { section: "experience", entry: 0 })).toBe(false);
+    expect(spotOn({ section: "experience", entry: 0 }, { section: "experience", entry: 0 })).toBe(true);
+  });
+
+  it("removes one skill (not its whole line), or the flagged bullet", () => {
+    const d: ResumeDoc = { ...doc, skills: [{ category: "Languages", items: ["Go", "Rust"] }, { category: "Tools", items: ["Figma"] }] };
+    expect(removeSpot(d, { section: "skills", line: 0, item: 1 }).skills).toEqual([{ category: "Languages", items: ["Go"] }, { category: "Tools", items: ["Figma"] }]);
+    expect(removeSpot(d, { section: "skills", line: 1, item: 0 }).skills).toEqual([{ category: "Languages", items: ["Go", "Rust"] }]);
+    expect(removeSpot(d, { section: "experience", entry: 0, bullet: 1 }).experience[0].bullets).toEqual(["A", "C"]);
   });
 });

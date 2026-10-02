@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ResumeDoc } from "./schema";
-import { fitResume, fitToPage, toPoolTarget } from "./trim";
+import { fitResume, fitToPage, toPoolTarget, toVisibleSpot } from "./trim";
 
 // A fake page: every piece costs whole lines, a bullet one line per started 100 characters.
 // fill = lines / capacity, so each test can say exactly how much room there is.
@@ -90,7 +90,7 @@ describe("fitToPage: trimming", () => {
     expect(r.underfilled).toBe(true);
   });
 
-  it("never goes below two bullets per role, then trims education and skills lines, and says when it can't fit", () => {
+  it("never goes below two bullets per role, never cuts education or skills, and says when it can't fit", () => {
     const d = doc({
       education: [{ school: "Lakeside University", location: "", degree: "", dates: "", bullets: ["Coursework", "Honors"] }],
       experience: [exp("A", ["a1", "a2", "a3", "a4"]), exp("B", ["b1", "b2", "b3"])],
@@ -99,8 +99,9 @@ describe("fitToPage: trimming", () => {
     const r = fitToPage(d, page(5), exact);
     expect(r.fits).toBe(false);
     expect(r.doc.experience.map((e) => e.bullets.length)).toEqual([2, 2]);
-    expect(r.doc.education[0].bullets).toEqual([]);
-    expect(r.doc.skills).toHaveLength(5);
+    expect(r.doc.education[0].bullets).toEqual(["Coursework", "Honors"]);
+    expect(r.doc.skills).toHaveLength(7);
+    expect(r.removed.some((x) => /Skills|Lakeside/.test(x))).toBe(false);
     expect(r.underfilled).toBe(false);
   });
 });
@@ -212,5 +213,30 @@ describe("fitResume: her fill loop", () => {
     const d = doc({ experience: [exp("A", ["a", "b"])], projects: [exp("P", ["1", "2", "3", "4"])] });
     const r = fitResume(d, scaled(30), opts);
     expect(r.doc.projects?.[0].bullets).toEqual(["1", "2"]);
+  });
+});
+
+describe("toVisibleSpot", () => {
+  it("maps a spot in the document to the same spot on the page, or null when it was left off", () => {
+    const d = doc({ experience: [exp("A", ["a1", "a2", "a3", "a4"]), exp("B", ["b1", "b2", "b3"])], skills: [{ category: "L", items: ["x", "y"] }] });
+    const r = fitToPage(d, page(10), exact);
+    const shownA = r.map.experience[0].bullets;
+    expect(shownA.length).toBeLessThan(4);
+    const hidden = [0, 1, 2, 3].find((j) => !shownA.includes(j))!;
+    expect(toVisibleSpot(r.map, { section: "experience", entry: 0, bullet: hidden })).toBeNull();
+    const last = shownA[shownA.length - 1];
+    expect(toVisibleSpot(r.map, { section: "experience", entry: 0, bullet: last })).toEqual({ section: "experience", entry: 0, bullet: shownA.length - 1 });
+    expect(toVisibleSpot(r.map, { section: "skills", line: 0, item: 1 })).toEqual({ section: "skills", line: 0, item: 1 });
+    expect(toVisibleSpot(r.map, { section: "experience", entry: 1 })).toEqual({ section: "experience", entry: 1 });
+  });
+});
+
+describe("fitResume: baseFill", () => {
+  it("reports the fill at 10pt before the type grows", () => {
+    const d = doc({ experience: [exp("A", ["a", "b"])] }); // 7 lines
+    const measure = (x: ResumeDoc) => (lines(x) * ((x.layout?.body ?? 10) / 10)) / 10;
+    const r = fitResume(d, measure, { limit: 1, fillTarget: 0.95 });
+    expect(r.baseFill).toBeCloseTo(0.7);
+    expect(r.layout.body).toBeGreaterThan(10);
   });
 });

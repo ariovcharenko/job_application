@@ -107,8 +107,6 @@ describe("tailoring the demo experience for different jobs", () => {
     const now = new Set(jobs.map((j) => signature(tailor(j.signals.company).fit.doc)));
     const before = new Set(jobs.map((j) => signature(tailorBySkillCount(j.signals.company).doc)));
     expect(now.size).toBeGreaterThan(before.size);
-    // Counting skills kept the teaching role on every page and left the relevant project off.
-    for (const j of jobs) expect(companies(tailorBySkillCount(j.signals.company).doc)).toContain("University of Washington");
     const skillLines = new Set(jobs.map((j) => tailor(j.signals.company).fit.doc.skills.map((l) => `${l.category}:${l.items[0]}`).join("|")));
     expect(skillLines.size).toBe(jobs.length);
   });

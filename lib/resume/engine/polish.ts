@@ -1,6 +1,7 @@
-import { hasSkill, normalizeSkill } from "../master/skills";
+import { hasSkill, isSoftSkill, normalizeSkill } from "../master/skills";
 import { mentionsTerm, TECH_TERMS } from "../master/techTerms";
 import { wrapBullet } from "../quality/measure";
+import { addSkill } from "./edit";
 import type { JobFocus } from "./focus";
 import { boldSegments, PAGE } from "./layout";
 import { metricsIn } from "./relevance";
@@ -8,7 +9,8 @@ import type { ResumeDoc } from "./schema";
 
 // Mechanical polish applied by code to every generated resume, so these never depend on the
 // model following its instructions: at most four bold spans per bullet (numbers kept first), the
-// usual spelling of well-known technologies, and no skill listed twice.
+// usual spelling of well-known technologies, and no skill listed twice. Skills are only ever
+// reordered or added here, never removed (apart from exact duplicates).
 
 export const MAX_BOLD_SPANS = 4;
 
@@ -120,38 +122,42 @@ export function boldOnlyTechAndNumbers(text: string, inventory: string[]): { tex
   return { text: out, changed };
 }
 
-/** Skills lines that aren't skills ("Collaboration", "Soft skills") go; an "Additional"/"Other" line merges into Tools. */
+/**
+ * Skills lines named like soft skills ("Collaboration", "Soft skills") go, but any technical item on
+ * them moves to Tools; an "Additional"/"Other" line merges into Tools. No technical skill is lost.
+ */
 export function tidySkillLines(skills: ResumeDoc["skills"]): { skills: ResumeDoc["skills"]; notes: string[] } {
   const notes: string[] = [];
+  const rescued: string[] = [];
   let out = skills.filter((l) => {
     const drop = /collaborat|soft\s*skill|interpersonal|communication/i.test(l.category);
-    if (drop) notes.push(`Left off the "${l.category}" line (not technical skills).`);
+    if (drop) {
+      rescued.push(...l.items.filter((i) => !isSoftSkill(i)));
+      notes.push(`Left off the "${l.category}" line (not technical skills).`);
+    }
     return !drop;
   });
   const extra = out.filter((l) => /^(additional|other)\b/i.test(l.category.trim()));
-  if (extra.length) {
-    const items = extra.flatMap((l) => l.items);
+  const items = [...extra.flatMap((l) => l.items), ...rescued];
+  if (items.length) {
     out = out.filter((l) => !extra.includes(l));
     const tools = out.findIndex((l) => /tool/i.test(l.category));
     if (tools >= 0) out = out.map((l, i) => (i === tools ? { ...l, items: [...l.items, ...items] } : l));
     else out = [...out, { category: "Tools", items }];
-    notes.push(`Moved the "${extra[0].category}" skills into ${tools >= 0 ? out[tools].category : "Tools"}.`);
+    if (extra.length) notes.push(`Moved the "${extra[0].category}" skills into ${tools >= 0 ? out[tools].category : "Tools"}.`);
   }
   return { skills: out, notes };
 }
 
-/** Her rule: 5 to 6 skills lines. */
-export const MAX_SKILL_LINES = 6;
-
 /**
  * Skills lines in the order this job cares about (most of the job's skills first, ties keep the
- * model's order), at most MAX_SKILL_LINES (the lines with the fewest of the job's skills go).
+ * model's order). Every line and every skill is kept: code reorders, never deletes.
  */
 export function orderSkillLines(skills: ResumeDoc["skills"], jobSkills: string[], focus?: JobFocus): ResumeDoc["skills"] {
   if (focus) return focusSkillLines(skills, jobSkills, focus);
   const hits = (l: ResumeDoc["skills"][number]) => jobSkills.filter((j) => hasSkill(j, l.items, "")).length;
   const ranked = skills.map((l, i) => ({ l, i, h: hits(l) })).sort((a, b) => b.h - a.h || a.i - b.i);
-  return ranked.slice(0, MAX_SKILL_LINES).map((x) => x.l);
+  return ranked.map((x) => x.l);
 }
 
 /**
@@ -169,20 +175,18 @@ export function itemMatches(skill: string, item: string): boolean {
  * The width of a skills line at the default 10pt body: (8.5in - 2 x 0.45in margins) in 1/1000 em,
  * with the same 0.97 safety factor as the bullet estimate (lib/resume/quality/measure.ts).
  */
-const SKILL_LINE_UNITS = ((PAGE.widthIn - 2 * PAGE.marginXIn) * 72 / 10) * 1000 * 0.97;
+export const SKILL_LINE_UNITS = ((PAGE.widthIn - 2 * PAGE.marginXIn) * 72 / 10) * 1000 * 0.97;
 
-/** Whether "Category: a, b, c" takes more than one line on the page (estimated, no browser). */
-export const skillLineWraps = (l: ResumeDoc["skills"][number]) => wrapBullet(`**${l.category}:** ${l.items.join(", ")}`, SKILL_LINE_UNITS).lines.length > 1;
+/** How many printed lines "Category: a, b, c" takes on the page (estimated, no browser). */
+export const skillLineCount = (l: ResumeDoc["skills"][number]) => wrapBullet(`**${l.category}:** ${l.items.join(", ")}`, SKILL_LINE_UNITS).lines.length;
 
 /**
  * Skills lines tailored to the job, by code:
  *  - lines ordered by the job's skills they hold (a must-have counts twice a nice-to-have), ties
  *    keep the model's order;
  *  - within a line, the job's skills first (must-haves in the posting's order, then nice-to-haves,
- *    then any other skill the job names), the rest in their order;
- *  - a line that would wrap to a second line drops items the job doesn't ask for from its end
- *    until it fits one line (never one the job asks for).
- * At most MAX_SKILL_LINES lines.
+ *    then any other skill the job names), the rest in their order.
+ * Nothing is dropped: a long line may wrap, which the page plan (budget.ts) already counts.
  */
 export function focusSkillLines(skills: ResumeDoc["skills"], jobSkills: string[], focus: JobFocus): ResumeDoc["skills"] {
   const others = jobSkills.filter((j) => ![...focus.must, ...focus.nice].some((x) => x.toLowerCase() === j.toLowerCase()));
@@ -192,18 +196,45 @@ export function focusSkillLines(skills: ResumeDoc["skills"], jobSkills: string[]
     const hits = ranked.filter((r) => l.items.some((it) => itemMatches(r.s, it)));
     const order = l.items.map((item, k) => ({ item, k, r: rankOf(item) }));
     order.sort((a, b) => (a.r < 0 ? 1e9 : a.r) - (b.r < 0 ? 1e9 : b.r) || a.k - b.k);
-    let items = order.map((x) => x.item);
-    const matched = new Set(order.filter((x) => x.r >= 0).map((x) => x.item));
-    while (items.length > 1 && skillLineWraps({ ...l, items }) && !matched.has(items[items.length - 1])) items = items.slice(0, -1);
-    return { line: { ...l, items }, i, w: hits.reduce((s, r) => s + r.w, 0) };
+    return { line: { ...l, items: order.map((x) => x.item) }, i, w: hits.reduce((s, r) => s + r.w, 0) };
   });
   lines.sort((a, b) => b.w - a.w || a.i - b.i);
-  return lines.slice(0, MAX_SKILL_LINES).map((x) => x.line);
+  return lines.map((x) => x.line);
+}
+
+/**
+ * The job's skills she has (anywhere in her experience: skills list, bullets, or a synonym) that no
+ * skills line shows, added to the best-fitting line in the job's spelling. A gap is never added.
+ */
+export function addMissingJobSkills(
+  skills: ResumeDoc["skills"],
+  jobSkills: string[],
+  inventory: string[],
+  master: string,
+): { skills: ResumeDoc["skills"]; added: string[] } {
+  let doc = { skills } as ResumeDoc;
+  const added: string[] = [];
+  for (const s of jobSkills) {
+    const name = s.trim();
+    if (!name || isSoftSkill(name) || !hasSkill(name, inventory, master)) continue;
+    if (doc.skills.some((l) => l.items.some((it) => itemMatches(name, it)))) continue;
+    if (added.some((a) => normalizeSkill(a) === normalizeSkill(name))) continue;
+    doc = addSkill(doc, name);
+    added.push(name);
+  }
+  return { skills: doc.skills, added };
 }
 
 export interface PolishOptions {
   /** Her skills list, so a bold technology she lists keeps its bold. */
   inventory?: string[];
+  /** Her whole experience text, so `addJobSkills` can find skills she has outside the skills list. */
+  master?: string;
+  /**
+   * Add the job's skills she has but no skills line shows. Only right after the model writes (not
+   * on her own edits, so a skill she removed by hand stays removed).
+   */
+  addJobSkills?: boolean;
   /** The job's skills, to order the skills lines. */
   jobSkills?: string[];
   /** What the job is about (focus.ts): weights must-haves and orders items within each line. */
@@ -224,8 +255,9 @@ export function polishResume(doc: ResumeDoc, opts: PolishOptions = {}): { doc: R
   };
   const tidy = tidySkillLines(doc.skills.map((l) => ({ ...l, items: l.items.map(fixTechCasing) })));
   const { skills: deduped, removed } = dedupeSkills(tidy.skills);
-  const before = deduped.length;
-  const skills = opts.jobSkills || opts.focus ? orderSkillLines(deduped, opts.jobSkills ?? [], opts.focus) : deduped.slice(0, MAX_SKILL_LINES);
+  const completed =
+    opts.addJobSkills && opts.jobSkills?.length ? addMissingJobSkills(deduped, opts.jobSkills, inventory, opts.master ?? "") : { skills: deduped, added: [] as string[] };
+  const skills = opts.jobSkills || opts.focus ? orderSkillLines(completed.skills, opts.jobSkills ?? [], opts.focus) : completed.skills;
   const out: ResumeDoc = {
     ...doc,
     experience: doc.experience.map((e) => ({ ...e, bullets: e.bullets.map(bullet) })),
@@ -237,6 +269,6 @@ export function polishResume(doc: ResumeDoc, opts: PolishOptions = {}): { doc: R
   if (unbolded) notes.push(`Bold kept only on technologies and numbers in ${unbolded} bullet${unbolded === 1 ? "" : "s"}.`);
   if (boldCapped) notes.push(`Kept at most ${MAX_BOLD_SPANS} bold spans in ${boldCapped} bullet${boldCapped === 1 ? "" : "s"}.`);
   if (removed) notes.push(`Removed ${removed} duplicate skill${removed === 1 ? "" : "s"}.`);
-  if (before > skills.length) notes.push(`Kept the ${skills.length} skills lines that matter most for this job.`);
+  if (completed.added.length) notes.push(`Added ${completed.added.join(", ")} to your skills: the job asks for ${completed.added.length === 1 ? "it" : "them"} and your experience shows ${completed.added.length === 1 ? "it" : "them"}.`);
   return { doc: out, notes };
 }

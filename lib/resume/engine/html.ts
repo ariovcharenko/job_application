@@ -46,9 +46,32 @@ export const PAGE_CSS = `
 .rp li{position:relative;padding-left:0.1875in;font-size:${pt(0)}}
 .rp li:before{content:"\\2022";position:absolute;left:0.0625in}
 .rp .k{font-size:${pt(0)}}
+.rp .fb{text-decoration:line-through;text-decoration-color:rgba(180,35,24,.8);background:rgba(180,35,24,.10)}
+.rp .fn{background:rgba(255,186,0,.22)}
 `;
 
-export function renderResumeHtml(h: ResumeHeader, doc: ResumeDoc): string {
+/**
+ * A line in the preview to mark: "block" = left out of the download until she keeps it (struck
+ * through), "note" = kept, worth a look (highlighted). Spots are positions on the visible page.
+ * Marks only change color, never size, so the measured page is the same with or without them.
+ */
+export interface PreviewMark {
+  kind: "block" | "note";
+  spot:
+    | { section: "skills"; line: number; item: number }
+    | { section: "experience" | "projects" | "education"; entry: number; bullet?: number }
+    | { section: "leadership"; entry: number };
+}
+
+export function renderResumeHtml(h: ResumeHeader, doc: ResumeDoc, marks: PreviewMark[] = []): string {
+  // "block" wins over "note" when one spot has both.
+  const markOf = (match: (m: PreviewMark) => boolean) => {
+    const found = marks.filter(match);
+    return found.some((m) => m.kind === "block") ? "fb" : found.length ? "fn" : "";
+  };
+  const cls = (c: string) => (c ? ` class="${c}"` : "");
+  const atEntry = (sec: string, i: number, j?: number) =>
+    markOf((m) => m.spot.section === sec && "entry" in m.spot && m.spot.entry === i && ("bullet" in m.spot ? m.spot.bullet : undefined) === j);
   const contact = [
     ...(h.location ? [esc(h.location)] : []),
     ...h.links.map((l) => `<a href="${safeHref(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.text)}</a>`),
@@ -57,11 +80,19 @@ export function renderResumeHtml(h: ResumeHeader, doc: ResumeDoc): string {
   // data-sec / data-e / data-b mark where each piece came from, so a selection in the preview can
   // be mapped back to the document (lib/resume/engine/edit.ts Target). tabindex="0" makes each
   // one reachable by keyboard for the click-to-act menu.
-  const entry = (sec: string, i: number, title: string, right: string, sub: string, subRight: string, bullets: string[]) =>
-    `<div class="e" data-sec="${sec}" data-e="${i}" tabindex="0"><div class="r t"><span>${esc(title)}</span><span style="font-weight:normal">${esc(right)}</span></div>` +
-    (sub || subRight ? `<div class="r s"><span>${esc(sub)}</span><span>${esc(subRight)}</span></div>` : "") +
-    (bullets.length ? `<ul>${bullets.map((b, j) => `<li data-b="${j}" tabindex="0">${rich(b)}</li>`).join("")}</ul>` : "") +
-    `</div>`;
+  const entry = (sec: string, i: number, title: string, right: string, sub: string, subRight: string, bullets: string[]) => {
+    const head = atEntry(sec, i);
+    return (
+      `<div class="e" data-sec="${sec}" data-e="${i}" tabindex="0"><div class="r t${head ? ` ${head}` : ""}"><span>${esc(title)}</span><span style="font-weight:normal">${esc(right)}</span></div>` +
+      (sub || subRight ? `<div class="r s${head ? ` ${head}` : ""}"><span>${esc(sub)}</span><span>${esc(subRight)}</span></div>` : "") +
+      (bullets.length ? `<ul>${bullets.map((b, j) => `<li data-b="${j}" tabindex="0"${cls(atEntry(sec, i, j))}>${rich(b)}</li>`).join("")}</ul>` : "") +
+      `</div>`
+    );
+  };
+  const skillItem = (line: number, item: number, text: string) => {
+    const c = markOf((m) => m.spot.section === "skills" && m.spot.line === line && m.spot.item === item);
+    return c ? `<span class="${c}">${esc(text)}</span>` : esc(text);
+  };
 
   const projects = doc.projects ?? [];
   const parts = [`<div class="n">${esc(h.name)}</div>`, `<div class="c">${contact}</div>`];
@@ -89,12 +120,12 @@ export function renderResumeHtml(h: ResumeHeader, doc: ResumeDoc): string {
   }
   if (doc.skills.length) {
     parts.push(`<div class="h">${SECTION_TITLES.skills}</div>`);
-    parts.push(...doc.skills.map((l, i) => `<div class="k" data-sec="skills" data-e="${i}" tabindex="0"><b>${esc(l.category)}:</b> ${esc(l.items.join(", "))}</div>`));
+    parts.push(...doc.skills.map((l, i) => `<div class="k" data-sec="skills" data-e="${i}" tabindex="0"><b>${esc(l.category)}:</b> ${l.items.map((it, k) => skillItem(i, k, it)).join(", ")}</div>`));
   }
   if (doc.leadership.length) {
     parts.push(`<div class="h">${esc(SECTION_TITLES.leadership)}</div>`);
     parts.push(
-      `<ul>${doc.leadership.map((l, i) => `<li data-sec="leadership" data-e="${i}" tabindex="0"><div class="r"><span>${esc(l.role)}</span><span>${esc(l.dates)}</span></div></li>`).join("")}</ul>`,
+      `<ul>${doc.leadership.map((l, i) => `<li data-sec="leadership" data-e="${i}" tabindex="0"${cls(atEntry("leadership", i))}><div class="r"><span>${esc(l.role)}</span><span>${esc(l.dates)}</span></div></li>`).join("")}</ul>`,
     );
   }
   const layout = doc.layout ?? DEFAULT_LAYOUT;
