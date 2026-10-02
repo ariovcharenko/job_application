@@ -1,14 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { verdictFor } from "@/lib/intake/decision";
-import { hasIncompletePosting, readBreakdown } from "@/lib/intake/stored";
 import JobResumeDialog from "@/components/resumes/JobResumeDialog";
 import { safeHttpUrl } from "@/lib/safeUrl";
 import { changeStage } from "@/lib/tracker/repo";
 import { needsFollowUp } from "@/lib/tracker/stage";
 import { STAGES, type Application, type Stage } from "@/lib/types";
-import { CompanyMark, FitPill, STAGE_SELECT_CLASS, STAGE_STYLE } from "./StageBadge";
+import { CompanyMark, STAGE_SELECT_CLASS, STAGE_STYLE } from "./StageBadge";
 
 const link = "font-medium text-accent hover:underline underline-offset-2";
 
@@ -22,34 +20,6 @@ function ExtLink({ href, children }: { href: string; children: React.ReactNode }
   );
 }
 
-/** Skills-match % when the job passes her must-haves, "Don't apply" when it fails one; older rows show the old fit score. */
-function MatchCell({ app }: { app: Application }) {
-  const b = readBreakdown(app);
-  if (b?.decision && hasIncompletePosting(app)) {
-    return (
-      <span className="whitespace-nowrap rounded-full bg-warn-soft px-2.5 py-1 text-xs font-medium text-warn" title="The saved text isn't the job description. Open the job to paste it and re-check.">
-        Incomplete
-      </span>
-    );
-  }
-  if (b?.decision) {
-    if (!b.decision.canApply) {
-      return <span className="whitespace-nowrap rounded-full bg-black/[0.05] px-2.5 py-1 text-xs font-medium text-muted">Don&apos;t apply</span>;
-    }
-    const pct = b.skills?.percent ?? null;
-    const strong = verdictFor(b.decision, pct) === "apply";
-    return (
-      <span
-        className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums ${strong ? "bg-accent-soft text-accent-deep" : "bg-black/[0.05] text-muted"}`}
-        title={strong ? "Apply" : "Weak match"}
-      >
-        {pct === null ? "Apply" : `${pct}%`}
-        {!strong && <span className="font-normal"> · weak</span>}
-      </span>
-    );
-  }
-  return app.fitScore != null ? <FitPill score={app.fitScore} /> : null;
-}
 
 function StageSelect({ app }: { app: Application }) {
   return (
@@ -128,7 +98,6 @@ function MobileCards({ apps, onOpen, onDelete }: { apps: Application[]; onOpen: 
                 <span className={`block text-[13px] leading-snug ${a.stage === "Rejected" ? "" : "text-ink"}`}>{a.role || "Role not set"}</span>
                 {place && <span className="mt-0.5 block truncate text-xs text-muted">{place}</span>}
               </button>
-              <MatchCell app={a} />
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
               <StageSelect app={a} />
@@ -152,9 +121,8 @@ function MobileCards({ apps, onOpen, onDelete }: { apps: Application[]; onOpen: 
 // only appear from lg up, so the table fits its container at every width without a sideways scroll
 // (below md each job is a card instead).
 const COLUMNS: { label: string; width: string; className?: string }[] = [
-  { label: "Company", width: "w-[24%] lg:w-[16%]" },
+  { label: "Company", width: "w-[28%] lg:w-[21%]" },
   { label: "Position", width: "" },
-  { label: "Match", width: "w-[112px]" },
   { label: "Stage", width: "w-[168px]" },
   { label: "Location", width: "w-[13%]", className: "hidden lg:table-cell" },
   { label: "Applied", width: "w-[84px]", className: "hidden lg:table-cell" },
@@ -227,9 +195,6 @@ export default function TrackerTable({
                   <span className={`line-clamp-2 leading-snug ${a.stage === "Rejected" ? "" : "text-ink"}`} title={a.role || undefined}>
                     {a.role || "—"}
                   </span>
-                </td>
-                <td className="px-3 py-3">
-                  <MatchCell app={a} />
                 </td>
                 <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
                   <StageSelect app={a} />
