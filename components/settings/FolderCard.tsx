@@ -10,6 +10,9 @@ type Status = { kind: "ok" | "error" | "info"; text: string } | null;
 
 export default function FolderCard() {
   const [handle, setHandle] = useState<FileSystemDirectoryHandle | null>(null);
+  // Where tailored resumes are saved when she chose it herself (needed when she picked Base itself,
+  // since the browser can't reach Base's parent; the app never creates a folder inside Base).
+  const [tailored, setTailored] = useState<FileSystemDirectoryHandle | null>(null);
   const [files, setFiles] = useState<ResumeFile[] | null>(null);
   const [status, setStatus] = useState<Status>(null);
   // Unknown until mounted (the API only exists in the browser); the card shows nothing until then,
@@ -19,7 +22,11 @@ export default function FolderCard() {
   useEffect(() => {
     const ok = fsAccessSupported();
     setSupported(ok);
-    if (ok) getSettings().then((s) => setHandle(s.resumeFolder ?? null));
+    if (ok)
+      getSettings().then((s) => {
+        setHandle(s.resumeFolder ?? null);
+        setTailored(s.tailoredFolder ?? null);
+      });
   }, []);
 
   const scan = async (h: FileSystemDirectoryHandle) => {
@@ -55,6 +62,18 @@ export default function FolderCard() {
     }
   };
 
+  const chooseTailored = async () => {
+    try {
+      const h = await pickFolder();
+      if (!h) return;
+      await saveSettings({ tailoredFolder: h });
+      setTailored(h);
+      setStatus({ kind: "ok", text: `Tailored resumes will be saved to "${h.name}".` });
+    } catch (e) {
+      setStatus({ kind: "error", text: e instanceof Error ? e.message : String(e) });
+    }
+  };
+
   if (!supported) return null;
 
   return (
@@ -63,15 +82,22 @@ export default function FolderCard() {
       hint={
         FEATURES.extension
           ? "Optional. The folder on your computer that holds your resumes. Base resumes are imported from it, and downloaded tailored resumes are also copied into its Tailored subfolder."
-          : "Optional. Downloaded resumes are also copied to its Tailored subfolder."
+          : "Optional. Downloaded resumes are also copied to your Tailored folder (next to Base, never inside it)."
       }
     >
       <p className="text-sm">
         Current folder: <strong>{handle ? handle.name : "none chosen"}</strong>
       </p>
+      <p className="mt-1 text-sm">
+        Tailored resumes save to:{" "}
+        <strong>{tailored ? tailored.name : handle && handle.name !== "Base" ? "its Tailored folder" : "not set"}</strong>
+      </p>
       <div className="mt-3 flex flex-wrap gap-3">
         <Button onClick={choose}>
           {handle ? "Change folder" : "Choose folder"}
+        </Button>
+        <Button variant="secondary" onClick={chooseTailored}>
+          {tailored ? "Change Tailored folder" : "Choose Tailored folder"}
         </Button>
         {handle && (
           <Button variant="secondary" onClick={() => scan(handle)}>

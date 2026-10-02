@@ -110,14 +110,33 @@ export async function getBaseDir(root: FileSystemDirectoryHandle): Promise<FileS
   return baseSub ?? root;
 }
 
-/** The Tailored resume folder, created next to Base if it doesn't exist yet. Only call this when
- * actually about to write a tailored file — not from a read/listing path, since creating a folder
- * needs readwrite permission that browsing shouldn't require. */
-export async function getOrCreateTailoredDir(root: FileSystemDirectoryHandle): Promise<FileSystemDirectoryHandle> {
-  const base = await getBaseDir(root);
-  const tailored = await getSubdirectory(base, "Tailored", true);
-  if (!tailored) throw new Error('Could not create or open the "Tailored" folder next to your Base resumes.');
-  return tailored;
+/** A subfolder whose name starts with "Tailored" (any case: "Tailored", "TAILORED RESUMES"). */
+async function findTailoredSub(parent: FileSystemDirectoryHandle): Promise<FileSystemDirectoryHandle | null> {
+  const entries = (parent as unknown as { entries?(): AsyncIterable<[string, FileSystemHandle]> }).entries?.();
+  if (!entries) return null;
+  for await (const [name, handle] of entries) {
+    if (handle.kind === "directory" && /^tailored/i.test(name.trim())) return handle as FileSystemDirectoryHandle;
+  }
+  return null;
+}
+
+/**
+ * Where tailored resumes are saved, NEXT TO the Base folder and never inside it:
+ *  - a Tailored folder she chose herself (`chosen`) always wins;
+ *  - if the picked folder holds a "Base" subfolder (she picked the parent, e.g. Full-Time_Resumes),
+ *    its Tailored folder is used, created there only if it doesn't exist;
+ *  - if she picked the Base folder itself, the browser can't reach its parent, so this returns null
+ *    and the caller asks her to choose the Tailored folder once (it never creates one inside Base).
+ * Only call this when about to write: creating a folder needs readwrite permission.
+ */
+export async function getOrCreateTailoredDir(
+  root: FileSystemDirectoryHandle,
+  chosen?: FileSystemDirectoryHandle,
+): Promise<FileSystemDirectoryHandle | null> {
+  if (chosen) return chosen;
+  const base = await getSubdirectory(root, "Base");
+  if (!base) return null;
+  return (await findTailoredSub(root)) ?? (await getSubdirectory(root, "Tailored", true));
 }
 
 async function getSubdirectory(

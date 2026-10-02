@@ -82,24 +82,31 @@ export interface ExportResult {
 }
 
 /**
- * Downloads the .docx and writes a copy into the resume folder's "Tailored" subfolder when she
- * has given folder access. Must be called from a click: the permission prompt needs a user gesture.
+ * Downloads the .docx and writes a copy into her Tailored folder (next to Base, never inside it;
+ * see getOrCreateTailoredDir). Must be called from a click: the permission prompt needs a user gesture.
  */
 export async function exportResume(bytes: ArrayBuffer, fileName: string, tailoredResumeId?: number): Promise<ExportResult> {
   const settings = await getSettings();
   let toFolder = false;
   let folderWarning: string | null = null;
-  if (settings.resumeFolder) {
+  const chosen = settings.tailoredFolder;
+  const access = chosen ?? settings.resumeFolder;
+  if (access) {
     try {
-      if (await ensurePermission(settings.resumeFolder, "readwrite")) {
-        await writeResumeFile(await getOrCreateTailoredDir(settings.resumeFolder), fileName, bytes);
-        toFolder = true;
-        if (tailoredResumeId !== undefined) await db.tailoredResumes.update(tailoredResumeId, { savedPath: fileName });
+      if (await ensurePermission(access, "readwrite")) {
+        const dir = await getOrCreateTailoredDir(settings.resumeFolder ?? access, chosen);
+        if (dir) {
+          await writeResumeFile(dir, fileName, bytes);
+          toFolder = true;
+          if (tailoredResumeId !== undefined) await db.tailoredResumes.update(tailoredResumeId, { savedPath: fileName });
+        } else {
+          folderWarning = "To also save a copy, choose your Tailored folder on the Resumes page (Resume folder).";
+        }
       } else {
         folderWarning = "Folder access was denied, so it was only downloaded.";
       }
     } catch (e) {
-      folderWarning = `Couldn't write to your resume folder (${e instanceof Error ? e.message : String(e)}), so it was only downloaded.`;
+      folderWarning = `Couldn't write to your Tailored folder (${e instanceof Error ? e.message : String(e)}), so it was only downloaded.`;
     }
   }
   downloadBytes(bytes, fileName);
