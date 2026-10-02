@@ -1,16 +1,16 @@
 import type { AIProvider } from "../../ai/provider";
+import { CHARS_PER_LINE } from "./budget";
 import { describeTarget, type Target } from "./edit";
 import { ENGINE_MAX_TOKENS } from "./index";
 import { buildSystemPrompt } from "./prompt";
 import { RESUME_REVISION_JSON_SCHEMA, ResumeRevisionSchema, type ResumeDoc, type ResumeRevision } from "./schema";
-import type { JobFocus } from "./focus";
-import { toPoolTarget, type PoolMap } from "./trim";
 import type { Flag } from "./validate";
 
-// Her comments on a generated resume, sent back to the model to fix. Same system prompt as
+// Changes to a generated resume, sent back to the model in one call: what she asks for in the
+// "Ask for changes" box, notes she left on a line of the preview, skills she placed in a role, and
+// (right after generation) the writing fixes and missing lines code found. Same system prompt as
 // generation (so the cached master profile is reused), and the answer goes through the same
-// validateResume() checks: anything not in the master profile is still flagged and left out
-// unless she ticks it, even when her own comment asked for it.
+// validateResume() checks: anything not in the master profile is still blocked until she keeps it.
 
 export interface ResumeComment {
   id: string;
@@ -24,35 +24,31 @@ export interface ResumeComment {
 const JD_CHAR_LIMIT = 20000;
 
 /**
- * The whole-resume comment behind "Fill the page": asked for only when everything the model gave
- * is already on the page and it still ends early. New content still goes through validateResume,
- * so anything not in the master profile stays off until she ticks it.
+ * "medium": a revision changes a few targeted spots, so it doesn't need generation's long think,
+ * and she is waiting on it (about 30 seconds at medium; the old high effort took minutes).
  */
-export function fillPageComment(percent: number): string {
-  return `The page only uses about ${percent}% of its height. Add content so it fills one page: more bullets for the roles most relevant to this job (up to 6 or 7 for the top role), taken only from that role's own lines in the MASTER PROFILE and rewritten by the rules, most relevant first; if the roles run out, add a relevant role, project or research entry from the MASTER PROFILE that isn't on the page, in reverse-chronological order. Longer bullets are fine up to two lines. Keep everything already on the page and never invent anything.`;
+export const REVISE_EFFORT = "medium" as const;
+
+/** One-click requests in the "Ask for changes" box. Each runs right away as one revision. */
+export const CHANGE_CHIPS: { label: string; note: string }[] = [
+  { label: "More backend focus", note: "Lead with the backend work: APIs, services, databases and infrastructure, where the roles truly show it. Keep the page the same length." },
+  { label: "Shorter bullets", note: "Tighten every bullet: cut filler words so most bullets fit on one line, keeping each number and main technology. Use the room for one more strong bullet where a role has more in my experience." },
+  { label: "Emphasize leadership", note: "Bring out ownership and leadership that my experience truly shows (owning features end to end, design docs, mentoring, leading sections). Never upgrade scope or title." },
+  { label: "Use the job's keywords", note: "Use the job description's exact wording for skills and work I truly have, in bullets and skills, wherever it means the same thing. Never add a gap." },
+];
+
+/** The comment asking for N more lines of content when the measured page ends short. */
+export function fillComment(lines: number): string {
+  return `The page ends about ${lines} line${lines === 1 ? "" : "s"} short of a full page. Add about ${lines} line${lines === 1 ? "" : "s"} of the most relevant content for this job: another bullet (or a fuller second line on an existing one) for the most relevant roles, taken only from that role's own text in the MASTER PROFILE. A line holds about ${CHARS_PER_LINE} characters. Keep everything already on the page and never invent anything.`;
 }
 
-/** At most this many copied bullets are sent back to be rewritten in one revision. */
-export const MAX_RETAILOR = 6;
-
-/** The comment asking for one copied bullet to be rewritten for this job. */
-export function retailorNote(focus: JobFocus): string {
-  const cares = [...focus.must.slice(0, 3), ...focus.domains.slice(0, 2).map((d) => d.label)];
-  return `This bullet is the candidate's own line, copied word for word to fill the page. Rewrite it for this job by the rules${cares.length ? `, leading with what this job cares about (${cares.join(", ")}) where this bullet truly shows it` : ""}. Keep every fact and number from that role's own text in the MASTER PROFILE, add nothing it doesn't say, and keep it to 1 or 2 lines.`;
-}
-
-/**
- * Comments that ask for the copied bullets shown on the page (backfill.ts copiedBullets) to be
- * rewritten for this job, each on its exact spot in the pool. Only sent along with a revision that
- * is being made anyway, so they never cost an extra call.
- */
-export function retailorComments(page: ResumeDoc, map: PoolMap, copied: { entry: number; bullet: number }[], focus: JobFocus): ResumeComment[] {
-  const note = retailorNote(focus);
-  return copied.slice(0, MAX_RETAILOR).flatMap((c, i) => {
-    const target = toPoolTarget(map, { section: "experience", entry: c.entry, bullet: c.bullet });
-    const text = page.experience[c.entry]?.bullets[c.bullet];
-    return target && text ? [{ id: `retailor-${i}`, quote: text.replace(/\*\*/g, ""), note, target }] : [];
-  });
+/** The comment asking for a skill she placed in a role to be shown in that role's bullets. */
+export function placementComment(skill: string, how: string, target: Target | undefined, placeLabel: string): ResumeComment {
+  const role = target ? "this role" : placeLabel;
+  const note = how.trim()
+    ? `I used ${skill} in ${role}: ${how.trim()}. Work ${skill} into the most fitting bullet of ${role} (or rewrite one bullet to show it), saying only what is true from that role's text and this note.`
+    : `I used ${skill} in ${role}. Work ${skill} into the most fitting bullet of ${role}, where it truly belongs with that work, without inventing any scope, number or result.`;
+  return { id: `place:${skill}:${placeLabel}`, quote: "", note: `${note} Keep the page the same length.`, ...(target ? { target } : {}) };
 }
 
 /** "On experience[1] (Brightloop, bullet 2) "…"", "On the whole resume", or "On "…"" with no target. */
@@ -75,18 +71,18 @@ Job description:
 ${jdText.trim().slice(0, JD_CHAR_LIMIT)}
 """
 
-This is the current tailored resume, as JSON (bold spans in bullets are marked with **). It can hold more than fits on the page: the app fits it to one page by leaving off the least relevant content, so keep each role's bullets ordered most relevant first.
+This is the current tailored resume, as JSON (bold spans in bullets are marked with **). It is the finished one-page resume: keep it about the same length unless a comment asks for more or less.
 ${JSON.stringify(doc)}
 
-The candidate reviewed it and left these comments:
+The candidate asked for these changes:
 ${list}
 
-Revise the resume to address every comment. Rules:
-- Only sections 1 (HARD RULES) and 2 (BOLDING RULES) of the system prompt apply here. Do not rerun the tailoring algorithm (section 3): no re-ranking, re-selecting or rewording beyond what the comments ask.
-- Change only what the comments ask for. Do not reorder, add or remove any entry, bullet or skill that no comment targets; keep every other entry, bullet, skill and date exactly as it is, word for word.
-- To swap an experience for another role from the MASTER PROFILE, replace only the targeted entry. Place the new one by its dates so experience stays reverse-chronological, use its title, company, location and dates exactly as in the MASTER PROFILE, and take its bullets only from that role's own lines in the MASTER PROFILE.
-- If a comment asks for something that is not in the MASTER PROFILE, use her own wording from the comment rather than inventing details; the app will ask her to confirm it.
-- If a comment can't be done without breaking a hard rule, leave that part unchanged and say why in "changes".
+Revise the resume to do every one of them. Rules:
+- Every rule in the system prompt still applies (truth, the job's words only for the same thing, bolding, no dashes, every skill kept). There is no PAGE PLAN here; the page as it is sets the length.
+- Change only what the comments ask for. Keep every other entry, bullet, skill and date exactly as it is, word for word.
+- To swap an experience for another role from the MASTER PROFILE, replace only the targeted entry. Place the new one by its dates so experience stays reverse-chronological, use its title, company, location and dates exactly as in the MASTER PROFILE, and take its bullets only from that role's own text.
+- If a comment asks for something that is not in the MASTER PROFILE, use the candidate's own wording from the comment rather than inventing details; the app will ask them to confirm it.
+- If a comment can't be done without breaking a rule, leave that part unchanged and say why in "changes".
 - Return the full revised resume, and in "changes" one short line per comment, in the same order.`;
 }
 
@@ -100,7 +96,7 @@ export async function reviseResume(
 ): Promise<ResumeRevision> {
   return provider.completeJson<ResumeRevision>({
     tier: "smart",
-    effort: "medium",
+    effort: REVISE_EFFORT,
     maxTokens: ENGINE_MAX_TOKENS,
     system: buildSystemPrompt(masterProfile),
     cacheSystem: true,
@@ -111,7 +107,7 @@ export async function reviseResume(
 }
 
 /**
- * Flag ids are positions, which shift after a revision. A flag she already ticked stays ticked
+ * Flag ids are positions, which shift after a revision. A flag she already kept stays kept
  * when the revised resume raises the same message (same unverified fact, same wording).
  */
 export function carryApprovals(previous: Flag[], approved: Set<string>, next: Flag[]): Set<string> {

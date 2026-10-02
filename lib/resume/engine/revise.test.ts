@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { findQuote } from "./highlight";
-import { buildJobFocus } from "./focus";
-import { buildRevisionPrompt, carryApprovals, fillPageComment, MAX_RETAILOR, retailorComments, retailorNote } from "./revise";
-import { fitToPage } from "./trim";
+import { buildRevisionPrompt, carryApprovals, CHANGE_CHIPS, fillComment, placementComment, REVISE_EFFORT, reviseResume } from "./revise";
 import type { ResumeDoc } from "./schema";
+import type { AIProvider, JsonOptions } from "../../ai/provider";
 import type { Flag } from "./validate";
 
 const doc: ResumeDoc = {
@@ -13,32 +12,6 @@ const doc: ResumeDoc = {
   leadership: [],
   meta: { matchedKeywords: [], gaps: [], valuesReflected: [] },
 };
-
-describe("retailorComments", () => {
-  const focus = buildJobFocus({ role: "Frontend Engineer", jdText: "About the role\nBuild accessible web apps.", must: ["React", "TypeScript"] });
-
-  it("asks for each copied bullet to be rewritten, on its spot in the pool, naming what the job cares about", () => {
-    const pool: ResumeDoc = { ...doc, experience: [{ ...doc.experience[0], bullets: ["Built **React** app", "Wrote docs", "Fixed bugs"] }] };
-    // The page shows pool bullets 0 and 2; page bullet 1 is pool bullet 2.
-    const fit = fitToPage(pool, (d) => d.experience[0].bullets.length / 2, { limit: 1, focus });
-    expect(fit.doc.experience[0].bullets).toHaveLength(2);
-    const shown = fit.map.experience[0].bullets;
-    const comments = retailorComments(fit.doc, fit.map, [{ entry: 0, bullet: 1 }], focus);
-    expect(comments).toHaveLength(1);
-    expect(comments[0].target).toEqual({ section: "experience", entry: 0, bullet: shown[1] });
-    expect(comments[0].quote).toBe(fit.doc.experience[0].bullets[1].replace(/\*\*/g, ""));
-    expect(comments[0].note).toMatch(/React, TypeScript/);
-    expect(retailorNote(focus)).not.toMatch(/[–—]/);
-  });
-
-  it("sends at most MAX_RETAILOR", () => {
-    const many = Array.from({ length: 10 }, (_, i) => `Bullet ${i}`);
-    const pool: ResumeDoc = { ...doc, experience: [{ ...doc.experience[0], bullets: many }] };
-    const fit = fitToPage(pool, () => 0.5, { limit: 1 });
-    const comments = retailorComments(fit.doc, fit.map, many.map((_, i) => ({ entry: 0, bullet: i })), focus);
-    expect(comments).toHaveLength(MAX_RETAILOR);
-  });
-});
 
 describe("buildRevisionPrompt", () => {
   it("numbers her comments, quoting the selected text, and includes the current resume", () => {
@@ -50,6 +23,7 @@ describe("buildRevisionPrompt", () => {
     expect(p).toContain("2. On the whole resume: Put Python first in skills");
     expect(p).toContain('"Built **React** app"');
     expect(p).toContain("Change only what the comments ask for");
+    expect(p).toContain("The candidate asked for these changes");
   });
 
   it("names the spot a comment was left on", () => {
@@ -61,31 +35,69 @@ describe("buildRevisionPrompt", () => {
     expect(p).toContain("2. On experience[0] (the Acme role): Swap for Taskwise");
   });
 
-  it("limits a revision to the hard rules and bolding, and to what comments target", () => {
+  it("keeps every rule in force, limits changes to what is asked, and keeps the page length", () => {
     const p = buildRevisionPrompt("Acme", "", doc, [{ id: "a", quote: "", note: "x" }]);
-    expect(p).toMatch(/Only sections 1 \(HARD RULES\) and 2 \(BOLDING RULES\)/);
-    expect(p).toMatch(/do not rerun the tailoring algorithm/i);
+    expect(p).toMatch(/Every rule in the system prompt still applies/);
+    expect(p).toMatch(/every skill kept/);
     expect(p).toMatch(/place the new one by its dates/i);
-  });
-
-  it("tells the model the resume may hold more than fits, ranked", () => {
-    const p = buildRevisionPrompt("Acme", "", doc, [{ id: "a", quote: "", note: "x" }]);
-    expect(p).toMatch(/can hold more than fits on the page/);
-    expect(p).toMatch(/most relevant first/);
+    expect(p).toMatch(/finished one-page resume: keep it about the same length/);
+    expect(p).not.toMatch(/more than fits/);
   });
 });
 
-describe("fillPageComment", () => {
-  it("asks for more real content with the measured fill, never invented", () => {
-    const c = fillPageComment(81);
-    expect(c).toContain("about 81%");
-    expect(c).toMatch(/only from that role's own lines in the MASTER PROFILE/);
+describe("fillComment", () => {
+  it("asks for the measured number of lines of real content, never invented", () => {
+    const c = fillComment(4);
+    expect(c).toContain("about 4 lines short");
+    expect(c).toMatch(/only from that role's own text in the MASTER PROFILE/);
     expect(c).toMatch(/never invent anything/);
+    expect(fillComment(1)).toContain("about 1 line short");
+  });
+});
+
+describe("placementComment", () => {
+  it("asks to work the skill into that role, with her note, on the role's spot", () => {
+    const c = placementComment("Kotlin", "built the Android client", { section: "experience", entry: 2 }, "ShelfLife");
+    expect(c.target).toEqual({ section: "experience", entry: 2 });
+    expect(c.note).toMatch(/I used Kotlin in this role: built the Android client/);
+    expect(c.note).toMatch(/Keep the page the same length/);
+  });
+
+  it("names the role when it isn't on the page, and never invents scope without a note", () => {
+    const c = placementComment("Rust", "", undefined, "Acme (Engineer)");
+    expect(c.target).toBeUndefined();
+    expect(c.note).toMatch(/I used Rust in Acme \(Engineer\)/);
+    expect(c.note).toMatch(/without inventing any scope, number or result/);
+  });
+});
+
+describe("CHANGE_CHIPS", () => {
+  it("are short labels with notes that never ask to invent, and have no em or en dashes", () => {
+    expect(CHANGE_CHIPS.map((c) => c.label)).toEqual(["More backend focus", "Shorter bullets", "Emphasize leadership", "Use the job's keywords"]);
+    for (const c of CHANGE_CHIPS) expect(`${c.label} ${c.note}`).not.toMatch(/[\u2013\u2014]/);
+    expect(CHANGE_CHIPS.find((c) => c.label === "Use the job's keywords")?.note).toMatch(/Never add a gap/);
+  });
+});
+
+describe("reviseResume", () => {
+  it("makes one cached call at medium effort", async () => {
+    const calls: JsonOptions<unknown>[] = [];
+    const provider = {
+      completeJson: async <T,>(o: JsonOptions<T>) => {
+        calls.push(o as JsonOptions<unknown>);
+        return { ...doc, changes: ["done"] } as T;
+      },
+    } as unknown as AIProvider;
+    const out = await reviseResume(provider, "MASTER", "Acme", "", doc, [{ id: "a", quote: "", note: "x" }]);
+    expect(out.changes).toEqual(["done"]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ tier: "smart", effort: REVISE_EFFORT, cacheSystem: true });
+    expect(REVISE_EFFORT).toBe("medium");
   });
 });
 
 describe("carryApprovals", () => {
-  const flag = (id: string, message: string): Flag => ({ id, kind: "skill", message, target: { section: "skills", line: 0, item: 0 } });
+  const flag = (id: string, message: string): Flag => ({ id, kind: "skill", severity: "block", message, target: { section: "skills", line: 0, item: 0 } });
 
   it("keeps a ticked flag ticked when the revision raises the same message at a new position", () => {
     const before = [flag("skill-0-1", '"Go" isn\'t in your master profile.'), flag("skill-0-2", '"Rust" isn\'t in your master profile.')];

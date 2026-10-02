@@ -67,7 +67,7 @@ const RESUME_DOC_PROPERTIES = {
   },
   experience: {
     type: "array",
-    description: "3 to 4 entries in reverse-chronological order.",
+    description: "The PAGE PLAN's roles, in reverse-chronological order.",
     items: obj({
       title: str,
       company: str,
@@ -75,19 +75,18 @@ const RESUME_DOC_PROPERTIES = {
       dates: str,
       bullets: {
         ...strArr,
-        description:
-          "Every bullet of this role's MASTER PROFILE entry that has any relevance to this job, each rewritten for it, most relevant first (at least 6 for the most relevant role when the source has them). The app leaves off the last ones of the least relevant roles if the page is full.",
+        description: "As many bullets as the PAGE PLAN gives this role, each 1 or 2 lines, most relevant to this job first.",
       },
     }),
   },
   projects: {
     type: "array",
-    description: "Entries from the MASTER PROFILE's Projects section only (company = the project's name), at most 2 bullets each. Empty if it has none.",
+    description: "The PAGE PLAN's projects, from the MASTER PROFILE's Projects section only (company = the project's name), at most 2 bullets each. Empty if the plan has none.",
     items: obj({ title: str, company: str, location: str, dates: str, bullets: strArr }),
   },
   skills: {
     type: "array",
-    description: "5 to 6 lines, the categories the job cares about most first. Items only from the skills inventory.",
+    description: "4 to 6 lines holding every skill from the skills inventory, the categories the job cares about most first.",
     items: obj({ category: str, items: strArr }),
   },
   leadership: { type: "array", items: obj({ role: str, dates: str }) },

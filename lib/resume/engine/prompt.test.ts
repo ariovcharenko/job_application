@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEMO_EXPERIENCE, DEMO_JOBS } from "../../demo/data";
 import { MASTER } from "./__fixtures__/master";
 import { buildJobFocus } from "./focus";
-import { buildFocusBrief, buildSystemPrompt, buildUserPrompt } from "./prompt";
+import { buildBrief, buildSystemPrompt, buildUserPrompt, confirmedLines } from "./prompt";
 
 describe("buildSystemPrompt", () => {
   const p = buildSystemPrompt("MASTER");
@@ -17,40 +17,36 @@ describe("buildSystemPrompt", () => {
     expect(p).toMatch(/at most 4 words/);
   });
 
-  it("asks for more than fits, ranked, instead of a small fixed budget", () => {
-    expect(p).not.toMatch(/12 to 16 bullets/);
-    expect(p).toMatch(/Give more than fits, ranked/);
-    expect(p).toMatch(/include every bullet from that role.s MASTER PROFILE entry/);
-    expect(p).toMatch(/3 to 4 experiences/);
-    expect(p).toMatch(/never stop short/);
+  it("asks for the final page written to the plan, not more than fits", () => {
+    expect(p).not.toMatch(/Give more than fits/);
+    expect(p).not.toMatch(/never stop short/);
+    expect(p).toMatch(/write the final one-page resume/);
+    expect(p).toMatch(/Follow the PAGE PLAN/);
   });
 
-  it("keeps her quality rules", () => {
-    expect(p).toMatch(/Always include the most recent real production role/);
-    expect(p).toMatch(/user research/);
+  it("keeps every skill: never drops one to save space", () => {
+    expect(p).toMatch(/keep EVERY skill from the MASTER PROFILE's skills inventory/);
+    expect(p).toMatch(/Never drop a skill to save space/);
+    expect(p).not.toMatch(/Drop skills that add nothing/);
+  });
+
+  it("keeps her core quality rules in a short list", () => {
     expect(p).toMatch(/no opening verb more than twice/i);
-    expect(p).toMatch(/action \+ what \+ technologies \+ measurable result/);
-    expect(p).toMatch(/"ownership" becomes "owned end-to-end"/);
-    expect(p).toMatch(/top 3 required skills/);
-    expect(p).toMatch(/At least 70%/);
-    expect(p).toMatch(/Keep 5 to 6 lines/);
-    expect(p).toMatch(/Never stretch/);
-    expect(p).toMatch(/No coursework line/);
-    expect(p).toMatch(/job-matched skills first/);
-    expect(p).toMatch(/only if space remains/);
+    expect(p).toMatch(/Action \+ what \+ technologies \+ result/);
+    expect(p).toMatch(/No inflation/);
+    expect(p).toMatch(/Usage notes/);
+    expect(p).toMatch(/Kotlin @ ShelfLife \| Hackathon project/);
+    // Far shorter than the old ~11k-character rule list.
+    expect(p.length).toBeLessThan(6000);
   });
 
   it("stays the same for every job, so it can be prompt-cached", () => {
     expect(buildSystemPrompt("MASTER")).toBe(p);
   });
 
-  it("gives generic role-family guidance instead of naming one candidate's role types", () => {
-    expect(p).toMatch(/Match the role family/);
-    expect(p).not.toMatch(/product\/UX-leaning|AI\/ML-leaning/);
-  });
-
-  it("leaves fonts and paper size to code", () => {
+  it("leaves fonts and paper size to code, and has no em or en dashes", () => {
     expect(p).not.toMatch(/US Letter|serif/);
+    expect(p).not.toMatch(/[\u2013\u2014]/);
   });
 });
 
@@ -67,47 +63,67 @@ describe("buildUserPrompt", () => {
     expect(p).toContain("GAPS (never mention anywhere, including bullets): Kubernetes");
   });
 
-  it("adds the job focus after the job skills when given", () => {
+  it("adds the brief after the job skills when given", () => {
     const p = buildUserPrompt("Acme", "We use React.", { have: ["React"], gaps: [] }, "JOB FOCUS (x):\n- Kind of role: Frontend/Web");
     expect(p.indexOf("JOB FOCUS")).toBeGreaterThan(p.indexOf("GAPS"));
-    expect(p).toMatch(/Tailor the resume to this role/);
+    expect(p).toMatch(/Write the tailored one-page resume/);
   });
 });
 
-describe("buildFocusBrief", () => {
+describe("confirmedLines", () => {
+  it("lists what she confirmed before tailoring, with where, and is empty when she confirmed nothing", () => {
+    expect(confirmedLines([])).toBe("");
+    const text = confirmedLines([
+      { skill: "Rust", where: null, how: "" },
+      { skill: "Kotlin", where: "ShelfLife", how: "" },
+    ]);
+    expect(text).toMatch(/^SKILLS THE CANDIDATE JUST CONFIRMED/);
+    expect(text).toContain("- Rust: Skills section only.");
+    expect(text).toContain("- Kotlin: used in ShelfLife. Show it in that entry's bullets, saying only that");
+    expect(buildUserPrompt("Acme", "x", undefined, "", [{ skill: "Rust", where: null, how: "" }])).toContain("- Rust: Skills section only.");
+  });
+});
+
+describe("buildBrief", () => {
   const focusOf = (company: string) => {
     const j = DEMO_JOBS.find((x) => x.signals.company === company)!;
     return buildJobFocus({ role: j.signals.role, jdText: j.jd, must: j.signals.mustHaveSkills, nice: j.signals.niceToHaveSkills });
   };
 
-  it("ranks her experiences for the job and asks for every bullet of a relevant role, rewritten", () => {
-    const brief = buildFocusBrief(focusOf("Lumen Health"), DEMO_EXPERIENCE);
+  it("reads the job and gives a page plan: which roles, how many bullets each", () => {
+    const brief = buildBrief(DEMO_EXPERIENCE, focusOf("Lumen Health"));
     expect(brief).toMatch(/Kind of role: Frontend\/Web/);
     expect(brief).toMatch(/What this team works on: front end/);
-    expect(brief).toMatch(/1\. Lumen Health \(Frontend Engineer Intern\): shows React, TypeScript, Jest/);
-    expect(brief).toMatch(/Rewrite all 5 of its bullets/);
+    expect(brief).toMatch(/PAGE PLAN/);
+    expect(brief).toMatch(/1\. Lumen Health \(Frontend Engineer Intern\): \d bullets\. Shows React, TypeScript, Jest/);
     expect(brief).toMatch(/reverse-chronological/);
-    // The teaching role ranks last for an engineering job.
-    expect(brief).toMatch(/4\. University of Washington \(Teaching Assistant, Data Structures\)[^\n]*Least relevant/);
-    expect(brief).toMatch(/Projects, most relevant first: Trailhead/);
+    expect(brief).toMatch(/A line holds about \d+ characters/);
+    // The teaching role gives way for an engineering job.
+    expect(brief).not.toMatch(/Teaching Assistant/);
   });
 
-  it("puts the payments role first for the payments job", () => {
-    const brief = buildFocusBrief(focusOf("Cobalt Payments"), DEMO_EXPERIENCE);
-    expect(brief).toMatch(/1\. Cobalt Payments \(Software Engineer Intern\): shows Go, PostgreSQL, AWS/);
+  it("puts the payments role first, with the most bullets, for the payments job", () => {
+    const brief = buildBrief(DEMO_EXPERIENCE, focusOf("Cobalt Payments"));
+    expect(brief).toMatch(/1\. Cobalt Payments \(Software Engineer Intern\): 6 bullets\. Shows Go, PostgreSQL, AWS/);
     expect(brief).toMatch(/What this team works on: payments/);
   });
 
-  it("keeps gap skills out of the must-have list when the have list is given", () => {
-    expect(buildFocusBrief(focusOf("Pinecrest Robotics"), DEMO_EXPERIENCE, [])).not.toMatch(/Rust/);
+  it("keeps gap skills out of the lists when the have list is given", () => {
+    expect(buildBrief(DEMO_EXPERIENCE, focusOf("Pinecrest Robotics"), [])).not.toMatch(/Rust/);
   });
 
   it("suggests her alternate title when it fits the job better", () => {
     const design = buildJobFocus({ role: "Product Designer", jdText: "", must: [] });
-    expect(buildFocusBrief(design, MASTER)).toContain('Use the title "Product & UX Engineer" for this job.');
+    expect(buildBrief(MASTER, design)).toMatch(/Use these titles for this job: "Product & UX Engineer" at/);
+  });
+
+  it("still gives a page plan without a job focus", () => {
+    const brief = buildBrief(DEMO_EXPERIENCE);
+    expect(brief).not.toMatch(/JOB FOCUS/);
+    expect(brief).toMatch(/PAGE PLAN/);
   });
 
   it("has no em or en dashes", () => {
-    for (const j of DEMO_JOBS) expect(buildFocusBrief(focusOf(j.signals.company), DEMO_EXPERIENCE)).not.toMatch(/[–—]/);
+    for (const j of DEMO_JOBS) expect(buildBrief(DEMO_EXPERIENCE, focusOf(j.signals.company))).not.toMatch(/[\u2013\u2014]/);
   });
 });
