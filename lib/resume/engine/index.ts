@@ -39,12 +39,12 @@ export function buildHeader(p: Profile): ResumeHeader {
 }
 
 /**
- * How hard the model thinks when writing the page. "high": the model now writes the final page
- * itself (one call, no code-side cutting and padding), so its first answer is what she sees; the
- * extra thinking is where the quality of a hand-tailored page comes from. Revisions stay at
- * "medium" (revise.ts): they change a few targeted spots and should come back in seconds.
+ * How hard the model thinks when writing the page. "medium": "high" took about 3 minutes per resume
+ * (measured live 2026-09-28) and made tailoring feel broken, while medium came back in about 25
+ * seconds with the same checks passing. Quality comes from the page plan, the job focus and the
+ * code checks, plus the one follow-up call (pipeline.ts) that fixes exactly what code finds.
  */
-export const GENERATE_EFFORT = "high" as const;
+export const GENERATE_EFFORT = "medium" as const;
 
 /**
  * One call to the smart model writes the final one-page resume. The system prompt (rules + master
@@ -62,6 +62,7 @@ export async function generateResume(
   jobSkills?: JobSkills,
   focus?: JobFocus,
   confirmed: ConfirmedForPrompt[] = [],
+  onProgress?: (charsWritten: number) => void,
 ): Promise<ResumeDoc> {
   const brief = buildBrief(masterProfile, focus, jobSkills?.have);
   return provider.completeJson<ResumeDoc>({
@@ -73,5 +74,6 @@ export async function generateResume(
     prompt: buildUserPrompt(company, jdText.slice(0, JD_CHAR_LIMIT), jobSkills, brief, confirmed),
     schema: RESUME_DOC_JSON_SCHEMA,
     parse: (raw) => ResumeDocSchema.parse(raw),
+    onProgress,
   });
 }

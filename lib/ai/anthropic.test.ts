@@ -287,4 +287,26 @@ describe("actionable error kinds", () => {
     const client = { messages: { create } } as unknown as Anthropic;
     await expect(createAnthropicProvider(cfg, client).fetchUrl!("https://x.co/job")).rejects.toMatchObject({ kind: "billing" });
   });
+
+  it("streams when onProgress is given and reports the characters received", async () => {
+    const handlers: Record<string, (d: string) => void> = {};
+    const stream = vi.fn((_args: Record<string, unknown>) => ({
+      on(event: string, fn: (d: string) => void) {
+        handlers[event] = fn;
+        return this;
+      },
+      async finalMessage() {
+        handlers.text?.('{"a"');
+        handlers.text?.(":1}");
+        return { stop_reason: "end_turn", content: [{ type: "text", text: '{"a":1}' }] };
+      },
+    }));
+    const create = vi.fn();
+    const client = { messages: { create, stream } } as unknown as Anthropic;
+    const seen: number[] = [];
+    const out = await createAnthropicProvider(cfg, client).completeJson<{ a: number }>({ prompt: "x", schema: {}, onProgress: (n) => seen.push(n) });
+    expect(out).toEqual({ a: 1 });
+    expect(create).not.toHaveBeenCalled();
+    expect(seen).toEqual([4, 7]);
+  });
 });

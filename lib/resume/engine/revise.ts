@@ -29,6 +29,12 @@ const JD_CHAR_LIMIT = 20000;
  */
 export const REVISE_EFFORT = "medium" as const;
 
+/**
+ * "low" for the automatic follow-up right after generation (pipeline.ts): it only applies a short
+ * list of exact fixes code found (a spot, a keyword, N more lines), so long thinking only adds wait.
+ */
+export const FOLLOW_UP_EFFORT = "low" as const;
+
 /** One-click requests in the "Ask for changes" box. Each runs right away as one revision. */
 export const CHANGE_CHIPS: { label: string; note: string }[] = [
   { label: "More backend focus", note: "Lead with the backend work: APIs, services, databases and infrastructure, where the roles truly show it. Keep the page the same length." },
@@ -93,16 +99,19 @@ export async function reviseResume(
   jdText: string,
   doc: ResumeDoc,
   comments: ResumeComment[],
+  onProgress?: (charsWritten: number) => void,
+  effort: "low" | "medium" | "high" = REVISE_EFFORT,
 ): Promise<ResumeRevision> {
   return provider.completeJson<ResumeRevision>({
     tier: "smart",
-    effort: REVISE_EFFORT,
+    effort,
     maxTokens: ENGINE_MAX_TOKENS,
     system: buildSystemPrompt(masterProfile),
     cacheSystem: true,
     prompt: buildRevisionPrompt(company, jdText, doc, comments),
     schema: RESUME_REVISION_JSON_SCHEMA,
     parse: (raw) => ResumeRevisionSchema.parse(raw),
+    onProgress,
   });
 }
 

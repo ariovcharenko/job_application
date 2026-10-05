@@ -1,3 +1,4 @@
+import { dateRangeEnd } from "./order";
 import { describe, expect, it } from "vitest";
 import { DEMO_EXPERIENCE, DEMO_JOBS } from "../../demo/data";
 import { MASTER } from "./__fixtures__/master";
@@ -25,7 +26,8 @@ describe("planPage", () => {
 
   it("gives the most relevant role the most bullets, never more than its own lines, never fewer than 2", () => {
     const plan = planPage(DEMO_EXPERIENCE, focusOf("Cobalt Payments"));
-    expect(plan.roles[0]).toMatchObject({ company: "Cobalt Payments", bullets: 6 });
+    expect(plan.roles.find((r) => r.company === "Cobalt Payments")?.bullets).toBe(6);
+    expect(Math.max(...plan.roles.map((r) => r.bullets))).toBe(6);
     for (const r of plan.roles) {
       expect(r.bullets).toBeGreaterThanOrEqual(2);
       expect(r.bullets).toBeLessThanOrEqual(Math.max(2, r.sourceBullets));
@@ -36,7 +38,9 @@ describe("planPage", () => {
 
   it("changes with the job: the frontend role leads a frontend job, the teaching role gives way", () => {
     const fe = planPage(DEMO_EXPERIENCE, focusOf("Lumen Health"));
-    expect(fe.roles[0].company).toBe("Lumen Health");
+    const lumen = fe.roles.find((r) => r.company === "Lumen Health")!;
+    // The most relevant role gets every line it has.
+    expect(lumen.bullets).toBe(lumen.sourceBullets);
     expect(fe.roles.map((r) => r.company)).not.toContain("University of Washington");
     expect(fe.projects.map((p) => p.company)).toContain("Trailhead");
   });
@@ -56,9 +60,16 @@ describe("planPage", () => {
     expect(planPage(MASTER, design).roles.some((r) => r.title === "Product & UX Engineer")).toBe(true);
   });
 
-  it("works without a job focus, in her order", () => {
+  it("lists the roles in page order, newest first, whatever their relevance", () => {
+    for (const j of DEMO_JOBS.filter((x) => x.resume)) {
+      const ends = planPage(DEMO_EXPERIENCE, focusOf(j.signals.company)).roles.map((r) => dateRangeEnd(r.dates)!);
+      expect(ends).toEqual([...ends].sort((a, b) => b - a));
+    }
+  });
+
+  it("works without a job focus", () => {
     const plan = planPage(DEMO_EXPERIENCE);
-    expect(plan.roles[0].company).toBe("Cobalt Payments");
+    expect(plan.roles.map((r) => r.company)).toContain("Cobalt Payments");
     expect(plan.totalBullets).toBeGreaterThan(8);
   });
 });

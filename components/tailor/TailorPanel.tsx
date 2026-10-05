@@ -13,7 +13,8 @@ import { exportResume, getJobResume, storeJobResume, type ExportResult } from "@
 import { createDebouncedSave } from "@/lib/resume/engine/autosave";
 import { fitResume, toPoolTarget, toVisibleSpot } from "@/lib/resume/engine/trim";
 import { verifyResume } from "@/lib/resume/engine/verify";
-import { tailorResume } from "@/lib/resume/engine/pipeline";
+import { tailorResume, type TailorProgress as Progress } from "@/lib/resume/engine/pipeline";
+import TailorProgress from "./TailorProgress";
 import { explainTailoring } from "@/lib/resume/engine/tailored";
 import { addSkill, describeTarget, removeSpot, removeTarget, spotOn, targetFromElement, type Target } from "@/lib/resume/engine/edit";
 import { editTarget, textOfTarget } from "@/lib/resume/engine/editText";
@@ -40,9 +41,10 @@ import { readBreakdown } from "@/lib/intake/stored";
 
 /**
  * Rough cost of one tailoring run on Sonnet-class pricing, shown before she spends it: one call at
- * high effort, plus one short follow-up only when the page ends short or needs a writing fix.
+ * medium effort, plus one short follow-up when the page ends short, needs a writing fix or leaves
+ * a key skill out of the bullets.
  */
-export const TAILOR_COST_HINT = "about 6 to 12¢";
+export const TAILOR_COST_HINT = "about 5 to 10¢";
 /** A revision reuses the cached system prompt (rules + master profile), so it's a bit cheaper. */
 export const REVISE_COST_HINT = "about 4¢";
 
@@ -124,6 +126,7 @@ export default function TailorPanel({
   const [header, setHeader] = useState<ResumeHeader | null>(null);
   const [fullName, setFullName] = useState("");
   const [phase, setPhase] = useState<"idle" | "generating" | "ready" | "saving" | "revising">("idle");
+  const [progress, setProgress] = useState<Progress | null>(null);
   const [error, setError] = useState<string | null>(null);
   // An AI call that failed, shown with the link that fixes it (credit, key, rate limit...).
   const [aiError, setAiError] = useState<unknown>(null);
@@ -234,6 +237,7 @@ export default function TailorPanel({
         m = updated;
       }
     }
+    setProgress(null);
     setPhase("generating");
     try {
       // One call writes the final page to a plan computed from the real layout; a second, short one
@@ -248,6 +252,7 @@ export default function TailorPanel({
         focus: focus ?? undefined,
         measure: (d) => pageFill(header, d),
         confirmed: confirmedForPrompt(confirmed),
+        onProgress: setProgress,
       });
       setResult(out.result);
       setApproved(new Set());
@@ -614,11 +619,7 @@ export default function TailorPanel({
   }
 
   if (phase === "generating") {
-    return (
-      <div className="rounded-xl border border-accent/15 bg-accent-soft/40 p-5">
-        <Spinner label="Writing your resume for this job. This usually takes about a minute..." />
-      </div>
-    );
+    return <TailorProgress progress={progress} />;
   }
 
   const preTailor = (

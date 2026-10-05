@@ -26,6 +26,11 @@ export interface CompleteOptions {
    * the speed/quality balance for writing tasks. Ignored for the fast tier (Haiku rejects it).
    */
   effort?: "low" | "medium" | "high";
+  /**
+   * Streams the answer and reports how many characters of it have arrived (0 while the model is
+   * still thinking), so a long call can show progress instead of a frozen spinner.
+   */
+  onProgress?: (charsWritten: number) => void;
 }
 
 export interface JsonOptions<T> extends CompleteOptions {

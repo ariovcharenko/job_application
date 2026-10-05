@@ -5,7 +5,7 @@ import { demoFocus, skillLines } from "../../demo/seed";
 import { parseMasterExperiences } from "../master/experiences";
 import { estimatePageFill, planPage } from "./budget";
 import { GENERATE_EFFORT } from "./index";
-import { followUpComments, MIN_SHORT_LINES, tailorResume } from "./pipeline";
+import { followUpComments, keywordComments, MIN_SHORT_LINES, tailorResume, type TailorProgress } from "./pipeline";
 import type { ResumeDoc } from "./schema";
 import { validateResume } from "./validate";
 import { applyConfirmations, confirmedForPrompt, placeChoices } from "../gaps";
@@ -59,7 +59,7 @@ const run = (provider: AIProvider, measure: (d: ResumeDoc) => number) =>
   tailorResume({ provider, master: DEMO_EXPERIENCE, company: job.signals.company, jdText: job.jd, jobSkills, requiredSkills: job.signals.mustHaveSkills, focus, measure });
 
 describe("tailorResume", () => {
-  it("makes one call at high effort with the page plan when the page comes back full", async () => {
+  it("makes one call at medium effort with the page plan when the page comes back full", async () => {
     const { provider, calls } = fakeProvider(plannedPage());
     const out = await run(provider, () => 0.965);
     const fixes = followUpComments(out.result, { jobSkills, requiredSkills: job.signals.mustHaveSkills, measure: () => 0.965, master: DEMO_EXPERIENCE });
@@ -68,7 +68,7 @@ describe("tailorResume", () => {
     expect(out.calls).toBe(1);
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ tier: "smart", effort: GENERATE_EFFORT, cacheSystem: true });
-    expect(GENERATE_EFFORT).toBe("high");
+    expect(GENERATE_EFFORT).toBe("medium");
     expect(calls[0].prompt).toMatch(/PAGE PLAN/);
     expect(calls[0].prompt).toMatch(/JOB FOCUS/);
     expect(out.result.flags).toEqual([]);
@@ -82,7 +82,7 @@ describe("tailorResume", () => {
     expect(calls).toHaveLength(2);
     expect(out.calls).toBe(2);
     expect(calls[1].prompt).toMatch(/lines short of a full page/);
-    expect(calls[1].effort).toBe("medium");
+    expect(calls[1].effort).toBe("low");
     expect(out.result.doc.experience[0].bullets.length).toBeGreaterThan(2);
     expect(out.notes[0]).toMatch(/filled the rest of the page/);
   });
@@ -141,5 +141,45 @@ describe("followUpComments", () => {
     const comments = followUpComments(checked, { jobSkills, requiredSkills: [], master: DEMO_EXPERIENCE, measure: () => 0.965 });
     expect(comments.length).toBeGreaterThan(0);
     expect(comments.some((c) => c.target?.section === "experience" && c.target.entry === 0 && c.target.bullet === 0)).toBe(true);
+  });
+});
+
+describe("keywordComments", () => {
+  it("asks for a required skill that only Skills shows, on the role whose own text used it", () => {
+    const doc = plannedPage();
+    const i = doc.experience.findIndex((e) => e.company === "Cobalt Payments");
+    // The model wrote every bullet on the page without naming PostgreSQL.
+    for (const e of [...doc.experience, ...(doc.projects ?? [])]) e.bullets = e.bullets.map((b) => b.replace(/,? (?:and )?PostgreSQL/g, ""));
+    const comments = keywordComments(doc, DEMO_EXPERIENCE, ["PostgreSQL"]);
+    expect(comments).toHaveLength(1);
+    expect(comments[0].target).toEqual({ section: "experience", entry: i });
+    expect(comments[0].note).toMatch(/PostgreSQL/);
+    expect(comments[0].note).toMatch(/natural part of the sentence/);
+  });
+
+  it("asks for nothing when a bullet already names the skill, or no role on the page used it", () => {
+    const doc = plannedPage();
+    // gRPC is only in her skills inventory: no role text shows it, so a bullet naming it would be invented.
+    expect(keywordComments(doc, DEMO_EXPERIENCE, ["Go", "gRPC"])).toEqual([]);
+  });
+
+  it("groups several skills for one role into one comment", () => {
+    const doc = plannedPage();
+    const i = doc.experience.findIndex((e) => e.company === "Cobalt Payments");
+    doc.experience[i].bullets = ["Built a payments service that handled 40,000 requests a day"];
+    doc.projects = [];
+    const comments = keywordComments(doc, DEMO_EXPERIENCE, ["Go", "PostgreSQL"]);
+    expect(comments).toHaveLength(1);
+    expect(comments[0].note).toMatch(/Go, PostgreSQL/);
+  });
+});
+
+describe("tailorResume progress", () => {
+  it("reports the writing step, then the polishing step when a follow-up runs", async () => {
+    const { provider } = fakeProvider(plannedPage({ bulletsPerRole: 2 }), plannedPage());
+    const steps: TailorProgress["step"][] = [];
+    await tailorResume({ provider, master: DEMO_EXPERIENCE, company: job.signals.company, jdText: job.jd, jobSkills, focus, measure: estimatePageFill, onProgress: (p) => steps.push(p.step) });
+    expect(steps[0]).toBe("writing");
+    expect(steps).toContain("polishing");
   });
 });

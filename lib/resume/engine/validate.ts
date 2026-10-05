@@ -3,6 +3,7 @@ import { hasSkill, normalizeSkill, parseSkillInventory, parseUsageNotes, type Us
 import { mentionsTerm, TECH_TERMS } from "../master/techTerms";
 import type { JobFocus } from "./focus";
 import { polishResume } from "./polish";
+import { sortNewestFirst } from "./order";
 import type { ResumeDoc } from "./schema";
 
 // Code-side enforcement of the tailoring rules. The prompt asks the model to follow them; this
@@ -412,6 +413,17 @@ export function validateResume(raw: ResumeDoc, masterProfile: string, opts: Vali
     }
   }
 
+  // Newest first, as every recruiter expects, whatever order the model wrote. Before any flag is
+  // raised, so flag targets point at the final positions.
+  const ownDates = (e: { company: string; title: string; dates: string }) => (entries.length ? findEntry(entries, e as ResumeDoc["experience"][number])?.dates : undefined) || e.dates;
+  const sorted = sortNewestFirst(doc.experience, ownDates);
+  const sortedProjects = doc.projects ? sortNewestFirst(doc.projects, ownDates) : null;
+  if (sorted.changed || sortedProjects?.changed) {
+    doc.experience = sorted.entries;
+    if (sortedProjects) doc.projects = sortedProjects.entries;
+    fixes.push("Put your roles in order, newest first.");
+  }
+
   let headersCorrected = 0;
   doc.experience.forEach((e, ei) => {
     const entry = entries.length ? findEntry(entries, e) : undefined;
@@ -464,7 +476,9 @@ export function validateResume(raw: ResumeDoc, masterProfile: string, opts: Vali
     const entry = entries.length ? findEntry(entries, e) : undefined;
     if (entry) {
       const before = `${e.title}|${e.dates}|${e.location}`;
-      const resolved = resolveTitle(e.title, entry);
+      // A project's title is only its label ("Personal project", "Capstone"), not a claim, so one
+      // the model changed (often to the project's name) is replaced by the label from her experience.
+      const resolved = resolveTitle(e.title, entry) ?? (cleanTitle(entry.title) || null);
       if (resolved) e.title = resolved;
       if (entry.dates) e.dates = spaceDateDashes(entry.dates);
       e.location = entry.location;
@@ -606,3 +620,5 @@ export function resumeText(doc: ResumeDoc): string {
 export function normalizeFlagMessage(message: string): string {
   return message.replace(/your master profile's/g, "your experience's").replace(/(in )?your master profile/g, (_m, pre) => `${pre ?? ""}your experience`);
 }
+
+export { dateRangeEnd, sortNewestFirst } from "./order";

@@ -1,3 +1,4 @@
+import { sortNewestFirst } from "./order";
 import { cleanTitle, parseMasterExperiences, type MasterEntry } from "../master/experiences";
 import { wrapBullet } from "../quality/measure";
 import { entryRelevance, preferredTitle, type JobFocus } from "./focus";
@@ -197,8 +198,10 @@ export function planPage(master: string, focus?: JobFocus, now = new Date()): Pa
     bullets,
     sourceBullets: bulletsOf(p.m.block).length,
   });
-  const rolePlan = rolesChosen.map((p, i) => toPlanned(p, counts[i]));
-  const projectPlan = projectsChosen.map((p) => toPlanned(p, cap(p)));
+  // Bullet counts follow relevance, but the plan lists entries in the order they go on the page,
+  // newest first: the model writes them in the order it is given.
+  const rolePlan = sortNewestFirst(rolesChosen.map((p, i) => toPlanned(p, counts[i]))).entries;
+  const projectPlan = sortNewestFirst(projectsChosen.map((p) => toPlanned(p, cap(p)))).entries;
   const totalBullets = counts.reduce((a, b) => a + b, 0) + projectBullets;
   const lines = Math.max(0, Math.floor(roomLines(chosen)));
   return {
@@ -226,7 +229,7 @@ export function describePlan(plan: PagePlan, shows: (company: string) => string 
     "PAGE PLAN (worked out by the app from the real page layout, so the page ends full but never runs over; write to it):",
     `- One page holds about ${plan.pageLines} lines of 10pt text. The header, section titles, Education, Skills (about ${plan.skillLines} lines with every skill kept)${plan.leadershipLines ? " and Leadership" : ""} take about ${plan.fixedLines}. About ${plan.bulletLines} lines are left for Experience${plan.projects.length ? " and Projects" : ""}.`,
     `- A line holds about ${CHARS_PER_LINE} characters. A bullet is 1 line (up to about ${CHARS_PER_LINE - 10} characters) or 2 lines (up to about ${2 * CHARS_PER_LINE - 10}). Never 3.`,
-    `- Experience, ${roleBullets} bullets in total, most relevant first within each role (keep the roles in reverse-chronological order on the page):`,
+    `- Experience, ${roleBullets} bullets in total, most relevant first within each role. Write the roles in exactly this order (newest first):`,
     ...plan.roles.map((r, i) => {
       const what = shows(r.company);
       return `  ${i + 1}. ${r.company} (${r.title}): ${r.bullets} bullet${r.bullets === 1 ? "" : "s"}${what ? `. Shows ${what}` : ""}.`;

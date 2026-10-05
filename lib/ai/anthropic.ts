@@ -33,7 +33,7 @@ export function createAnthropicProvider(
         ),
         { type: "text", text: opts.prompt },
       ];
-      res = await client.messages.create({
+      const params: Anthropic.Messages.MessageCreateParamsNonStreaming = {
         model,
         max_tokens: opts.maxTokens ?? 16000,
         system: opts.system
@@ -43,7 +43,20 @@ export function createAnthropicProvider(
           : undefined,
         messages: [{ role: "user", content }],
         ...(format || effort ? { output_config: { ...(format ? { format } : {}), ...(effort ? { effort } : {}) } } : {}),
-      });
+      };
+      if (opts.onProgress) {
+        // Streaming: progress as the answer arrives, and no SDK cap on max_tokens for long calls.
+        const onProgress = opts.onProgress;
+        let written = 0;
+        const stream = client.messages.stream(params);
+        stream.on("text", (delta) => {
+          written += delta.length;
+          onProgress(written);
+        });
+        res = await stream.finalMessage();
+      } else {
+        res = await client.messages.create(params);
+      }
     } catch (err) {
       throw toAIError(err);
     }

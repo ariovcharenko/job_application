@@ -95,16 +95,16 @@ describe("buildBrief", () => {
     expect(brief).toMatch(/Kind of role: Frontend\/Web/);
     expect(brief).toMatch(/What this team works on: front end/);
     expect(brief).toMatch(/PAGE PLAN/);
-    expect(brief).toMatch(/1\. Lumen Health \(Frontend Engineer Intern\): \d bullets\. Shows React, TypeScript, Jest/);
-    expect(brief).toMatch(/reverse-chronological/);
+    expect(brief).toMatch(/\d\. Lumen Health \(Frontend Engineer Intern\): \d bullets\. Shows React, TypeScript, Jest/);
+    expect(brief).toMatch(/in exactly this order \(newest first\)/);
     expect(brief).toMatch(/A line holds about \d+ characters/);
     // The teaching role gives way for an engineering job.
     expect(brief).not.toMatch(/Teaching Assistant/);
   });
 
-  it("puts the payments role first, with the most bullets, for the payments job", () => {
+  it("gives the payments role the most bullets for the payments job", () => {
     const brief = buildBrief(DEMO_EXPERIENCE, focusOf("Cobalt Payments"));
-    expect(brief).toMatch(/1\. Cobalt Payments \(Software Engineer Intern\): 6 bullets\. Shows Go, PostgreSQL, AWS/);
+    expect(brief).toMatch(/\d\. Cobalt Payments \(Software Engineer Intern\): 6 bullets\. Shows Go, PostgreSQL, AWS/);
     expect(brief).toMatch(/What this team works on: payments/);
   });
 
