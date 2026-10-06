@@ -21,6 +21,8 @@ const config: Config = {
         ],
       },
       colors: {
+        // The yellow marker on what the last resume update changed (same color as PAGE_CSS .ch).
+        marker: "#FFF176",
         paper: "#F5F5F7",
         ink: "#1D1D1F",
         muted: "#6E6E73",

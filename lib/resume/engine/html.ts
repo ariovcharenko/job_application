@@ -1,4 +1,5 @@
 import { boldSegments, DEFAULT_LAYOUT, educationFirst, FONT, LINE_HEIGHT, LINK_COLOR, PAGE, SECTION_TITLES } from "./layout";
+import type { ChangeMark, Range } from "./changes";
 import type { ResumeDoc, ResumeHeader } from "./schema";
 
 // An HTML rendering of the same layout as render.ts. Used twice: as the on-screen preview, and in
@@ -17,6 +18,36 @@ import type { ResumeDoc, ResumeHeader } from "./schema";
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 const rich = (s: string) => boldSegments(s).map((p) => (p.bold ? `<b>${esc(p.text)}</b>` : esc(p.text))).join("");
+
+/**
+ * A bullet with the changed parts wrapped in a yellow marker. `ranges` are over the plain text
+ * (bold markers removed); bold and marker spans nest so either can start inside the other.
+ */
+function richMarked(s: string, ranges: Range[] | "all"): string {
+  if (ranges === "all") return `<mark class="ch">${rich(s)}</mark>`;
+  let at = 0;
+  return boldSegments(s)
+    .map((seg) => {
+      const start = at;
+      const end = at + seg.text.length;
+      at = end;
+      const cuts = new Set([start, end]);
+      for (const [a, b] of ranges) {
+        if (a > start && a < end) cuts.add(a);
+        if (b > start && b < end) cuts.add(b);
+      }
+      const points = [...cuts].sort((x, y) => x - y);
+      const html = points
+        .slice(0, -1)
+        .map((p, i) => {
+          const piece = esc(seg.text.slice(p - start, points[i + 1] - start));
+          return ranges.some(([a, b]) => p >= a && p < b) ? `<mark class="ch">${piece}</mark>` : piece;
+        })
+        .join("");
+      return seg.bold ? `<b>${html}</b>` : html;
+    })
+    .join("");
+}
 
 /** The role shown under a project's name: "" for a generic "Project" title. */
 export const projectRole = (title: string) => (/^(personal\s+|side\s+)?project$/i.test(title.trim()) ? "" : title);
@@ -48,6 +79,7 @@ export const PAGE_CSS = `
 .rp .k{font-size:${pt(0)}}
 .rp .fb{text-decoration:line-through;text-decoration-color:rgba(180,35,24,.8);background:rgba(180,35,24,.10)}
 .rp .fn{background:rgba(255,186,0,.22)}
+.rp mark.ch,.rp .ch{background:#FFF176;color:inherit;border-radius:2px;box-decoration-break:clone;-webkit-box-decoration-break:clone}
 `;
 
 /**
@@ -63,7 +95,18 @@ export interface PreviewMark {
     | { section: "leadership"; entry: number };
 }
 
-export function renderResumeHtml(h: ResumeHeader, doc: ResumeDoc, marks: PreviewMark[] = []): string {
+/**
+ * `changes` (changes.ts diffDocs) are what the last update changed, shown with a yellow marker so
+ * she can see them and select them to ask again. Like `marks`, they only change color.
+ */
+export function renderResumeHtml(h: ResumeHeader, doc: ResumeDoc, marks: PreviewMark[] = [], changes: ChangeMark[] = []): string {
+  const changedBullet = (sec: string, i: number, j: number) =>
+    changes.find((c): c is Extract<ChangeMark, { bullet: number }> => c.section === sec && "bullet" in c && c.entry === i && c.bullet === j);
+  const newEntry = (sec: string, i: number) => changes.some((c) => c.section === sec && "entry" in c && c.entry === i && !("bullet" in c));
+  const bulletHtml = (sec: string, i: number, j: number, b: string) => {
+    const c = changedBullet(sec, i, j);
+    return c ? richMarked(b, c.ranges) : rich(b);
+  };
   // "block" wins over "note" when one spot has both.
   const markOf = (match: (m: PreviewMark) => boolean) => {
     const found = marks.filter(match);
@@ -81,16 +124,16 @@ export function renderResumeHtml(h: ResumeHeader, doc: ResumeDoc, marks: Preview
   // be mapped back to the document (lib/resume/engine/edit.ts Target). tabindex="0" makes each
   // one reachable by keyboard for the click-to-act menu.
   const entry = (sec: string, i: number, title: string, right: string, sub: string, subRight: string, bullets: string[]) => {
-    const head = atEntry(sec, i);
+    const head = [atEntry(sec, i), newEntry(sec, i) ? "ch" : ""].filter(Boolean).join(" ");
     return (
       `<div class="e" data-sec="${sec}" data-e="${i}" tabindex="0"><div class="r t${head ? ` ${head}` : ""}"><span>${esc(title)}</span><span style="font-weight:normal">${esc(right)}</span></div>` +
       (sub || subRight ? `<div class="r s${head ? ` ${head}` : ""}"><span>${esc(sub)}</span><span>${esc(subRight)}</span></div>` : "") +
-      (bullets.length ? `<ul>${bullets.map((b, j) => `<li data-b="${j}" tabindex="0"${cls(atEntry(sec, i, j))}>${rich(b)}</li>`).join("")}</ul>` : "") +
+      (bullets.length ? `<ul>${bullets.map((b, j) => `<li data-b="${j}" tabindex="0"${cls(atEntry(sec, i, j))}>${bulletHtml(sec, i, j, b)}</li>`).join("")}</ul>` : "") +
       `</div>`
     );
   };
   const skillItem = (line: number, item: number, text: string) => {
-    const c = markOf((m) => m.spot.section === "skills" && m.spot.line === line && m.spot.item === item);
+    const c = [markOf((m) => m.spot.section === "skills" && m.spot.line === line && m.spot.item === item), changes.some((x) => x.section === "skills" && x.line === line && x.item === item) ? "ch" : ""].filter(Boolean).join(" ");
     return c ? `<span class="${c}">${esc(text)}</span>` : esc(text);
   };
 
@@ -125,7 +168,7 @@ export function renderResumeHtml(h: ResumeHeader, doc: ResumeDoc, marks: Preview
   if (doc.leadership.length) {
     parts.push(`<div class="h">${esc(SECTION_TITLES.leadership)}</div>`);
     parts.push(
-      `<ul>${doc.leadership.map((l, i) => `<li data-sec="leadership" data-e="${i}" tabindex="0"${cls(atEntry("leadership", i))}><div class="r"><span>${esc(l.role)}</span><span>${esc(l.dates)}</span></div></li>`).join("")}</ul>`,
+      `<ul>${doc.leadership.map((l, i) => `<li data-sec="leadership" data-e="${i}" tabindex="0"${cls([atEntry("leadership", i), changes.some((x) => x.section === "leadership" && x.entry === i) ? "ch" : ""].filter(Boolean).join(" "))}><div class="r"><span>${esc(l.role)}</span><span>${esc(l.dates)}</span></div></li>`).join("")}</ul>`,
     );
   }
   const layout = doc.layout ?? DEFAULT_LAYOUT;

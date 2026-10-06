@@ -8,6 +8,7 @@ import { buildHeader, type ResumeHeader } from "@/lib/resume/engine";
 import { linesShort } from "@/lib/resume/engine/budget";
 import { pageFill } from "@/lib/resume/engine/fit";
 import { PAGE_CSS, renderResumeHtml } from "@/lib/resume/engine/html";
+import { diffDocs } from "@/lib/resume/engine/changes";
 import { renderResumeDocx } from "@/lib/resume/engine/render";
 import { exportResume, getJobResume, storeJobResume, type ExportResult } from "@/lib/resume/engine/save";
 import { createDebouncedSave } from "@/lib/resume/engine/autosave";
@@ -127,6 +128,8 @@ export default function TailorPanel({
   const [fullName, setFullName] = useState("");
   const [phase, setPhase] = useState<"idle" | "generating" | "ready" | "saving" | "revising">("idle");
   const [progress, setProgress] = useState<Progress | null>(null);
+  // The page as it was before the last update, so what the update changed shows in yellow.
+  const [changedFrom, setChangedFrom] = useState<ResumeDoc | null>(null);
   const [error, setError] = useState<string | null>(null);
   // An AI call that failed, shown with the link that fixes it (credit, key, rate limit...).
   const [aiError, setAiError] = useState<unknown>(null);
@@ -259,6 +262,7 @@ export default function TailorPanel({
       setChanges(out.notes);
       setHistory([]);
       setPlacements([]);
+      setChangedFrom(null);
       setPhase("ready");
     } catch (e) {
       setAiError(e);
@@ -281,6 +285,9 @@ export default function TailorPanel({
     if (!result || !header) return null;
     return fitResume(result.doc, (d) => pageFill(header, d), fitOpts);
   }, [result, header, fitOpts]);
+
+  // What the last update changed on the visible page (yellow marker). Empty before any update.
+  const changeMarks = useMemo(() => (changedFrom && fitted ? diffDocs(changedFrom, fitted.doc) : []), [changedFrom, fitted]);
 
   // Flags on the visible page, and the ones still waiting for her decision.
   const visibleFlags = useMemo(() => {
@@ -520,6 +527,7 @@ export default function TailorPanel({
       // A model answer: the job's skills she has go back on the Skills lines if it dropped any.
       const next = validateResume(doc, m, { ...checkOpts, addJobSkills: true });
       setHistory((h) => [...h, { result, approved }]);
+      setChangedFrom(fitted?.doc ?? result.doc);
       // Her current decisions, including any made while the update was running.
       setApproved((current) => carryApprovals(result.flags, current, next.flags));
       setResult(next);
@@ -602,6 +610,7 @@ export default function TailorPanel({
     setApproved(prev.approved);
     setHistory((h) => h.slice(0, -1));
     setChanges([]);
+    setChangedFrom(null);
   };
 
   if (master === null || header === null) return <Spinner label="Loading your experience..." />;
@@ -760,6 +769,17 @@ export default function TailorPanel({
           <p className="text-[15px] font-semibold tracking-display">Your resume</p>
           <p className="text-xs text-muted">Click a line, or select any text, to change it.</p>
         </div>
+        {changeMarks.length > 0 && (
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-paper px-3 py-2 text-xs text-muted">
+            <span className="flex items-center gap-2">
+              <span className="inline-block h-3 w-5 rounded-sm bg-marker" aria-hidden="true" />
+              Yellow marks what the last update changed. Select any of it to ask for more changes. The marker isn&apos;t in the download.
+            </span>
+            <button type="button" className="font-medium text-accent hover:underline" onClick={() => setChangedFrom(null)}>
+              Hide highlights
+            </button>
+          </div>
+        )}
         <div ref={previewBox} className="relative min-w-0 rounded-2xl bg-paper p-3" onMouseUp={onPreviewMouseUp} onKeyDown={onPreviewKeyDown}>
           {phase === "revising" && (
             <div className="absolute inset-x-3 top-3 z-10 rounded-xl bg-white/90 p-3 shadow-card">
@@ -770,7 +790,7 @@ export default function TailorPanel({
             <div ref={pageRef} style={{ transform: `scale(${scale})`, transformOrigin: "top left", width: "8.5in" }}>
               <style dangerouslySetInnerHTML={{ __html: PAGE_CSS }} />
               {/* renderResumeHtml escapes every string; no model output is inserted as raw HTML. */}
-              <div dangerouslySetInnerHTML={{ __html: renderResumeHtml(header, fitted.doc, openFlags.map((v) => ({ kind: v.flag.severity, spot: v.spot }))) }} />
+              <div dangerouslySetInnerHTML={{ __html: renderResumeHtml(header, fitted.doc, openFlags.map((v) => ({ kind: v.flag.severity, spot: v.spot })), changeMarks) }} />
             </div>
           </div>
           {selection && (
