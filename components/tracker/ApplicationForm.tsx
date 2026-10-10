@@ -15,7 +15,7 @@ import { hasUnsavedChanges } from "@/lib/tracker/dirty";
 import { deleteApplication, saveApplication } from "@/lib/tracker/repo";
 import { applyStageChange } from "@/lib/tracker/stage";
 import { ROLE_TYPES, STAGES, VISA_SIGNALS, type Application, type RoleType, type Stage, type VisaSignal } from "@/lib/types";
-import { Button, ConfirmDialog, ExternalLinkIcon, Field, Modal, Notice, SelectField, TextArea } from "@/components/ui";
+import { Button, ConfirmDialog, ExternalLinkIcon, Field, Modal, Notice, outlinedClass, SelectField, TextArea, textButtonClass } from "@/components/ui";
 import OutreachDialog from "../outreach/OutreachDialog";
 import JobResumeDialog from "../resumes/JobResumeDialog";
 import ResumePreview from "../resumes/ResumePreview";
@@ -242,7 +242,7 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
             </p>
           )}
 
-          <section className="rounded-2xl border border-black/[0.08] p-5">
+          <section className={`${outlinedClass} p-5`}>
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <h3 className="text-[17px] font-semibold tracking-display">Resume</h3>
@@ -276,10 +276,12 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
                   ) : (
                     app.jdText.trim() && <Button onClick={() => setTailoring(true)}>Tailor resume ({TAILOR_COST_HINT})</Button>
                   )}
+                  {/* The alternative path is a quiet text action, so the row reads primary, secondary, link
+                      instead of three equal pills. */}
                   {!own && (
-                    <Button variant="secondary" onClick={() => ownInput.current?.click()}>
+                    <button type="button" className={textButtonClass} onClick={() => ownInput.current?.click()}>
                       Use my own file
-                    </Button>
+                    </button>
                   )}
                   <input
                     ref={ownInput}
@@ -311,7 +313,7 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
             )}
           </section>
 
-          <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-black/[0.08] p-5">
+          <section className={`${outlinedClass} flex flex-wrap items-center justify-between gap-4 p-5`}>
             <div>
               <h3 className="text-[17px] font-semibold tracking-display">Reach out</h3>
               <p className="mt-1 text-[13px] text-muted">Find people on LinkedIn and draft a note.</p>

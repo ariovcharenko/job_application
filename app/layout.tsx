@@ -45,7 +45,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={inter.variable}>
-      <body>
+      <body className="flex min-h-screen flex-col">
         <StoragePersist />
         <AutoBackupRunner />
         {/* Off in the public build: the bridge posts the key, Profile and resume via
@@ -53,7 +53,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {FEATURES.extension && <ExtensionBridge />}
         <ScrollToHash />
         <Nav />
-        <main className="mx-auto max-w-[1080px] px-4 pb-24 pt-12 sm:px-6">{children}</main>
+        <main className="mx-auto w-full max-w-[1080px] flex-1 px-4 pb-24 pt-12 sm:px-6">{children}</main>
         <footer className="border-t border-black/[0.06] px-4 py-6 text-center text-xs text-muted">
           Your data stays in this browser. Nothing is ever submitted for you.{" "}
           <Link href="/privacy" className="underline hover:text-ink">

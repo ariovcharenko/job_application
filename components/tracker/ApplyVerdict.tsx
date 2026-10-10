@@ -1,4 +1,5 @@
 import { MUST_HAVE_FILTERS, verdictFor, VERDICT_TEXT, type ApplyDecision, type FilterResult, type SkillsMatch, type Verdict } from "@/lib/intake/decision";
+import { outlinedClass } from "@/components/ui";
 
 // The answer to "should I apply?", kept deliberately quiet: one number, one verdict, then the
 // must-haves as small pills and the skills behind the number. Color is only used to carry meaning
@@ -128,7 +129,7 @@ export default function ApplyVerdict({
           : VERDICT_TEXT[verdict].detail;
 
   return (
-    <section className="rounded-2xl border border-black/[0.08] bg-white">
+    <section className={outlinedClass}>
       <div className="flex items-start justify-between gap-6 p-6">
         <div>
           <p className="text-[13px] font-medium text-muted">{basisLabel}</p>

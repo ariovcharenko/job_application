@@ -251,10 +251,15 @@ export default function OnboardingWizard() {
         </>
       )}
 
+      {/* No Back on the first step (a greyed-out pill there was just noise); Next stays on the right. */}
       <div className="flex justify-between gap-3">
-        <Button variant="secondary" onClick={() => setStep(step - 1)} disabled={isFirst}>
-          Back
-        </Button>
+        {isFirst ? (
+          <span />
+        ) : (
+          <Button variant="secondary" onClick={() => setStep(step - 1)}>
+            Back
+          </Button>
+        )}
         {!isLast && <Button onClick={() => setStep(step + 1)}>{nextLabel}</Button>}
       </div>
     </div>

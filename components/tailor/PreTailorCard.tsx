@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, compactInputClass, inputClass } from "@/components/ui";
+import { Button, compactInputClass, inputClass, outlinedClass } from "@/components/ui";
 import type { ConfirmedSkill, PlaceChoice, PreTailorGap } from "@/lib/resume/gaps";
 
 const SKILLS_ONLY = "";
@@ -41,7 +41,7 @@ export default function PreTailorCard({
     );
 
   return (
-    <section className="rounded-2xl border border-black/[0.08] bg-white p-5" aria-labelledby="pretailor-heading">
+    <section className={`${outlinedClass} p-5`} aria-labelledby="pretailor-heading">
       <h3 id="pretailor-heading" className="text-[15px] font-semibold tracking-display">
         Before tailoring: do you have any of these?
       </h3>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, compactInputClass, inputClass } from "@/components/ui";
+import { Button, compactInputClass, inputClass, outlinedClass } from "@/components/ui";
 
 /** A role or project on the page she can place a skill in. */
 export interface PlaceOption {
@@ -63,7 +63,7 @@ export default function SkillGapsCard({
   const rows = openQuiet ? gaps : gaps.filter((g) => g.inProfile);
 
   return (
-    <section className="rounded-2xl border border-black/[0.08] bg-white p-5" aria-labelledby="gaps-heading">
+    <section className={`${outlinedClass} p-5`} aria-labelledby="gaps-heading">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 id="gaps-heading" className="text-[15px] font-semibold tracking-display">
           Job skills not on your resume

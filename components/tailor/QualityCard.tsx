@@ -1,7 +1,7 @@
 "use client";
 
 import type { QualityIssue } from "@/lib/resume/quality/types";
-import { Button } from "@/components/ui";
+import { Button, outlinedClass } from "@/components/ui";
 
 /**
  * Writing quality of the tailored page, checked by code (lib/resume/quality): the "fix" issues
@@ -27,7 +27,7 @@ export default function QualityCard({
   const consider = issues.filter((i) => i.severity === "consider");
 
   return (
-    <section className="rounded-2xl border border-black/[0.08] bg-white p-5">
+    <section className={`${outlinedClass} p-5`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 className="text-[15px] font-semibold tracking-display">Writing quality</h3>
         <p className="text-[13px] text-muted">
