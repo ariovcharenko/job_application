@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import { LOGO_ARROW, LOGO_DOT, LOGO_RING } from "@/lib/brand";
 
 // The link preview image. Rendered once at build time (static), with next/og's bundled default
 // font: no external fonts, images or network requests. Brand gradient only on the logo mark and
@@ -38,8 +39,10 @@ export default function OpengraphImage() {
               justifyContent: "center",
             }}
           >
-            <svg width="44" height="44" viewBox="0 0 32 32">
-              <path d="M9 16.5L14 21.5L23 11" stroke="white" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            <svg width="56" height="56" viewBox="6 6 20 20">
+              <path d={LOGO_RING} fill="none" stroke="white" strokeWidth="2.6" strokeLinecap="round" />
+              <circle cx={LOGO_DOT.cx} cy={LOGO_DOT.cy} r={LOGO_DOT.r} fill="white" />
+              <path d={LOGO_ARROW} fill="none" stroke="white" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </div>
           <div style={{ fontSize: 40, fontWeight: 600 }}>Job Copilot</div>

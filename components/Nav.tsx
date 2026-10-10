@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import LogoMark from "@/components/LogoMark";
 import { usePathname } from "next/navigation";
 import { FEATURES } from "@/lib/features";
 
@@ -30,11 +31,7 @@ export default function Nav() {
     <header className="sticky top-0 z-40 border-b border-black/[0.06] bg-[rgba(251,251,253,0.8)] backdrop-blur-xl backdrop-saturate-[1.8]">
       <nav className="mx-auto flex h-12 max-w-[1080px] items-center gap-3 px-4 sm:gap-6 sm:px-6">
         <Link href="/" className="flex items-center gap-2 text-[15px] font-semibold tracking-display">
-          <span className="flex h-6 w-6 items-center justify-center rounded-[7px] bg-gradient-to-br from-[#2997FF] via-[#7B61FF] to-[#C850C0] text-white">
-            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="m5 12.5 4.5 4.5L19 7.5" />
-            </svg>
-          </span>
+          <LogoMark className="h-6 w-6" />
           <span className="sr-only sm:not-sr-only">Job Copilot</span>
         </Link>
         <div className="flex min-w-0 items-center gap-0.5 sm:gap-5">
