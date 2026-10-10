@@ -1,6 +1,6 @@
 import type { Config } from "tailwindcss";
 
-// Apple-style system: SF Pro (the system font on macOS/iOS, Inter elsewhere), #F5F5F7 page,
+// Apple-style system: Inter (served by next/font, same on every device), #F5F5F7 page,
 // #1D1D1F text, one purple accent for every action and highlight, large soft radii and very
 // light shadows. Green/amber/red are status colors only (met, check this, fails), never decoration.
 const config: Config = {
@@ -9,11 +9,9 @@ const config: Config = {
     extend: {
       fontFamily: {
         sans: [
+          "var(--font-inter)",
           "-apple-system",
           "BlinkMacSystemFont",
-          '"SF Pro Text"',
-          '"SF Pro Display"',
-          "var(--font-inter)",
           '"Helvetica Neue"',
           "Helvetica",
           "Arial",
