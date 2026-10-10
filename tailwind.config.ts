@@ -41,7 +41,10 @@ const config: Config = {
         soft: "0 1px 2px rgba(0, 0, 0, 0.04)",
         lift: "0 2px 6px rgba(0, 0, 0, 0.04), 0 12px 32px -8px rgba(0, 0, 0, 0.12)",
         card: "0 8px 24px rgba(0, 0, 0, 0.06), 0 40px 80px -20px rgba(0, 0, 0, 0.28)",
-        glow: "0 0 0 1px rgba(123, 63, 228, 0.08), 0 8px 24px -8px rgba(123, 63, 228, 0.45)",
+        // Company monogram tile: a hairline edge, a faint shade along the bottom edge, and a tiny
+        // drop, so the white tile reads as a physical tile (like a macOS icon) on white or gray.
+        tile: "inset 0 0 0 1px rgba(0, 0, 0, 0.08), inset 0 -1.5px 0 rgba(0, 0, 0, 0.035), 0 1px 2px rgba(0, 0, 0, 0.06)",
+        glow:"0 0 0 1px rgba(123, 63, 228, 0.08), 0 8px 24px -8px rgba(123, 63, 228, 0.45)",
       },
       letterSpacing: {
         display: "-0.022em",

@@ -12,7 +12,7 @@ import { hasApiKey } from "@/lib/wipe";
 import { downloadBlob } from "@/lib/download";
 import { exportCsv } from "@/lib/tracker/csvMap";
 import { blankApplication } from "@/lib/tracker/blank";
-import { completeFollowUp, daysBetween, needsFollowUp, snoozeFollowUp, todayISO } from "@/lib/tracker/stage";
+import { completeFollowUp, needsFollowUp, snoozeFollowUp, todayISO } from "@/lib/tracker/stage";
 import { sortApplications } from "@/lib/tracker/sort";
 import { DEFAULT_VIEW_PREFS, filterApplications, hasActiveFilters, loadViewPrefs, saveViewPrefs, stageCounts, type TrackerView as View } from "@/lib/tracker/filter";
 import { isTracked } from "@/lib/tracker/triage";
@@ -34,11 +34,11 @@ import TrackerTable from "./TrackerTable";
 
 const toolbarSelect = inputClass.replace("w-full", "w-auto");
 
-/** One figure in the stats row. The row is a single panel split by hairlines, not four boxes. */
+/** One figure in the stats row. The row is a single panel split by hairlines, not separate boxes. */
 function Stat({ label, value, title }: { label: string; value: React.ReactNode; title?: string }) {
   return (
-    <div className="px-5 py-4 sm:px-6" title={title}>
-      <dt className="text-[13px] text-muted">{label}</dt>
+    <div className="min-w-0 px-4 py-4 sm:px-6" title={title}>
+      <dt className="truncate text-[12px] text-muted sm:text-[13px]">{label}</dt>
       <dd className="mt-1 text-[28px] font-semibold leading-tight tracking-display tabular-nums">{value}</dd>
     </div>
   );
@@ -307,13 +307,11 @@ export default function TrackerView() {
     const list = tracked;
     const applied = list.filter((a) => a.stage !== "Saved");
     const responded = applied.filter((a) => a.respondDate);
-    const gaps = responded.map((a) => daysBetween(a.appliedDate, a.respondDate)).filter((d): d is number => d !== null && d >= 0);
     return {
       total: list.length,
       applied: applied.length,
       responded: responded.length,
       rate: applied.length ? Math.round((responded.length / applied.length) * 100) : 0,
-      avgDays: gaps.length ? Math.round(gaps.reduce((s, d) => s + d, 0) / gaps.length) : null,
     };
   }, [tracked]);
 
@@ -441,12 +439,11 @@ export default function TrackerView() {
 
           {tracked.length > 0 && (
             <dl
-              className={`${panelClass} mb-8 grid grid-cols-2 md:grid-cols-4 [&>*]:border-black/[0.06] max-md:[&>*:nth-child(even)]:border-l max-md:[&>*:nth-child(n+3)]:border-t md:[&>*+*]:border-l`}
+              className={`${panelClass} mb-8 grid grid-cols-3 [&>*+*]:border-l [&>*]:border-black/[0.06]`}
             >
               <Stat label="Tracked" value={stats.total} />
               <Stat label="Applied" value={stats.applied} />
               <Stat label="Response rate" value={`${stats.rate}%`} title={`${stats.responded} of ${stats.applied} applied heard back`} />
-              <Stat label="Avg. reply time" value={stats.avgDays !== null ? `${stats.avgDays}d` : "—"} title="Average days from applying to hearing back" />
             </dl>
           )}
 
