@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
 import Link from "next/link";
 import ExtensionBridge from "@/components/ExtensionBridge";
 import { ScrollToHash } from "@/components/settings/SettingsNav";
@@ -7,11 +6,13 @@ import { FEATURES } from "@/lib/features";
 import Nav from "@/components/Nav";
 import StoragePersist from "@/components/StoragePersist";
 import AutoBackupRunner from "@/components/AutoBackupRunner";
+import "@fontsource-variable/inter";
 import "./globals.css";
 
-// next/font downloads Inter at build time and serves it from this site, so no external font
-// request is made at runtime (the CSP allows only 'self' and api.anthropic.com).
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
+// Inter is bundled from npm (@fontsource-variable/inter) and served from this site, so no font
+// request leaves it (the CSP allows only 'self' and api.anthropic.com). Not next/font/google: on
+// Vercel its two build passes could fetch different files from Google, so the page's class and
+// the CSS disagreed, --font-inter was undefined and every page fell back to Times.
 
 // Not exported: a layout may only export Next's own names (metadata, viewport...).
 const SITE_DESCRIPTION =
@@ -44,7 +45,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en">
       <body>
         <StoragePersist />
         <AutoBackupRunner />
