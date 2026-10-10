@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, inputClass } from "@/components/ui";
+import { Button, compactInputClass, inputClass } from "@/components/ui";
 import type { ConfirmedSkill, PlaceChoice, PreTailorGap } from "@/lib/resume/gaps";
 
 const SKILLS_ONLY = "";
@@ -60,7 +60,7 @@ export default function PreTailorCard({
                   value={place[g.skill] ?? SKILLS_ONLY}
                   onChange={(e) => setPlace((p) => ({ ...p, [g.skill]: e.target.value }))}
                   aria-label={`Where you used ${g.skill}`}
-                  className="min-w-0 rounded-xl border border-black/[0.1] bg-white px-3 py-1.5 text-[13px] outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+                  className={`${compactInputClass} min-w-0`}
                 >
                   <option value={SKILLS_ONLY}>Skills section only</option>
                   {places.map((p) => (

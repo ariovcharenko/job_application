@@ -10,7 +10,7 @@ import BaseResumesCard from "@/components/settings/BaseResumesCard";
 import FolderCard from "@/components/settings/FolderCard";
 import MasterProfileCard from "@/components/settings/MasterProfileCard";
 import ApplicationForm from "@/components/tracker/ApplicationForm";
-import { Button, ConfirmDialog, EmptyState, PageHeader, Spinner } from "@/components/ui";
+import { Button, ConfirmDialog, EmptyState, IconButton, insetClass, PageHeader, panelClass, SectionHeading, Spinner, TrashIcon } from "@/components/ui";
 import ResumePreview from "./ResumePreview";
 
 type Row = Awaited<ReturnType<typeof listJobResumes>>[number];
@@ -35,10 +35,7 @@ export default function ResumesView() {
       <PageHeader title="Resumes" />
 
       <section className="mb-14">
-        <div className="mb-5 flex items-baseline justify-between">
-          <h2 className="text-[24px] font-semibold tracking-display sm:text-[28px]">Tailored for jobs</h2>
-          {rows && rows.length > 0 && <p className="text-sm text-muted">{rows.length} saved</p>}
-        </div>
+        <SectionHeading title="Tailored for jobs" count={rows && rows.length > 0 ? rows.length : undefined} />
         {rows === undefined ? (
           <Spinner label="Loading your resumes..." />
         ) : rows.length === 0 ? (
@@ -48,11 +45,11 @@ export default function ResumesView() {
         ) : (
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {rows.map((r) => (
-              <article key={r.resume.id} className="flex flex-col rounded-[22px] bg-white p-5 shadow-soft">
+              <article key={r.resume.id} className={`${panelClass} flex flex-col p-5`}>
                 <button
                   type="button"
                   onClick={() => setOpening(r.app)}
-                  className="flex justify-center rounded-2xl bg-paper py-5 transition hover:bg-black/[0.05]"
+                  className={`${insetClass} flex justify-center py-5 transition hover:bg-black/[0.05] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent/25`}
                   aria-label={`Open ${r.app.company} job`}
                 >
                   <ResumePreview doc={r.stored.final} width={170} />
@@ -64,16 +61,18 @@ export default function ResumesView() {
                 <p className="mt-2 text-xs text-muted">
                   {new Date(r.resume.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })} · {r.resume.keywordScoreAfter}% of skills · {r.app.stage}
                 </p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <Button variant="secondary" onClick={() => setOpening(r.app)}>
+                {/* One row: the two actions, and delete as a quiet icon at the end (it used to wrap
+                    onto its own line as red text in a three-column grid). */}
+                <div className="mt-auto flex items-center gap-2 pt-4">
+                  <Button variant="secondary" size="sm" onClick={() => setOpening(r.app)}>
                     Open job
                   </Button>
-                  <Button variant="secondary" onClick={() => download(r)}>
+                  <Button variant="secondary" size="sm" onClick={() => download(r)}>
                     Download
                   </Button>
-                  <Button variant="danger-quiet" onClick={() => setDeleting(r)}>
-                    Delete
-                  </Button>
+                  <IconButton label={`Delete the resume for ${r.app.company || "this job"}`} tone="danger" onClick={() => setDeleting(r)} className="ml-auto">
+                    <TrashIcon />
+                  </IconButton>
                 </div>
               </article>
             ))}
@@ -81,7 +80,7 @@ export default function ResumesView() {
         )}
       </section>
 
-      <h2 className="mb-5 text-[24px] font-semibold tracking-display sm:text-[28px]">Your experience and files</h2>
+      <SectionHeading title="Your experience and files" />
       <MasterProfileCard />
       <BaseResumesCard />
       <FolderCard />

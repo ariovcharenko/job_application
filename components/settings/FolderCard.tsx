@@ -114,8 +114,7 @@ export default function FolderCard() {
           <ul className="mt-1 max-h-48 list-disc overflow-auto pl-5">
             {files.map((f) => (
               <li key={f.name}>
-                {f.name}{" "}
-                <span className="rounded bg-black/5 px-1.5 py-0.5 text-xs uppercase text-muted">{f.format}</span>
+                {f.name}
               </li>
             ))}
           </ul>

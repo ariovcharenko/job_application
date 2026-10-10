@@ -7,7 +7,7 @@
 export default function TailoredForCard({ lines }: { lines: string[] }) {
   if (lines.length === 0) return null;
   return (
-    <section className="rounded-2xl bg-accent-soft/40 p-5" aria-labelledby="tailored-for-heading">
+    <section className="rounded-2xl bg-accent-soft/50 p-5" aria-labelledby="tailored-for-heading">
       <h3 id="tailored-for-heading" className="mb-2 text-[15px] font-semibold tracking-display">
         Tailored for this job
       </h3>

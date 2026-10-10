@@ -14,6 +14,55 @@ export function slugify(title: string) {
     .replace(/(^-|-$)/g, "");
 }
 
+/*
+ * Surfaces. Three kinds only, so every box in the app reads as one system:
+ * - panel: a white card on the gray page (page sections, list containers, cards).
+ * - inset: a gray, borderless group inside a white panel or dialog (macOS grouped style).
+ * - outlined: a hairline-bordered white group inside a dialog, when it sits next to insets.
+ * Tinted (bg-accent-soft) is reserved for "this is the recommended next step".
+ */
+export const panelClass = "rounded-[22px] bg-white shadow-soft";
+export const insetClass = "rounded-2xl bg-paper";
+export const outlinedClass = "rounded-2xl border border-black/[0.08] bg-white";
+
+/** A quiet text-only action ("Import CSV", "Clear filters"): purple text, no pill. */
+export const textButtonClass =
+  "rounded-full px-2 py-1 text-[14px] font-medium text-accent transition hover:text-accent-deep hover:underline underline-offset-2 disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent/25";
+
+/** The small label above a form field. */
+export const labelClass = "mb-1.5 block text-[13px] font-medium text-black/60";
+
+/**
+ * A section title inside a page (below PageHeader): "Up next 3", "Your applications". One size
+ * everywhere, an optional quiet count, and optional actions on the right.
+ */
+export function SectionHeading({
+  title,
+  count,
+  id,
+  hint,
+  actions,
+  className = "mb-5",
+}: {
+  title: string;
+  count?: number;
+  id?: string;
+  /** Tooltip on the heading. */
+  hint?: string;
+  actions?: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`flex flex-wrap items-end justify-between gap-x-6 gap-y-3 ${className}`}>
+      <h2 id={id} title={hint} className="text-[24px] font-semibold leading-tight tracking-display sm:text-[28px]">
+        {title}
+        {count !== undefined && <span className="ml-2 font-normal tabular-nums text-muted">{count}</span>}
+      </h2>
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+    </div>
+  );
+}
+
 export function Card({
   title,
   hint,
@@ -27,7 +76,7 @@ export function Card({
   children: React.ReactNode;
 }) {
   return (
-    <section id={slugify(title)} className="mb-5 scroll-mt-24 rounded-[22px] bg-white p-5 shadow-soft sm:p-8">
+    <section id={slugify(title)} className={`${panelClass} mb-5 scroll-mt-24 p-5 sm:p-8`}>
       <div className="mb-6">
         <div className="flex items-baseline justify-between gap-3">
           <h2 className="text-[21px] font-semibold leading-tight tracking-display">{title}</h2>
@@ -78,7 +127,7 @@ export function PageHeader({
 /** Dashed-border placeholder for an empty list. */
 export function EmptyState({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
-    <div className="rounded-[22px] bg-white px-6 py-16 text-center shadow-soft">
+    <div className={`${panelClass} px-6 py-16 text-center`}>
       <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent-soft text-accent">
         <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M12 5v14M5 12h14" />
@@ -92,6 +141,10 @@ export function EmptyState({ title, children }: { title: string; children?: Reac
 
 export const inputClass =
   "w-full rounded-xl border border-black/[0.1] bg-white px-3.5 py-2.5 text-base outline-none transition placeholder:text-black/30 hover:border-black/20 focus:border-accent focus:ring-4 focus:ring-accent/15 sm:text-[15px]";
+
+/** A smaller input or select for use inside a list row (a label picker, an inline "add" box). */
+export const compactInputClass =
+  "rounded-xl border border-black/[0.1] bg-white px-3 py-1.5 text-[13px] outline-none transition placeholder:text-black/30 hover:border-black/20 focus:border-accent focus:ring-4 focus:ring-accent/15";
 
 export function Field({
   label,
@@ -112,7 +165,7 @@ export function Field({
   const listId = useId();
   return (
     <label className="block text-sm">
-      <span className="mb-1.5 block text-[13px] font-medium text-black/60">{label}</span>
+      <span className={labelClass}>{label}</span>
       <input
         type={type}
         value={value}
@@ -145,7 +198,7 @@ export function SelectField({
 }) {
   return (
     <label className="block text-sm">
-      <span className="mb-1.5 block text-[13px] font-medium text-black/60">{label}</span>
+      <span className={labelClass}>{label}</span>
       <select value={value} onChange={(e) => onChange(e.target.value)} className={inputClass}>
         {options.map((o) => (
           <option key={o.value} value={o.value}>
@@ -183,7 +236,7 @@ export function ChipSelect({
   };
   return (
     <fieldset className="text-sm">
-      <legend className="mb-1.5 text-[13px] font-medium text-black/60">{label}</legend>
+      <legend className={labelClass}>{label}</legend>
       {hint && <p className="mb-2.5 text-xs text-muted">{hint}</p>}
       <div className="flex flex-wrap gap-2">
         {all.map((o) => {
@@ -257,7 +310,7 @@ export function MonthYearField({
   };
   return (
     <div className="block text-sm">
-      <span className="mb-1.5 block text-[13px] font-medium text-black/60">{label}</span>
+      <span className={labelClass}>{label}</span>
       <div className="flex gap-2">
         <select
           aria-label={`${label} month`}
@@ -304,7 +357,7 @@ export function StartDateField({
   const isCustom = pickDate || (value !== "" && !START_PRESETS.includes(value));
   return (
     <div className="block text-sm">
-      <span className="mb-1.5 block text-[13px] font-medium text-black/60">{label}</span>
+      <span className={labelClass}>{label}</span>
       <div className="flex gap-2">
         <select
           aria-label={label}
@@ -377,7 +430,7 @@ export function TextArea({
 }) {
   return (
     <label className="block text-sm">
-      <span className="mb-1.5 block text-[13px] font-medium text-black/60">{label}</span>
+      <span className={labelClass}>{label}</span>
       <textarea value={value} rows={rows} onChange={(e) => onChange(e.target.value)} className={inputClass} />
     </label>
   );
@@ -499,17 +552,26 @@ export function Button({
   children,
   onClick,
   variant = "primary",
+  size = "md",
   disabled,
 }: {
   children: React.ReactNode;
   onClick: () => void;
-  /** "danger": solid, for the final "Delete" in a confirm. "danger-quiet": red text, for list actions. */
-  variant?: "primary" | "secondary" | "danger" | "danger-quiet";
+  /**
+   * "primary": solid purple, one per view. "tinted": soft purple, for the recommended action
+   * repeated on every row of a list (so a list isn't a column of solid buttons). "secondary": gray.
+   * "danger": solid, for the final "Delete" in a confirm. "danger-quiet": red text, for list actions.
+   */
+  variant?: "primary" | "tinted" | "secondary" | "danger" | "danger-quiet";
+  /** "sm" for buttons inside list rows and small cards. */
+  size?: "sm" | "md";
   disabled?: boolean;
 }) {
   const style =
     variant === "primary"
       ? "bg-accent text-white hover:bg-accent-deep"
+      : variant === "tinted"
+        ? "bg-accent-soft text-accent-deep hover:bg-accent/[0.14]"
       : variant === "danger"
         ? "bg-bad text-white hover:brightness-95"
         : variant === "danger-quiet"
@@ -520,7 +582,9 @@ export function Button({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-[18px] py-2 text-[14px] font-medium transition active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent/25 ${style}`}
+      className={`inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full font-medium transition ${
+        size === "sm" ? "px-3.5 py-1.5 text-[13px]" : "px-[18px] py-2 text-[14px]"
+      } active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent/25 ${style}`}
     >
       {children}
     </button>
@@ -610,6 +674,54 @@ export function ConfirmDialog({
         </Button>
       </div>
     </Modal>
+  );
+}
+
+/** A right-pointing chevron for "Open" style links (an SVG, never a text glyph). */
+export function ChevronRightIcon({ className = "h-3 w-3" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={`inline-block shrink-0 ${className}`} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m9 5 7 7-7 7" />
+    </svg>
+  );
+}
+
+/** Trash can for delete actions. */
+export function TrashIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={`shrink-0 ${className}`} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" />
+    </svg>
+  );
+}
+
+/** A round, icon-only button (delete, dismiss). Always pass a label for screen readers. */
+export function IconButton({
+  label,
+  onClick,
+  tone = "neutral",
+  className = "",
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  /** "danger" turns red on hover, for delete. */
+  tone?: "neutral" | "danger";
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent/25 ${
+        tone === "danger" ? "hover:bg-bad-soft hover:text-bad" : "hover:bg-black/[0.05] hover:text-ink"
+      } ${className}`}
+    >
+      {children}
+    </button>
   );
 }
 

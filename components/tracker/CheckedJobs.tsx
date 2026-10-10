@@ -4,7 +4,7 @@ import { useState } from "react";
 import { verdictFor, VERDICT_TEXT } from "@/lib/intake/decision";
 import { readBreakdown } from "@/lib/intake/stored";
 import type { Application } from "@/lib/types";
-import { Button } from "@/components/ui";
+import { Button, panelClass, SectionHeading } from "@/components/ui";
 import { CompanyMark } from "./StageBadge";
 
 /** "95% · Apply", "0% · Weak match", "Don't apply", from the job's saved check. */
@@ -81,14 +81,18 @@ export default function CheckedJobs({
   if (deciding.length === 0 && skipped.length === 0 && !notice) return null;
 
   return (
-    <section className="mt-12" aria-labelledby="checked-jobs-title">
-      <h2 id="checked-jobs-title" className="text-[24px] font-semibold tracking-display sm:text-[28px]" title="Jobs you checked but haven't added to your applications">
-        Checked jobs {deciding.length > 0 && <span className="font-normal tabular-nums text-muted">{deciding.length}</span>}
-      </h2>
+    <section className="mt-14" aria-labelledby="checked-jobs-title">
+      <SectionHeading
+        id="checked-jobs-title"
+        title="Checked jobs"
+        count={deciding.length > 0 ? deciding.length : undefined}
+        hint="Jobs you checked but haven't added to your applications"
+        className="mb-4"
+      />
 
       <div aria-live="polite">
         {notice && (
-          <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl bg-white px-4 py-3 text-sm shadow-soft">
+          <p className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl bg-white px-4 py-3 text-sm shadow-soft">
             <span>{notice.text}</span>
             <button
               type="button"
@@ -111,13 +115,13 @@ export default function CheckedJobs({
       </div>
 
       {deciding.length > 0 && (
-        <ul className="mt-4 divide-y divide-black/[0.06] rounded-[22px] bg-white px-4 shadow-soft sm:px-5">
+        <ul className={`${panelClass} divide-y divide-black/[0.06] px-4 sm:px-5`}>
           {deciding.map((a) => (
             <Row key={a.id} app={a} onOpen={() => onOpen(a)}>
-              <Button disabled={busy !== null} onClick={() => run(a, onTrack, `${name(a)} moved to your applications.`, () => onRestore(a))}>
+              <Button variant="tinted" size="sm" disabled={busy !== null} onClick={() => run(a, onTrack, `${name(a)} moved to your applications.`, () => onRestore(a))}>
                 Add to applications
               </Button>
-              <Button variant="secondary" disabled={busy !== null} onClick={() => run(a, onSkip, `${name(a)} marked as not applying.`, () => onRestore(a))}>
+              <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => run(a, onSkip, `${name(a)} marked as not applying.`, () => onRestore(a))}>
                 Not applying
               </Button>
             </Row>
@@ -126,7 +130,7 @@ export default function CheckedJobs({
       )}
 
       {skipped.length > 0 && (
-        <details className="group mt-4 rounded-[22px] bg-white px-4 py-3 shadow-soft sm:px-5">
+        <details className={`${panelClass} group mt-4 px-4 py-3 sm:px-5`}>
           <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg py-1 text-[15px] font-medium focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent/25">
             <span>
               Not applying <span className="font-normal tabular-nums text-muted">{skipped.length}</span>
@@ -140,6 +144,7 @@ export default function CheckedJobs({
               <Row key={a.id} app={a} onOpen={() => onOpen(a)}>
                 <Button
                   variant="secondary"
+                  size="sm"
                   disabled={busy !== null}
                   onClick={() => run(a, onRestore, `${name(a)} is back under Checked jobs.`, () => onSkip(a))}
                 >

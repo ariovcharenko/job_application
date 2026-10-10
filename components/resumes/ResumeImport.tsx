@@ -95,7 +95,7 @@ export default function ResumeImport({ current, onImported }: { current: string;
 
   if (stage === "reading") {
     return (
-      <div className="mb-6 rounded-2xl bg-accent-soft/40 p-4">
+      <div className="mb-6 rounded-2xl bg-accent-soft/50 p-4">
         <Spinner label="Reading your resume. This usually takes 30 to 90 seconds..." />
       </div>
     );

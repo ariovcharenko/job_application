@@ -31,7 +31,7 @@ export default function TailorProgress({ progress }: { progress: Progress | null
         : "Reading the job and planning your page.";
 
   return (
-    <div className="rounded-xl border border-accent/15 bg-accent-soft/40 p-5" role="status" aria-live="polite">
+    <div className="rounded-2xl bg-accent-soft/50 p-5" role="status" aria-live="polite">
       <div className="flex items-center gap-2.5 text-sm text-ink">
         <svg className="h-4 w-4 shrink-0 animate-spin text-accent" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />

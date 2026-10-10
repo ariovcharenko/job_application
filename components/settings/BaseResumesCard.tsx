@@ -5,7 +5,7 @@ import { deleteBaseResume, getBaseResumes, getSettings, saveBaseResume } from "@
 import { ensurePermission, fsAccessSupported, getBaseDir, hasPermission, listResumeFiles, readResumeFile, type ResumeFile } from "@/lib/fsAccess";
 import { FEATURES } from "@/lib/features";
 import { ROLE_TYPES, type BaseResume } from "@/lib/types";
-import { Button, Card, ConfirmDialog, Notice } from "@/components/ui";
+import { Button, Card, compactInputClass, ConfirmDialog, Notice } from "@/components/ui";
 
 type Status = { kind: "ok" | "error" | "info"; text: string } | null;
 
@@ -117,17 +117,16 @@ function BaseResumesCardInner() {
           <p className="mb-2 text-sm font-medium text-muted">Imported</p>
           <ul className="grid gap-2">
             {imported.map((r) => (
-              <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-black/10 px-3 py-2">
+              <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-black/[0.08] px-3.5 py-2.5">
                 <div className="min-w-0">
                   <p className="truncate text-sm">{r.fileName}</p>
-                  <span className="rounded bg-black/5 px-1.5 py-0.5 text-xs uppercase text-muted">{r.format}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <select
                     aria-label={`Label for ${r.fileName}`}
                     value={r.label}
                     onChange={(e) => relabel(r, e.target.value)}
-                    className="rounded-lg border border-black/[0.12] bg-white px-2 py-1 text-sm outline-none focus:border-accent focus:ring-4 focus:ring-accent/10"
+                    className={compactInputClass}
                   >
                     {ROLE_TYPES.map((t) => (
                       <option key={t} value={t}>
@@ -178,17 +177,16 @@ function BaseResumesCardInner() {
 function ImportRow({ file, busy, onImport }: { file: ResumeFile; busy: boolean; onImport: (label: string) => void }) {
   const [label, setLabel] = useState<string>(ROLE_TYPES[0]);
   return (
-    <li className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-black/10 px-3 py-2">
+    <li className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-black/[0.08] px-3.5 py-2.5">
       <div className="min-w-0">
         <p className="truncate text-sm">{file.name}</p>
-        <span className="rounded bg-black/5 px-1.5 py-0.5 text-xs uppercase text-muted">{file.format}</span>
       </div>
       <div className="flex items-center gap-2">
         <select
           aria-label={`Label for ${file.name}`}
           value={label}
           onChange={(e) => setLabel(e.target.value)}
-          className="rounded-lg border border-black/[0.12] bg-white px-2 py-1 text-sm outline-none focus:border-accent focus:ring-4 focus:ring-accent/10"
+          className={compactInputClass}
         >
           {ROLE_TYPES.map((t) => (
             <option key={t} value={t}>

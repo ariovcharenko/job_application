@@ -19,7 +19,7 @@ import { isTracked } from "@/lib/tracker/triage";
 import { ROLE_TYPES, STAGES, type Application, type RoleType, type Stage } from "@/lib/types";
 import { OPEN_ADD_JOB_EVENT } from "@/components/Nav";
 import { deleteApplication, saveApplication, setTriage } from "@/lib/tracker/repo";
-import { Button, ConfirmDialog, EmptyState, inputClass, Modal, Spinner } from "@/components/ui";
+import { Button, ChevronRightIcon, ConfirmDialog, EmptyState, inputClass, Modal, panelClass, SectionHeading, Spinner, textButtonClass } from "@/components/ui";
 import ApiKeyCard from "@/components/settings/ApiKeyCard";
 import ReadinessStrip from "@/components/ReadinessStrip";
 import SetupCard from "@/components/SetupCard";
@@ -34,11 +34,12 @@ import TrackerTable from "./TrackerTable";
 
 const toolbarSelect = inputClass.replace("w-full", "w-auto");
 
+/** One figure in the stats row. The row is a single panel split by hairlines, not four boxes. */
 function Stat({ label, value, title }: { label: string; value: React.ReactNode; title?: string }) {
   return (
-    <div className="rounded-[22px] bg-white px-5 py-4 shadow-soft" title={title}>
-      <p className="text-[13px] font-medium text-muted">{label}</p>
-      <p className="mt-1.5 text-[28px] font-semibold leading-none tracking-display tabular-nums">{value}</p>
+    <div className="px-5 py-4 sm:px-6" title={title}>
+      <dt className="text-[13px] text-muted">{label}</dt>
+      <dd className="mt-1 text-[28px] font-semibold leading-tight tracking-display tabular-nums">{value}</dd>
     </div>
   );
 }
@@ -107,9 +108,10 @@ function UpNextCard({
           type="button"
           onClick={onOpen}
           aria-label={`${openLabel}: ${[app.role, app.company].filter(Boolean).join(" at ") || "job"}`}
-          className="text-[13px] font-medium text-accent outline-none after:absolute after:inset-0 after:rounded-[22px] group-hover:underline focus-visible:after:ring-2 focus-visible:after:ring-accent"
+          className="inline-flex items-center gap-1 text-[13px] font-medium text-accent outline-none after:absolute after:inset-0 after:rounded-[22px] group-hover:underline focus-visible:after:ring-2 focus-visible:after:ring-accent"
         >
-          {openLabel} ›
+          {openLabel}
+          <ChevronRightIcon className="h-2.5 w-2.5" />
         </button>
         {onDone && (
           <button type="button" onClick={onDone} className={`${smallAction} ml-auto`}>
@@ -392,10 +394,8 @@ export default function TrackerView() {
           <ReadinessStrip readiness={setup} />
 
           {(upNext.ready.length > 0 || upNext.followUps.length > 0) && (
-            <section className="mb-12">
-              <h2 className="mb-4 text-[24px] font-semibold tracking-display sm:text-[28px]">
-                Up next <span className="font-normal text-muted tabular-nums">{upNext.followUps.length + Math.min(upNext.ready.length, 8)}</span>
-              </h2>
+            <section className="mb-14">
+              <SectionHeading title="Up next" count={upNext.followUps.length + Math.min(upNext.ready.length, 8)} className="mb-4" />
               <div className="-mx-4 flex gap-4 overflow-x-auto px-4 pb-3 sm:-mx-6 sm:px-6">
                 {upNext.followUps.map((a) => (
                   <UpNextCard
@@ -415,32 +415,39 @@ export default function TrackerView() {
             </section>
           )}
 
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-[24px] font-semibold tracking-display sm:text-[28px]">Your applications</h2>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" onClick={() => setEditing(blankApplication())}>
-                Add manually
-              </Button>
-              <Button variant="secondary" onClick={() => setImporting(true)}>
-                Import CSV
-              </Button>
-              <Button
-                variant="secondary"
-                disabled={tracked.length === 0}
-                onClick={() => download(`job-applications-${todayISO()}.csv`, exportCsv(tracked))}
-              >
-                Export CSV
-              </Button>
-            </div>
-          </div>
+          <SectionHeading
+            title="Your applications"
+            actions={
+              <>
+                {/* CSV in and out are occasional chores: quiet text buttons, so the one real
+                    action here (adding a job) isn't one of three equal gray pills. */}
+                <button type="button" onClick={() => setImporting(true)} className={textButtonClass}>
+                  Import CSV
+                </button>
+                <button
+                  type="button"
+                  disabled={tracked.length === 0}
+                  onClick={() => download(`job-applications-${todayISO()}.csv`, exportCsv(tracked))}
+                  className={textButtonClass}
+                >
+                  Export CSV
+                </button>
+                <Button variant="secondary" onClick={() => setEditing(blankApplication())}>
+                  Add manually
+                </Button>
+              </>
+            }
+          />
 
           {tracked.length > 0 && (
-            <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
+            <dl
+              className={`${panelClass} mb-8 grid grid-cols-2 md:grid-cols-4 [&>*]:border-black/[0.06] max-md:[&>*:nth-child(even)]:border-l max-md:[&>*:nth-child(n+3)]:border-t md:[&>*+*]:border-l`}
+            >
               <Stat label="Tracked" value={stats.total} />
               <Stat label="Applied" value={stats.applied} />
               <Stat label="Response rate" value={`${stats.rate}%`} title={`${stats.responded} of ${stats.applied} applied heard back`} />
               <Stat label="Avg. reply time" value={stats.avgDays !== null ? `${stats.avgDays}d` : "—"} title="Average days from applying to hearing back" />
-            </div>
+            </dl>
           )}
 
           {tracked.length > 0 && (
@@ -455,7 +462,7 @@ export default function TrackerView() {
               <input
                 type="search"
                 aria-label="Search"
-                placeholder="Search company, role, location, notes"
+                placeholder="Search jobs"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 className={`${inputClass} pl-9`}
@@ -473,7 +480,7 @@ export default function TrackerView() {
               ))}
             </select>
             {hasActiveFilters(filters) && (
-              <button type="button" onClick={clearFilters} className="rounded-full px-3 py-2 text-sm font-medium text-accent hover:underline">
+              <button type="button" onClick={clearFilters} className={textButtonClass}>
                 Clear filters
               </button>
             )}
@@ -509,9 +516,9 @@ export default function TrackerView() {
               </p>
             </EmptyState>
           ) : filtered.length === 0 ? (
-            <div className="rounded-[22px] bg-white p-10 text-center text-sm text-muted shadow-soft">
+            <div className={`${panelClass} p-10 text-center text-sm text-muted`}>
               <p>No applications match.</p>
-              <button type="button" onClick={clearFilters} className="mt-2 font-medium text-accent hover:underline">
+              <button type="button" onClick={clearFilters} className={`${textButtonClass} mt-2`}>
                 Clear filters
               </button>
             </div>

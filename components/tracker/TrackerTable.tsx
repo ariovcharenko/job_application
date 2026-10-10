@@ -6,6 +6,7 @@ import { safeHttpUrl } from "@/lib/safeUrl";
 import { changeStage } from "@/lib/tracker/repo";
 import { needsFollowUp } from "@/lib/tracker/stage";
 import { STAGES, type Application, type Stage } from "@/lib/types";
+import { panelClass, TrashIcon } from "@/components/ui";
 import { CompanyMark, STAGE_SELECT_CLASS, STAGE_STYLE } from "./StageBadge";
 
 const link = "font-medium text-accent hover:underline underline-offset-2";
@@ -72,9 +73,7 @@ function DeleteButton({ app, onDelete, alwaysVisible = false }: { app: Applicati
         alwaysVisible ? "" : "opacity-0 focus:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
       }`}
     >
-      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" />
-      </svg>
+      <TrashIcon />
     </button>
   );
 }
@@ -86,7 +85,7 @@ function MobileCards({ apps, onOpen, onDelete }: { apps: Application[]; onOpen: 
       {apps.map((a) => {
         const place = [a.location, a.workMode && a.workMode !== "Unknown" ? a.workMode : ""].filter(Boolean).join(" · ");
         return (
-          <li key={a.id} className={`rounded-[22px] bg-white p-4 shadow-soft ${a.stage === "Rejected" ? "text-muted" : ""}`}>
+          <li key={a.id} className={`${panelClass} p-4 ${a.stage === "Rejected" ? "text-muted" : ""}`}>
             <div className="flex items-start gap-3">
               <CompanyMark name={a.company} />
               <button
@@ -145,12 +144,12 @@ export default function TrackerTable({
   onDelete: (a: Application) => void;
 }) {
   if (apps.length === 0) {
-    return <p className="rounded-[22px] bg-white p-10 text-center text-sm text-muted shadow-soft">No applications match these filters.</p>;
+    return <p className={`${panelClass} p-10 text-center text-sm text-muted`}>No applications match these filters.</p>;
   }
   return (
     <>
       <MobileCards apps={apps} onOpen={onOpen} onDelete={onDelete} />
-      <div className="hidden rounded-[22px] bg-white shadow-soft md:block">
+      <div className={`${panelClass} hidden md:block`}>
         <table className="w-full table-fixed text-left text-sm">
           <thead className="text-[12px] text-muted">
             <tr>

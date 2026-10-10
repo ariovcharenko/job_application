@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, inputClass } from "@/components/ui";
+import { Button, compactInputClass, inputClass } from "@/components/ui";
 
 /** A role or project on the page she can place a skill in. */
 export interface PlaceOption {
@@ -106,7 +106,7 @@ export default function SkillGapsCard({
                     id={`place-${skill}`}
                     value={where}
                     onChange={(e) => setPlace((p) => ({ ...p, [skill]: e.target.value }))}
-                    className="min-w-0 flex-1 rounded-xl border border-black/[0.1] bg-white px-3 py-2 text-[13px] outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+                    className={`${compactInputClass} min-w-0 flex-1`}
                   >
                     <option value={SKILLS_ONLY}>Skills section only</option>
                     {places.map((p) => (

@@ -38,7 +38,7 @@ function AlreadyChecked({
   const when = new Date(app.updatedAt || app.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   const where = app.triage === "skipped" ? "marked as not applying" : app.triage === "checked" ? "under Checked jobs" : `in your applications (${app.stage})`;
   return (
-    <div className="mt-4 rounded-2xl bg-accent-soft/60 p-5" role="status">
+    <div className="mt-4 rounded-2xl bg-accent-soft/50 p-5" role="status">
       <p className="font-semibold tracking-display">Already checked</p>
       <p className="mt-1 text-sm text-muted">
         {app.role || "This job"}
