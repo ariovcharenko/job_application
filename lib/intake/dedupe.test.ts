@@ -37,6 +37,10 @@ describe("findMatch", () => {
     // Different link, same title: a different posting, not a match.
     expect(findMatch(apps, { url: "https://job-boards.greenhouse.io/ziprecruiter/jobs/999", company: "ZipRecruiter", role: "Software Engineer - New Grad" })).toBeUndefined();
   });
+  it("recognizes a pasted description (no link) of a job saved from its link", () => {
+    expect(findMatch(apps, { company: "ZipRecruiter", role: "Software Engineer - New Grad" })?.id).toBe(1);
+    expect(findMatch(apps, { url: "", company: "ziprecruiter", role: "software engineer, new grad" })?.id).toBe(1);
+  });
   it("doesn't match on a company alone", () => {
     expect(sameCompanyAndRole({ company: "Apple", role: "" }, { company: "Apple", role: "" })).toBe(false);
   });

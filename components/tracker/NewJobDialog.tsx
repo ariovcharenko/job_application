@@ -27,10 +27,13 @@ function AlreadyChecked({
   app,
   onOpen,
   onCheckAgain,
+  againLabel = "Check it again (1 to 2¢)",
 }: {
   app: Application & { id: number };
   onOpen?: (app: Application & { id: number }) => void;
   onCheckAgain: () => void;
+  /** The second button: re-check (before spending) or keep this new check (after it was paid for). */
+  againLabel?: string;
 }) {
   const b = readBreakdown(app);
   const pct = b?.skills?.percent ?? null;
@@ -48,7 +51,7 @@ function AlreadyChecked({
       <div className="mt-3 flex flex-wrap gap-2">
         {onOpen && <Button onClick={() => onOpen(app)}>Open it</Button>}
         <Button variant="secondary" onClick={onCheckAgain}>
-          Check it again (1 to 2¢)
+          {againLabel}
         </Button>
       </div>
     </div>
@@ -91,6 +94,9 @@ export default function NewJobDialog({
   const [app, setApp] = useState<SavedJob | null>(null);
   // A link she already checked: shown before spending anything on it again.
   const [previous, setPrevious] = useState<(Application & { id: number }) | null>(null);
+  // A pasted description (no link) that turned out to be a position she already checked: the new
+  // check is held here until she opens the old one or chooses to keep this one.
+  const [duplicate, setDuplicate] = useState<{ existing: Application & { id: number }; analysis: JobAnalysis } | null>(null);
   const [prefs, setPrefs] = useState<Preferences | null>(null);
   const [master, setMaster] = useState("");
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -127,11 +133,13 @@ export default function NewJobDialog({
     }
     setError(null);
     setPrevious(null);
+    setDuplicate(null);
     // Mark busy before the first await, so a quick second click can't start (and pay for) a second check.
     setStep("Checking...");
     try {
-      // Same posting checked before? Say so before paying to read and score it again.
-      if (!force && updateId === undefined && mode === "link") {
+      // Same posting checked before? Say so before paying to read and score it again. A pasted
+      // description with its link is recognized by the link too.
+      if (!force && updateId === undefined && looksLikeUrl(link)) {
         const existing = await findExistingJob({ url: link });
         if (existing?.fitBreakdown) {
           setPrevious(existing);
@@ -149,6 +157,15 @@ export default function NewJobDialog({
       }
       setStep("Scoring the job...");
       const a = await analyzeJob(provider, { url: link, jdText: text }, prefs ?? current, masterText, todayISO(), me);
+      // Pasted with no link: company and role are only known now. If she already checked this
+      // position, ask before saving over it (saving would update that row, not add a second one).
+      if (!force && updateId === undefined && !looksLikeUrl(link)) {
+        const existing = await findExistingJob({ company: a.signals.company, role: a.signals.role });
+        if (existing?.fitBreakdown) {
+          setDuplicate({ existing, analysis: a });
+          return;
+        }
+      }
       setStep("Saving it...");
       setApp(await saveAnalyzedJob(a, updateId));
       setAnalysis(a);
@@ -157,6 +174,22 @@ export default function NewJobDialog({
       setError({ message: e instanceof Error ? e.message : String(e), needsKey });
       // A page that can't be read automatically: switch to pasting, keeping the link.
       if (e instanceof AIError && e.kind === "fetch_failed") setMode("paste");
+    } finally {
+      setStep(null);
+    }
+  };
+
+  /** She chose to keep the new check of a position she had checked before: save it (updates that row). */
+  const keepDuplicate = async () => {
+    if (!duplicate || step) return;
+    const { analysis: a } = duplicate;
+    setStep("Saving it...");
+    try {
+      setApp(await saveAnalyzedJob(a, updateId));
+      setAnalysis(a);
+      setDuplicate(null);
+    } catch (e) {
+      setError({ message: e instanceof Error ? e.message : String(e), needsKey: false });
     } finally {
       setStep(null);
     }
@@ -286,6 +319,9 @@ export default function NewJobDialog({
       </div>
 
       {previous && <AlreadyChecked app={previous} onOpen={onOpenExisting} onCheckAgain={() => analyze(true)} />}
+      {duplicate && (
+        <AlreadyChecked app={duplicate.existing} onOpen={onOpenExisting} onCheckAgain={keepDuplicate} againLabel="Update it with this check" />
+      )}
 
       <div aria-live="polite">{step && <Spinner label={step} />}</div>
       {error && (
