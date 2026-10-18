@@ -46,12 +46,140 @@ async function writeText(dir: FileSystemDirectoryHandle, name: string, text: str
   await w.close();
 }
 
-export async function writeAutoBackup(dir: FileSystemDirectoryHandle, text: string, now = new Date(), prefix = currentPrefix()): Promise<void> {
+async function readText(dir: FileSystemDirectoryHandle, name: string): Promise<string | null> {
+  try {
+    const file = await (await dir.getFileHandle(name)).getFile();
+    return await file.text();
+  } catch {
+    return null;
+  }
+}
+
+/** How much a backup file holds: jobs and tailored resumes. Null if it can't be read as one. */
+export function backupSize(text: string | null): { jobs: number; resumes: number } | null {
+  if (!text) return null;
+  try {
+    const t = (JSON.parse(text) as { tables?: { applications?: unknown[]; tailoredResumes?: unknown[] } }).tables;
+    if (!t) return null;
+    return { jobs: t.applications?.length ?? 0, resumes: t.tailoredResumes?.length ?? 0 };
+  } catch {
+    return null;
+  }
+}
+
+/** True when `next` holds fewer jobs or fewer tailored resumes than `prev`. */
+export function isSmaller(next: string, prev: string | null): boolean {
+  const a = backupSize(next);
+  const b = backupSize(prev);
+  return !!a && !!b && (a.jobs < b.jobs || a.resumes < b.resumes);
+}
+
+const stamp = (d: Date) => {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+};
+
+/** "job-copilot-backup-before-restore-2026-10-17-093012.json": what was here before a restore. */
+export const beforeRestoreFileName = (now: Date, prefix = "job-copilot-backup") => `${prefix}-before-restore-${stamp(now)}.json`;
+/** "job-copilot-backup-before-shrink-2026-10-17.json": the latest file kept when the data got smaller. */
+export const beforeShrinkFileName = (now: Date, prefix = "job-copilot-backup") => `${prefix}-before-shrink-${datedFileName(now, "x").slice(2, -5)}.json`;
+
+/** How many "before shrink" copies are kept (newest first). Before-restore copies are never deleted. */
+export const KEEP_SHRINK_COPIES = 5;
+
+export function shrinkCopiesToPrune(names: string[], prefix = "job-copilot-backup", keep = KEEP_SHRINK_COPIES): string[] {
+  const re = new RegExp(`^${prefix}-before-shrink-\\d{4}-\\d{2}-\\d{2}\\.json$`);
+  const mine = names.filter((n) => re.test(n)).sort();
+  return mine.slice(0, Math.max(0, mine.length - keep));
+}
+
+/**
+ * Writes the latest and today's file, then prunes old dated files. If the new data holds fewer
+ * jobs or tailored resumes than the current latest file (a deletion, or something gone wrong), the
+ * old latest is first kept as a "before shrink" copy for that day, unless `allowShrink` (right after
+ * a restore, whose own safety copy already holds what was there).
+ */
+export async function writeAutoBackup(
+  dir: FileSystemDirectoryHandle,
+  text: string,
+  now = new Date(),
+  prefix = currentPrefix(),
+  opts: { allowShrink?: boolean } = {},
+): Promise<void> {
+  if (!opts.allowShrink) {
+    const prev = await readText(dir, latestFileName(prefix));
+    const keepName = beforeShrinkFileName(now, prefix);
+    if (prev && isSmaller(text, prev) && (await readText(dir, keepName)) === null) await writeText(dir, keepName, prev);
+  }
   await writeText(dir, latestFileName(prefix), text);
   await writeText(dir, datedFileName(now, prefix), text);
   const names: string[] = [];
   for await (const [name] of (dir as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries()) names.push(name);
-  for (const name of filesToPrune(names, KEEP_DAYS, prefix)) await dir.removeEntry(name);
+  for (const name of [...filesToPrune(names, KEEP_DAYS, prefix), ...shrinkCopiesToPrune(names, prefix)]) await dir.removeEntry(name);
+}
+
+// ---- before a restore ----
+
+const RESTORED_KEY = "job-copilot:restored-at";
+/** After a restore, the next automatic backup may be smaller than the latest file without keeping a copy. */
+const RESTORE_GRACE_MS = 10 * 60 * 1000;
+
+export function markRestored(now = Date.now()) {
+  try {
+    localStorage.setItem(RESTORED_KEY, String(now));
+  } catch {
+    // Without storage the next backup just keeps an extra "before shrink" copy.
+  }
+}
+
+function takeRestoredMark(now = Date.now()): boolean {
+  try {
+    const at = Number(localStorage.getItem(RESTORED_KEY));
+    localStorage.removeItem(RESTORED_KEY);
+    return Number.isFinite(at) && at > 0 && now - at < RESTORE_GRACE_MS;
+  } catch {
+    return false;
+  }
+}
+
+export interface SafetyCopyDeps {
+  exportText: () => Promise<string>;
+  folder: () => Promise<FileSystemDirectoryHandle | undefined>;
+  canWrite: (dir: FileSystemDirectoryHandle) => Promise<boolean>;
+  download: (text: string, name: string) => void;
+}
+
+export type SafetyCopy = { where: "folder"; folder: string; name: string } | { where: "download"; name: string };
+
+/**
+ * Before a restore replaces everything: saves what's here now as
+ * job-copilot-backup-before-restore-<time>.json, into the automatic backup folder when it can be
+ * written without asking, otherwise as a download. Throws if the copy can't be made, so the caller
+ * can stop before changing anything. API keys are left out, as in every automatic backup.
+ */
+export async function saveBeforeRestore(deps: SafetyCopyDeps, now = new Date(), prefix = currentPrefix()): Promise<SafetyCopy> {
+  const text = await deps.exportText();
+  const name = beforeRestoreFileName(now, prefix);
+  const dir = await deps.folder();
+  if (dir && (await deps.canWrite(dir))) {
+    try {
+      await writeText(dir, name, text);
+      return { where: "folder", folder: dir.name, name };
+    } catch {
+      // Fall back to a download below.
+    }
+  }
+  deps.download(text, name);
+  return { where: "download", name };
+}
+
+export function browserSafetyCopyDeps(download: (text: string, name: string) => void): SafetyCopyDeps {
+  return {
+    exportText: () => exportBackup({ includeKey: false }),
+    folder: async () => (await getSettings()).backupFolder,
+    canWrite: (dir) => hasPermission(dir, "readwrite"),
+    download,
+  };
 }
 
 /** Fired on window after each automatic backup attempt, with the AutoBackupStatus as detail. */
@@ -78,7 +206,7 @@ export async function runAutoBackup(now = new Date()): Promise<AutoBackupStatus>
   if (!dir) return { kind: "off" };
   if (!(await hasPermission(dir, "readwrite"))) return { kind: "needs-permission", folder: dir.name };
   try {
-    await writeAutoBackup(dir, await exportBackup({ includeKey: false, now }), now);
+    await writeAutoBackup(dir, await exportBackup({ includeKey: false, now }), now, currentPrefix(), { allowShrink: takeRestoredMark(now.getTime()) });
     try {
       localStorage.setItem(LAST_KEY, String(now.getTime()));
     } catch {

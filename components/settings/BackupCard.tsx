@@ -3,6 +3,7 @@
 import { downloadBlob } from "@/lib/download";
 
 import { useEffect, useState } from "react";
+import { browserSafetyCopyDeps, markRestored, saveBeforeRestore } from "@/lib/autoBackup";
 import { exportBackup, parseBackup, restoreBackup, type ParsedBackup } from "@/lib/backup";
 import { todayISO } from "@/lib/tracker/stage";
 import { forgetApiKeys, hasApiKey, isDeleteConfirmed, wipeAllData, DELETE_CONFIRM_WORD } from "@/lib/wipe";
@@ -36,7 +37,10 @@ function describeBackup(b: ParsedBackup, exportedAt: string): React.ReactNode {
         {plural(t.contacts.length, "contact")} and {plural(t.answerBank.length, "saved answer")}, plus your settings, Profile, job
         preferences and experience.
       </p>
-      <p className="mt-3">Everything in this browser is replaced with it. This can&apos;t be undone.</p>
+      <p className="mt-3">
+        Everything in this browser is replaced with it. A copy of what&apos;s here now is saved first (to your automatic backup folder, or
+        as a download), so you can go back.
+      </p>
       <p className="mt-3">{b.includesKey ? "It includes an API key, which replaces the one here." : "Your API key here is kept."}</p>
     </>
   );
@@ -94,14 +98,26 @@ export default function BackupCard() {
 
   const restore = async () => {
     if (!pending) return;
+    // First a copy of everything here now. If that can't be made, nothing is changed.
+    let copy;
+    try {
+      copy = await saveBeforeRestore(browserSafetyCopyDeps((text, name) => downloadBlob(new Blob([text], { type: "application/json" }), name)));
+    } catch (e) {
+      setPending(null);
+      setStatus({ kind: "error", text: `Nothing was changed. Couldn't save a copy of your current data first: ${e instanceof Error ? e.message : String(e)}` });
+      return;
+    }
+    const where = copy.where === "folder" ? `in your ${copy.folder} folder` : "in your downloads";
     try {
       const r = await restoreBackup(pending.parsed);
+      markRestored();
       setPending(null);
       setStatus({
         kind: "ok",
-        text: r.fullBackup ? `Restored ${plural(r.applications, "job")} and ${plural(r.tailoredResumes, "tailored resume")}. Reloading...` : "Restored. Reloading...",
+        text: `${r.fullBackup ? `Restored ${plural(r.applications, "job")} and ${plural(r.tailoredResumes, "tailored resume")}.` : "Restored."} What was here before is saved as ${copy.name} ${where}. Reloading...`,
       });
-      setTimeout(() => window.location.reload(), 800);
+      // Long enough to read where the safety copy went.
+      setTimeout(() => window.location.reload(), 2500);
     } catch (e) {
       setPending(null);
       setStatus({ kind: "error", text: `Nothing was changed. The restore failed: ${e instanceof Error ? e.message : String(e)}` });
