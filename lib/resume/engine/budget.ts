@@ -3,7 +3,8 @@ import { cleanTitle, parseMasterExperiences, type MasterEntry } from "../master/
 import { wrapBullet } from "../quality/measure";
 import { entryRelevance, preferredTitle, type JobFocus } from "./focus";
 import { DEFAULT_LAYOUT, LINE_HEIGHT, PAGE, sizesFor, spaceFor } from "./layout";
-import { skillLineCount } from "./polish";
+import { projectRole } from "./html";
+import { SKILL_LINE_UNITS, skillLineCount } from "./polish";
 import type { ResumeDoc } from "./schema";
 
 // The space budget for one page, computed by code from the same layout the page is rendered with
@@ -252,12 +253,40 @@ export function describePlan(plan: PagePlan, shows: (company: string) => string 
  */
 export function estimatePageFill(doc: ResumeDoc): number {
   const layout = doc.layout ?? DEFAULT_LAYOUT;
+  const sz = sizesFor(layout);
+  const sp = spaceFor(layout);
+  const line = (pt: number) => pt * LINE_HEIGHT * layout.spacing;
+  // A larger body font wraps text sooner: the column holds 1/grow as many em.
   const grow = layout.body / DEFAULT_LAYOUT.body;
+  const wrapLines = (text: string, units: number) => Math.max(1, wrapBullet(text, units / grow).lines.length);
   const projects = doc.projects ?? [];
-  const sections = [doc.education.length, doc.experience.length, projects.length, doc.skills.length, doc.leadership.length].filter((n) => n > 0).length;
-  const entries = doc.education.length + doc.experience.length + projects.length;
-  const bullets = [...doc.education, ...doc.experience, ...projects].flatMap((e) => e.bullets);
-  const textLines = bullets.reduce((s, b) => s + bulletLines(b), 0) + doc.skills.reduce((s, l) => s + skillLineCount(l), 0) + doc.leadership.length;
-  const fixedPt = HEADER_PT + sections * SECTION_PT + entries * ENTRY_PT;
-  return ((fixedPt * grow + textLines * BODY_LINE_PT * grow * grow) * layout.spacing) / usablePt;
+  let pt = line(sz.name) + sp.afterName + line(sz.contact) + sp.afterContact;
+  const section = () => (pt += sp.beforeSection + line(sz.sectionHeader) + 1 + 0.75 + sp.afterSectionHeader);
+  const entries = (list: { bullets: string[]; sub: boolean }[]) =>
+    list.forEach((e, i) => {
+      pt += (i ? sp.beforeEntry : 0) + line(sz.entryTitle) + (e.sub ? line(sz.entrySub) : 0);
+      for (const b of e.bullets) pt += wrapLines(b, BULLET_UNITS) * line(sz.bullet);
+    });
+  if (doc.education.length) {
+    section();
+    entries(doc.education.map((e) => ({ bullets: e.bullets, sub: true })));
+  }
+  if (doc.experience.length) {
+    section();
+    entries(doc.experience.map((e) => ({ bullets: e.bullets, sub: true })));
+  }
+  if (projects.length) {
+    section();
+    // A project's second row shows only when it has a role (not a bare "Project") or a location.
+    entries(projects.map((e) => ({ bullets: e.bullets, sub: Boolean(projectRole(e.title) || e.location) })));
+  }
+  if (doc.skills.length) {
+    section();
+    for (const l of doc.skills) pt += wrapLines(`**${l.category}:** ${l.items.join(", ")}`, SKILL_LINE_UNITS) * line(sz.skills);
+  }
+  if (doc.leadership.length) {
+    section();
+    pt += doc.leadership.length * line(sz.bullet);
+  }
+  return pt / usablePt;
 }

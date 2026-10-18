@@ -14,39 +14,47 @@ export default function QualityCard({
   onFix,
   queued,
   disabled,
-  costHint,
+  shortLines = 0,
 }: {
   score: number;
   issues: QualityIssue[];
   onFix: () => void;
   queued: boolean;
   disabled?: boolean;
-  costHint: string;
+  /** How many lines the page ends short of full; 0 when it is full. Fixed in the same update. */
+  shortLines?: number;
 }) {
   const fix = issues.filter((i) => i.severity === "fix");
   const consider = issues.filter((i) => i.severity === "consider");
+  const total = fix.length + (shortLines > 0 ? 1 : 0);
 
   return (
     <section className={`${outlinedClass} p-5`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-[15px] font-semibold tracking-display">Writing quality</h3>
+        <h3 className="text-[15px] font-semibold tracking-display">Fix with one update</h3>
         <p className="text-[13px] text-muted">
           <span className={`font-semibold tabular-nums ${score >= 80 ? "text-accent-deep" : "text-warn"}`}>{score}</span>/100
         </p>
       </div>
 
-      {issues.length === 0 ? (
+      {total === 0 && issues.length === 0 ? (
         <p className="mt-2 text-[13px] text-muted">
           No weak verbs, buzzwords, repetition or overlong bullets found. Reads like a person wrote it.
         </p>
       ) : (
         <>
-          {fix.length > 0 && (
+          {total > 0 && (
             <>
               <p className="mt-3 text-[13px] font-medium">
-                {fix.length} thing{fix.length === 1 ? "" : "s"} to fix
+                {total} thing{total === 1 ? "" : "s"} to fix
               </p>
               <ul className="mt-1.5 grid gap-1.5 text-[13px]">
+                {shortLines > 0 && (
+                  <li className="flex gap-2">
+                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-warn" aria-hidden="true" />
+                    <span>The page ends about {shortLines} line{shortLines === 1 ? "" : "s"} short. The update adds content from Your experience.</span>
+                  </li>
+                )}
                 {fix.map((i) => (
                   <li key={i.id} className="flex gap-2">
                     <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-warn" aria-hidden="true" />
@@ -57,11 +65,10 @@ export default function QualityCard({
                   </li>
                 ))}
               </ul>
-              <div className="mt-3 flex flex-wrap items-center gap-3">
+              <div className="mt-3">
                 <Button variant="secondary" onClick={onFix} disabled={disabled || queued}>
-                  {queued ? "Fixing..." : `Fix ${fix.length === 1 ? "it" : `these ${fix.length}`}`}
+                  {queued ? "Updating..." : `Update resume to fix ${total === 1 ? "it" : `these ${total}`}`}
                 </Button>
-                <span className="text-xs text-muted">One update for all of them ({costHint}).</span>
               </div>
             </>
           )}

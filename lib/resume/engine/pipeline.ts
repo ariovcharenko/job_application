@@ -1,4 +1,4 @@
-import type { AIProvider } from "../../ai/provider";
+import { AIError, type AIProvider } from "../../ai/provider";
 import { parseMasterExperiences } from "../master/experiences";
 import { hasSkill, parseSkillInventory, parseUsageNotes } from "../master/skills";
 import { lintResume } from "../quality/lint";
@@ -146,6 +146,22 @@ export function followUpComments(result: ValidationResult, input: Pick<TailorInp
   return comments;
 }
 
+/** Bullets under roles and projects: the body of the page. */
+const bodyBullets = (d: ResumeDoc) => [...d.experience, ...(d.projects ?? [])].reduce((n, e) => n + e.bullets.length, 0);
+
+/**
+ * An answer that parses but has nothing to show (no role or project has a bullet) would render as a
+ * header and a skills list: a blank page. That is reported as an error with a next step instead.
+ */
+export function assertUsable(doc: ResumeDoc): void {
+  if (bodyBullets(doc) === 0) {
+    throw new AIError(
+      "invalid_output",
+      "The model sent back a resume with no experience bullets. Try again. If it keeps happening, check that your experience (Resumes page) lists roles with bullet points.",
+    );
+  }
+}
+
 export async function tailorResume(input: TailorInput): Promise<TailorOutput> {
   const { provider, master, company, jdText, focus } = input;
   const inventory = parseSkillInventory(master);
@@ -156,6 +172,7 @@ export async function tailorResume(input: TailorInput): Promise<TailorOutput> {
   const progress = (step: TailorProgress["step"]) => (input.onProgress ? (chars: number) => input.onProgress!({ step, chars }) : undefined);
   input.onProgress?.({ step: "writing", chars: 0 });
   const raw = await generateResume(provider, master, company, jdText, { have, gaps }, focus, input.confirmed ?? [], progress("writing"), input.signal);
+  assertUsable(raw);
   let result = validateResume(raw, master, checkOpts);
   const comments = followUpComments(result, input);
   if (comments.length === 0) return { result, notes: [], calls: 1 };
@@ -165,7 +182,9 @@ export async function tailorResume(input: TailorInput): Promise<TailorOutput> {
     input.onProgress?.({ step: "polishing", chars: 0 });
     const out = await reviseResume(input.polishProvider ?? provider, master, company, jdText, result.doc as ResumeDoc, comments, progress("polishing"), FOLLOW_UP_EFFORT, input.signal);
     const { changes, ...doc } = out;
-    result = validateResume(doc, master, checkOpts);
+    // A follow-up that came back empty or much shorter than the draft is worse than no follow-up.
+    if (bodyBullets(doc) === 0 || bodyBullets(doc) < bodyBullets(result.doc as ResumeDoc) * 0.7) throw new Error("unusable follow-up");
+    const revised = validateResume(doc, master, checkOpts);
     const keywords = comments.filter((c) => c.id.startsWith("keywords:")).length;
     const fixes = comments.filter((c) => c.id !== "fill" && !c.id.startsWith("keywords:")).length;
     const filled = comments.some((c) => c.id === "fill");
@@ -177,6 +196,7 @@ export async function tailorResume(input: TailorInput): Promise<TailorOutput> {
       .filter(Boolean)
       .join(", ")
       .replace(/, ([^,]*)$/, " and $1");
+    result = revised;
     notes = [`Polished automatically: ${what} in one extra pass.`, ...changes];
   } catch (e) {
     // Her Cancel stops the whole run; any other failure leaves the first draft standing.

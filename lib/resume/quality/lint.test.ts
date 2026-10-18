@@ -178,12 +178,12 @@ describe("opening verbs", () => {
 });
 
 describe("length and wrapping", () => {
-  it("estimates roughly 125 to 145 characters per line", () => {
+  it("estimates roughly 100 to 125 characters per line", () => {
     const x = "Implemented a feature ".repeat(20);
     const firstLine = wrapBullet(x).lines[0].join(" ").length;
-    expect(firstLine).toBeGreaterThan(115);
-    expect(firstLine).toBeLessThan(150);
-    expect(LINE_UNITS).toBeGreaterThan(55000);
+    expect(firstLine).toBeGreaterThan(95);
+    expect(firstLine).toBeLessThan(130);
+    expect(LINE_UNITS).toBeGreaterThan(50000);
   });
 
   it("counts bold text wider", () => {

@@ -17,10 +17,11 @@ import { saveRoleFact } from "@/lib/resume/master/saveFact";
 import { persistVersion, tailorAndSave } from "@/lib/resume/engine/persist";
 import { historyAfterStartOver } from "@/lib/resume/engine/history";
 import { AIError } from "@/lib/ai/provider";
+import { describeAIError } from "@/lib/ai/errors";
 import { createDebouncedSave } from "@/lib/resume/engine/autosave";
 import { fitResume, toPoolTarget, toVisibleSpot } from "@/lib/resume/engine/trim";
 import { verifyResume } from "@/lib/resume/engine/verify";
-import type { TailorProgress as Progress } from "@/lib/resume/engine/pipeline";
+import { assertUsable, type TailorProgress as Progress } from "@/lib/resume/engine/pipeline";
 import TailorProgress from "./TailorProgress";
 import { explainTailoring } from "@/lib/resume/engine/tailored";
 import { addSkill, describeTarget, removeSpot, removeTarget, spotOn, targetFromElement, type Target } from "@/lib/resume/engine/edit";
@@ -62,6 +63,8 @@ export const REVISE_COST_HINT = "about 4¢";
  * tokens, mostly a cache read) and a short JSON answer with thinking at medium effort.
  */
 export const REVIEW_COST_HINT = "about 3¢";
+/** The one place cost and time are shown once a resume exists (not on each button). */
+const COST_LINE = `Each update takes about 30 seconds and costs ${REVISE_COST_HINT}. A recruiter review takes about 20 seconds and costs ${REVIEW_COST_HINT}.`;
 
 function PopoverAction({ label, hint, onClick, danger }: { label: string; hint: string; onClick: () => void; danger?: boolean }) {
   return (
@@ -91,9 +94,12 @@ function FlagRow({ flag, onKeep, onRemove, disabled }: { flag: Flag; onKeep: () 
     <li className="flex flex-wrap items-start justify-between gap-2 text-[13px]">
       <span className="min-w-0 flex-1">
         <span className={`mr-1.5 inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${flag.severity === "block" ? "bg-bad-soft text-bad" : "bg-white text-ink"}`}>
-          {flag.severity === "block" ? "Left out" : "Check"}
+          {flag.severity === "block" ? "Left out" : "Look at"}
         </span>
         {flag.message}
+        <span className="mt-0.5 block text-xs text-muted">
+          {flag.severity === "block" ? "Not in Your experience, so it is struck through and left out unless you keep it." : "This is in Your experience, but check that it says what you mean."}
+        </span>
       </span>
       <span className="flex shrink-0 gap-1">
         <button type="button" disabled={disabled} onClick={onKeep} className="rounded-full bg-black/[0.05] px-2.5 py-0.5 text-xs font-medium hover:bg-accent-soft hover:text-accent-deep disabled:opacity-40">
@@ -338,7 +344,7 @@ export default function TailorPanel({
         onSaved?.(id);
         void refreshVersions();
       } else if (saveError) setError(`Couldn't save this resume to the job: ${saveError}`);
-      // Start over keeps the version she had one Undo away.
+      // Tailor again keeps the version she had one Undo away.
       setHistory((h) => historyAfterStartOver(h, result ? { result, approved } : null));
       setResult(out.result);
       setApproved(new Set());
@@ -351,7 +357,7 @@ export default function TailorPanel({
     } catch (e) {
       retryRef.current = (o) => void generate(o);
       if (!isCancel(e)) setAiError(e);
-      // A failed or cancelled "Start over" keeps the resume she had, still editable.
+      // A failed or cancelled "Tailor again" keeps the resume she had, still editable.
       setPhase(result ? "ready" : "idle");
     } finally {
       if (abortRef.current?.signal === signal) abortRef.current = null;
@@ -625,6 +631,8 @@ export default function TailorPanel({
     try {
       const out = await reviseResume(await providerFor("revise_resume", writerOpts(override)), m, application.company, application.jdText, result.doc, all, undefined, undefined, signal);
       const { changes: done, ...doc } = out;
+      // An answer with no bullets would leave a blank page: keep the resume she has and say so.
+      assertUsable(doc);
       // A model answer: the job's skills she has go back on the Skills lines if it dropped any.
       const next = validateResume(doc, m, { ...checkOpts, addJobSkills: true });
       await persistNow(next, carryApprovals(result.flags, approved, next.flags), m);
@@ -971,6 +979,15 @@ export default function TailorPanel({
     { ok: qualityFixes.length === 0, text: qualityFixes.length ? `${qualityFixes.length} writing issue${qualityFixes.length === 1 ? "" : "s"} to fix` : "No weak verbs, buzzwords or overlong bullets" },
   ];
   const failing = checks.filter((c) => !c.ok).length;
+  // The things the model can fix, sent in ONE update: writing issues code found, and a short page.
+  const fixList = [...qualityFixes.map((i) => i.id), ...(fitted.underfilled && short > 0 ? ["fill"] : [])];
+  const fixComments = (): ResumeComment[] => [
+    ...issuesToComments(quality?.issues ?? []).map((c) => {
+      const target = c.target ? toPoolTarget(fitted.map, c.target) : null;
+      return { ...c, target: target ?? undefined };
+    }),
+    ...(fitted.underfilled && short > 0 ? [{ id: "fill", quote: "", note: fillComment(short) }] : []),
+  ];
   const autoFixed = [...fixes, ...fitted.steps, ...(fitted.removed.length ? [`Left off ${fitted.removed.length} less relevant line${fitted.removed.length === 1 ? "" : "s"} to fit one page.`] : [])];
 
   const checksList = (
@@ -984,30 +1001,15 @@ export default function TailorPanel({
         ))}
       </ul>
       {autoFixed.length > 0 && <p className="mt-2 text-xs text-muted">Fixed automatically: {autoFixed.join(" ")}</p>}
-      {fitted.underfilled && short > 0 && (
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <Button variant="secondary" onClick={() => void runRevision([{ id: "fill", quote: "", note: fillComment(short) }])} disabled={busy}>
-            Fill the page ({REVISE_COST_HINT})
-          </Button>
-          <span className="text-xs text-muted">Adds about {short} line{short === 1 ? "" : "s"} from Your experience.</span>
-        </div>
-      )}
-      {quality && qualityFixes.length > 0 && (
+      {fixList.length > 0 && (
         <div className="mt-3">
           <QualityCard
-            score={quality.score}
-            issues={quality.issues}
-            onFix={() =>
-              void runRevision(
-                issuesToComments(quality.issues).map((c) => {
-                  const target = c.target ? toPoolTarget(fitted.map, c.target) : null;
-                  return { ...c, target: target ?? undefined };
-                }),
-              )
-            }
+            score={quality?.score ?? 100}
+            issues={quality?.issues ?? []}
+            shortLines={fitted.underfilled ? short : 0}
+            onFix={() => void runRevision(fixComments())}
             queued={phase === "revising"}
             disabled={busy}
-            costHint={REVISE_COST_HINT}
           />
         </div>
       )}
@@ -1021,13 +1023,10 @@ export default function TailorPanel({
       {openFlags.length > 0 && (
         <section className="rounded-2xl bg-warn-soft p-5" aria-labelledby="flags-heading">
           <h3 id="flags-heading" className="text-[15px] font-semibold tracking-display">
-            Check {openFlags.length} line{openFlags.length === 1 ? "" : "s"} on the page
+            {openFlags.length} line{openFlags.length === 1 ? " needs" : "s need"} your OK
           </h3>
-          <p className="mb-3 mt-0.5 text-xs text-muted">
-            {blocked > 0 ? "Struck-through lines aren't in Your experience and stay out of the download unless you keep them. " : ""}
-            Highlighted lines are true but worth a look.
-          </p>
-          <ul className="grid gap-2">
+          <p className="mb-3 mt-0.5 text-xs text-muted">Keep a line to put it in the download, or remove it. Nothing that isn&apos;t in Your experience is used until you keep it.</p>
+          <ul className="grid gap-3">
             {openFlags.map(({ flag }) => (
               <FlagRow key={flag.id} flag={flag} onKeep={() => keepFlag(flag)} onRemove={() => removeFlagged(flag)} disabled={busy} />
             ))}
@@ -1038,7 +1037,7 @@ export default function TailorPanel({
       <div>
         <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
           <p className="text-[15px] font-semibold tracking-display">Your resume</p>
-          <p className="text-xs text-muted">Click a line, or select any text, to change it.</p>
+          <p className="text-xs text-muted">Click a line, or select any text, to change it. {COST_LINE}</p>
         </div>
         {changeMarks.length > 0 && (
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-paper px-3 py-2 text-xs text-muted">
@@ -1117,14 +1116,14 @@ export default function TailorPanel({
                   <PopoverAction
                     onClick={() => ask("Rewrite this to match the job's wording and keywords. Keep every fact, number and technology.")}
                     label="Rewrite for this job"
-                    hint={`Runs now, ${REVISE_COST_HINT}`}
+                    hint="Updates the resume now"
                   />
                   <PopoverAction
                     onClick={() => ask("Make this shorter, one line if possible, keeping its number and main technology.")}
                     label="Make it shorter"
-                    hint={`Runs now, ${REVISE_COST_HINT}`}
+                    hint="Updates the resume now"
                   />
-                  <PopoverAction onClick={() => setPopoverMode("custom")} label="Ask for something else" hint="e.g. mention the Jest tests here" />
+                  <PopoverAction onClick={() => setPopoverMode("custom")} label="Ask for something else" hint="Type what to change, e.g. mention the Jest tests" />
                   {selection.target && (
                     <PopoverAction
                       danger
@@ -1220,7 +1219,7 @@ export default function TailorPanel({
                       Back
                     </Button>
                     <Button onClick={() => ask(note)} disabled={!note.trim()}>
-                      Run ({REVISE_COST_HINT})
+                      Update resume
                     </Button>
                   </div>
                 </>
@@ -1261,8 +1260,6 @@ export default function TailorPanel({
           onReview={() => void runReview()}
           reviewing={reviewing}
           reviewed={reviewSummary !== null || reviewItems.length > 0}
-          reviewCost={REVIEW_COST_HINT}
-          applyCost={REVISE_COST_HINT}
           disabled={busy || reviewing}
         />
       )}
@@ -1271,7 +1268,6 @@ export default function TailorPanel({
         onSend={(text) => void runRevision([{ id: `ask-${Date.now()}`, quote: "", note: text }])}
         busy={phase === "revising"}
         disabled={busy}
-        cost={REVISE_COST_HINT}
         changes={changes}
       />
 
@@ -1309,11 +1305,25 @@ export default function TailorPanel({
       )}
       {error && <Notice kind="error">{error}</Notice>}
       {aiError !== null && aiNotice}
+      {aiError !== null && !canFallBackToClaude(aiError) && retryRef.current && describeAIError(aiError).retryable && (
+        <div>
+          <Button
+            variant="secondary"
+            disabled={busy}
+            onClick={() => {
+              setAiError(null);
+              retryRef.current?.(undefined);
+            }}
+          >
+            Try again
+          </Button>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={() => setConfirmStart(true)} disabled={busy}>
-            Start over ({costHint})
+            Tailor again
           </Button>
           {history.length > 0 && (
             <Button variant="secondary" onClick={undo} disabled={busy}>
@@ -1325,7 +1335,7 @@ export default function TailorPanel({
           {storeState === "saving" ? "Saving to this job..." : storeState === "saved" ? "Saved to this job" : ""}
           {blocked > 0 ? `${storeState !== "idle" ? ". " : ""}${blocked} struck line${blocked === 1 ? " is" : "s are"} left out of the download` : ""}
         </span>
-        <Button onClick={download} disabled={busy}>
+        <Button variant={queued.size + placements.length > 0 ? "secondary" : "primary"} onClick={download} disabled={busy}>
           {phase === "saving" ? "Saving..." : "Download .docx"}
         </Button>
       </div>
@@ -1352,9 +1362,9 @@ export default function TailorPanel({
 
       {confirmStart && (
         <ConfirmDialog
-          title="Start over?"
-          message={`This writes a new resume for this job from scratch (${TAILOR_COST_HINT}). The one you have now stays one Undo away and under Earlier versions.`}
-          confirmLabel="Start over"
+          title="Tailor again?"
+          message={`This writes a new resume for this job from scratch (${TAILOR_COST_HINT}, about a minute). The one you have now stays one Undo away and under Earlier versions.`}
+          confirmLabel="Tailor again"
           onCancel={() => setConfirmStart(false)}
           onConfirm={() => {
             setConfirmStart(false);

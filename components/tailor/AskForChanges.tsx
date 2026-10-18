@@ -12,13 +12,11 @@ export default function AskForChanges({
   onSend,
   busy,
   disabled,
-  cost,
   changes,
 }: {
   onSend: (note: string) => void;
   busy: boolean;
   disabled?: boolean;
-  cost: string;
   /** What the last revision did, one line per request. */
   changes: string[];
 }) {
@@ -59,9 +57,9 @@ export default function AskForChanges({
         className={`${inputClass} mt-3 text-sm sm:text-sm`}
       />
       <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-        <p className="text-xs text-muted">Runs right away. Click any line on the page for changes to just that line.</p>
-        <Button onClick={() => send(text)} disabled={disabled || !text.trim()}>
-          {busy ? "Updating..." : `Send (${cost})`}
+        <p className="text-xs text-muted">Updates right away. Click any line on the page for changes to just that line.</p>
+        <Button variant="secondary" onClick={() => send(text)} disabled={disabled || !text.trim()}>
+          {busy ? "Updating..." : "Update resume"}
         </Button>
       </div>
       {changes.length > 0 && (

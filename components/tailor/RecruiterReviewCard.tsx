@@ -180,7 +180,7 @@ function ItemRow({
                 <>
                   <span className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-2.5 py-1 text-xs font-medium text-accent-deep">
                     <CheckIcon />
-                    Queued
+                    In the update
                   </span>
                   <button type="button" onClick={onUnqueue} disabled={disabled} className="text-xs text-muted hover:text-ink">
                     Undo
@@ -189,7 +189,7 @@ function ItemRow({
               ) : (
                 <>
                   <Button size="sm" variant="tinted" onClick={onQueue} disabled={disabled}>
-                    Apply
+                    Add to update
                   </Button>
                   <button type="button" onClick={onIgnore} disabled={disabled} className="text-xs text-muted hover:text-ink">
                     Ignore
@@ -266,7 +266,7 @@ function ItemRow({
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <span className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-2.5 py-1 text-xs font-medium text-accent-deep">
                   <CheckIcon />
-                  Your answer is queued
+                  Your answer is in the update
                 </span>
                 <button type="button" onClick={onUnqueue} disabled={disabled} className="text-xs text-muted hover:text-ink">
                   Undo
@@ -358,8 +358,6 @@ export default function RecruiterReviewCard({
   onReview,
   reviewing,
   reviewed,
-  reviewCost,
-  applyCost,
   disabled,
 }: {
   company: string;
@@ -385,8 +383,6 @@ export default function RecruiterReviewCard({
   onReview: () => void;
   reviewing: boolean;
   reviewed: boolean;
-  reviewCost: string;
-  applyCost: string;
   disabled?: boolean;
 }) {
   const pending = queuedIds.size + pendingPlacements.length;
@@ -401,8 +397,8 @@ export default function RecruiterReviewCard({
           </h3>
           <p className="mt-0.5 text-[13px] text-muted">What {who} would change so this page reads like the ideal candidate. Nothing is written without your OK.</p>
         </div>
-        <Button variant={reviewed ? "secondary" : "primary"} size="sm" onClick={onReview} disabled={disabled || reviewing}>
-          {reviewing ? "Reviewing..." : reviewed ? `Review again (${reviewCost})` : `Review as ${who} (${reviewCost})`}
+        <Button variant="secondary" size="sm" onClick={onReview} disabled={disabled || reviewing}>
+          {reviewing ? "Reviewing..." : reviewed ? "Review again" : `Review as ${who}`}
         </Button>
       </div>
 
@@ -469,10 +465,10 @@ export default function RecruiterReviewCard({
           )}
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-[13px]">
-              {pending} change{pending === 1 ? "" : "s"} ready. They&apos;re made in one update and marked in yellow.
+              {pending} change{pending === 1 ? "" : "s"} ready. They are made in one update and marked in yellow.
             </p>
             <Button onClick={onApply} disabled={disabled}>
-              Apply {pending} change{pending === 1 ? "" : "s"} ({applyCost})
+              Update resume with {pending} change{pending === 1 ? "" : "s"}
             </Button>
           </div>
         </div>

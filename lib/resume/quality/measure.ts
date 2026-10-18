@@ -3,14 +3,16 @@
 // to tell a one-liner from a two-liner, and a two-liner whose second line is nearly empty.
 //
 // The estimate:
-// - Bullets are 9 pt Times New Roman (lib/resume/engine/layout.ts SIZE.bullet).
-// - The text column is the page width minus margins (8.5in - 2 x 0.4in = 7.7in) minus the bullet
-//   list's left indent (270 twips = 0.1875in, render.ts), so 7.5125in = 540.9pt = 60.1 em.
+// - Bullets are 10 pt Times New Roman (lib/resume/engine/layout.ts SIZE.bullet).
+// - The text column is the page width minus margins (8.5in - 2 x 0.45in = 7.6in) minus the bullet
+//   list's left indent (270 twips = 0.1875in, render.ts), so 7.4125in = 533.7pt = 53.4 em.
 // - Each character's advance width comes from Times New Roman's published metrics (in 1/1000 em,
 //   the regular weight). Bold Times is a few percent wider, so bold text counts 6% wider.
 // - Wrapping is greedy by word, as Word does for left-aligned text.
-// With these numbers an average line holds about 125 to 140 characters of typical bullet text
+// With these numbers an average line holds about 105 to 120 characters of typical bullet text
 // (fewer with many capitals or bold spans).
+
+import { DEFAULT_LAYOUT, PAGE, TWIPS_PER_IN } from "../engine/layout";
 
 /** Advance widths for Times New Roman Regular, 1/1000 em. Unlisted characters count as 500. */
 const WIDTH: Record<string, number> = {
@@ -25,11 +27,11 @@ const WIDTH: Record<string, number> = {
 const BOLD_FACTOR = 1.06;
 
 /**
- * The bullet text column, in 1/1000 em at the bullet's size: (8.5 - 0.8 - 0.1875) in x 72 / 9 pt,
+ * The bullet text column, in 1/1000 em at the bullet's size: (page width - side margins - 0.1875) in x 72 / body pt, from layout.ts,
  * times a 0.97 safety factor (the same margin the preview's one-page check uses, fit.ts) so the
  * estimate errs toward wrapping slightly early.
  */
-export const LINE_UNITS = ((8.5 - 2 * 0.4 - 270 / 1440) * 72 / 9) * 1000 * 0.97;
+export const LINE_UNITS = ((PAGE.widthIn - 2 * PAGE.marginXIn - 270 / TWIPS_PER_IN) * 72 / DEFAULT_LAYOUT.body) * 1000 * 0.97;
 
 export interface Segment {
   text: string;
