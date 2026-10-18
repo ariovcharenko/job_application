@@ -14,9 +14,8 @@ import {
   type BulkPlan,
   type BulkProgress,
 } from "@/lib/intake/bulk";
-import { verdictFor, VERDICT_TEXT } from "@/lib/intake/decision";
 import { saveAnalyzedJob } from "@/lib/intake/save";
-import { readBreakdown } from "@/lib/intake/stored";
+import { headlineOf } from "@/lib/intake/stored";
 import { todayISO } from "@/lib/tracker/stage";
 import type { Application } from "@/lib/types";
 import AIErrorNotice from "@/components/resumes/AIErrorNotice";
@@ -33,12 +32,9 @@ const host = (url: string) => {
 };
 
 function jobLine(app: Application) {
-  const b = readBreakdown(app);
-  const pct = b?.skills?.percent ?? null;
-  const verdict = b?.decision ? VERDICT_TEXT[verdictFor(b.decision, pct)].label : null;
   return {
     title: `${app.role || "Job"}${app.company ? ` at ${app.company}` : ""}`,
-    detail: verdict ? `${pct === null ? "" : `${pct}% · `}${verdict}` : "",
+    detail: headlineOf(app)?.pill ?? "",
   };
 }
 

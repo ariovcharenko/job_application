@@ -56,11 +56,12 @@ const ALIASES: Record<Field, string[]> = {
   fitScore: ["fit score", "score"],
 };
 
-// Columns computed on export ("Match %", "Verdict": what the app shows for a checked job). On
+// Columns computed on export ("Skills match %", "Verdict": what the app shows for a checked job; the
+// skills number alone overstates a job that fails a must-have, so Verdict always sits next to it). On
 // import they are recognized and skipped, so a re-imported export doesn't copy them into Notes.
 // "Fit Score" (the older hidden weighted score) is no longer exported but still imported.
 type Computed = "matchPercent" | "verdict";
-const COMPUTED_HEADERS: ReadonlySet<string> = new Set(["match", "match percent", "verdict"]);
+const COMPUTED_HEADERS: ReadonlySet<string> = new Set(["match", "match percent", "skills match", "skills match percent", "verdict"]);
 
 /** "95" and "Apply" for a checked job; empty when it wasn't checked; "Incomplete" for a page-shell check. */
 export function exportedMatch(app: Application): Record<Computed, string> {
@@ -90,7 +91,7 @@ const EXPORT_COLUMNS: [Field | Computed, string][] = [
   ["source", "Source"],
   ["visa", "Visa Signal"],
   ["followUpDate", "Follow-up Date"],
-  ["matchPercent", "Match %"],
+  ["matchPercent", "Skills match %"],
   ["verdict", "Verdict"],
   ["notes", "Notes"],
 ];

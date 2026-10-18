@@ -128,12 +128,13 @@ function UpNextCard({
 }: {
   app: Application;
   badge: string;
-  tone: "blue" | "amber";
+  tone: "blue" | "neutral" | "amber";
   onOpen: () => void;
   onDone?: () => void;
   onSnooze?: () => void;
 }) {
-  const openLabel = tone === "blue" ? (app.tailoredResumeId !== undefined ? "Open" : "Open and tailor") : "Open";
+  const openLabel = tone !== "amber" ? (app.tailoredResumeId !== undefined ? "Open" : "Open and tailor") : "Open";
+  const badgeTone = tone === "blue" ? "bg-accent-soft text-accent-deep" : tone === "neutral" ? "bg-black/[0.05] text-muted" : "bg-warn-soft text-warn";
   const smallAction =
     "relative z-10 rounded-full bg-black/[0.05] px-3 py-1 text-xs font-medium text-ink transition hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
   return (
@@ -141,7 +142,7 @@ function UpNextCard({
       <div className="flex items-center justify-between">
         <CompanyMark name={app.company} size="md" />
         <span
-          className={`rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums ${tone === "blue" ? "bg-accent-soft text-accent-deep" : "bg-warn-soft text-warn"}`}
+          className={`rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums ${badgeTone}`}
         >
           {badge}
         </span>
@@ -473,8 +474,15 @@ export default function TrackerView() {
                     onSnooze={() => void saveApplicationChanges(snoozeFollowUp(a), a)}
                   />
                 ))}
-                {upNext.ready.slice(0, 8).map(({ app, percent }) => (
-                  <UpNextCard key={`r-${app.id}`} app={app} badge={percent === null ? "Ready" : `${percent}% match`} tone="blue" onOpen={() => setEditing(app)} />
+                {upNext.ready.slice(0, 8).map(({ app, percent, headline }) => (
+                  <UpNextCard
+                    key={`r-${app.id}`}
+                    app={app}
+                    // Purple only when every must-have is confirmed; an unclear one is shown in gray.
+                    badge={percent === null ? "Ready" : headline.strong ? `${percent}% match` : headline.pill}
+                    tone={headline.strong ? "blue" : "neutral"}
+                    onOpen={() => setEditing(app)}
+                  />
                 ))}
               </div>
             </section>

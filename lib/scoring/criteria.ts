@@ -23,6 +23,9 @@ export interface Criterion {
   label: string;
   status: CriterionStatus;
   detail: string;
+  /** The posting's own words behind this row, when the extraction kept them. Also inside detail
+   * (older rows have only that); kept apart so the same quote is shown once across rows. */
+  quote?: string;
 }
 
 /** Minimum share of the posting's required skills she must have for "skills" to pass. */
@@ -36,21 +39,22 @@ function sponsorship(s: JobSignals, c: CandidateFacts): Criterion[] {
   if (c.sponsorship === "no") return [];
   const label = "Visa sponsorship";
   const quote = s.visaEvidence ? ` "${s.visaEvidence}"` : "";
+  const q = s.visaEvidence ? { quote: s.visaEvidence } : {};
   const rows: Criterion[] = [];
   if (c.sponsorship === "unknown") {
     const says =
       s.visaSignal === "no-sponsorship" ? `The posting rules out sponsorship.${quote} ` : s.visaSignal === "sponsors" ? `The posting sponsors work visas.${quote} ` : "";
-    rows.push({ key: "sponsorship", label, status: "unknown", detail: `${says}${ANSWER_SPONSORSHIP}` });
+    rows.push({ key: "sponsorship", label, status: "unknown", detail: `${says}${ANSWER_SPONSORSHIP}`, ...(says ? q : {}) });
   } else {
     switch (s.visaSignal) {
       case "sponsors":
-        rows.push({ key: "sponsorship", label, status: "pass", detail: `Sponsors work visas.${quote}` });
+        rows.push({ key: "sponsorship", label, status: "pass", detail: `Sponsors work visas.${quote}`, ...q });
         break;
       case "opt-friendly":
-        rows.push({ key: "sponsorship", label, status: "pass", detail: `Welcomes OPT/CPT students.${quote}` });
+        rows.push({ key: "sponsorship", label, status: "pass", detail: `Welcomes OPT/CPT students.${quote}`, ...q });
         break;
       case "no-sponsorship":
-        rows.push({ key: "sponsorship", label, status: "fail", detail: `Rules out sponsorship.${quote}` });
+        rows.push({ key: "sponsorship", label, status: "fail", detail: `Rules out sponsorship.${quote}`, ...q });
         break;
       default:
         rows.push({ key: "sponsorship", label, status: "unknown", detail: "The posting doesn't say. Not counted as a yes." });
@@ -59,8 +63,9 @@ function sponsorship(s: JobSignals, c: CandidateFacts): Criterion[] {
   if (c.onStudentVisa) {
     const optQuote = s.optEvidence ? ` "${s.optEvidence}"` : "";
     const optLabel = "OPT / CPT";
-    if (s.optSignal === "welcomes-opt") rows.push({ key: "opt", label: optLabel, status: "pass", detail: `Explicitly welcomes OPT/CPT.${optQuote}` });
-    else if (s.optSignal === "excludes-opt") rows.push({ key: "opt", label: optLabel, status: "fail", detail: `Rules out OPT or future sponsorship.${optQuote}` });
+    const oq = s.optEvidence ? { quote: s.optEvidence } : {};
+    if (s.optSignal === "welcomes-opt") rows.push({ key: "opt", label: optLabel, status: "pass", detail: `Explicitly welcomes OPT/CPT.${optQuote}`, ...oq });
+    else if (s.optSignal === "excludes-opt") rows.push({ key: "opt", label: optLabel, status: "fail", detail: `Rules out OPT or future sponsorship.${optQuote}`, ...oq });
     else rows.push({ key: "opt", label: optLabel, status: "unknown", detail: "The posting doesn't mention OPT. Not counted as a yes." });
   }
   return rows;

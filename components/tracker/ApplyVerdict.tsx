@@ -1,4 +1,17 @@
-import { MUST_HAVE_FILTERS, verdictFor, VERDICT_TEXT, type ApplyDecision, type FilterResult, type SkillsMatch, type Verdict } from "@/lib/intake/decision";
+"use client";
+
+import { useState } from "react";
+import {
+  filterExplanation,
+  headlineFor,
+  MUST_HAVE_FILTERS,
+  verdictFor,
+  VERDICT_TEXT,
+  type ApplyDecision,
+  type FilterResult,
+  type SkillsMatch,
+  type Verdict,
+} from "@/lib/intake/decision";
 import { outlinedClass } from "@/components/ui";
 import { PostedPill } from "./StageBadge";
 
@@ -42,7 +55,7 @@ function StatusIcon({ status }: { status: FilterResult["status"] }) {
 function Pill({ f }: { f: FilterResult }) {
   return (
     <li
-      title={`${f.label}: ${f.details.join(" ")}`}
+      title={`${f.label}: ${f.status === "pass" ? f.details.join(" ") : filterExplanation(f).summary}`}
       className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[13px] ${
         f.status === "unknown" ? "border-dashed border-black/20 text-muted" : "border-black/[0.1] text-ink"
       } ${f.status === "fail" ? "border-bad/30" : ""}`}
@@ -53,20 +66,51 @@ function Pill({ f }: { f: FilterResult }) {
   );
 }
 
-/** The reason behind each failed or unclear must-have, on screen rather than only in a tooltip. */
+/** Longer than this, a posting quote is cut with a "Show more". */
+const QUOTE_PREVIEW = 140;
+
+function PostingQuote({ quote }: { quote: string }) {
+  const [open, setOpen] = useState(false);
+  const long = quote.length > QUOTE_PREVIEW;
+  const shown = long && !open ? `${quote.slice(0, QUOTE_PREVIEW).replace(/\s+\S*$/, "")}…` : quote;
+  return (
+    <p className="mt-0.5 text-xs leading-relaxed text-muted">
+      From the posting: <q className="italic">{shown}</q>
+      {long && (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="ml-1.5 rounded font-medium text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+        >
+          {open ? "Show less" : "Show more"}
+        </button>
+      )}
+    </p>
+  );
+}
+
+/**
+ * The reason behind each failed or unclear must-have, on screen rather than only in a tooltip:
+ * one plain line each, then the posting's own words once.
+ */
 function FilterReasons({ filters }: { filters: FilterResult[] }) {
-  const shown = filters.filter((f) => f.status !== "pass" && f.details.length > 0);
+  const shown = filters.filter((f) => f.status !== "pass").map((f) => ({ f, ...filterExplanation(f) })).filter((x) => x.summary || x.quotes.length);
   if (shown.length === 0) return null;
   return (
-    <ul className="mt-3 grid gap-1">
-      {shown.map((f) => (
-        <li key={f.key} className="flex items-start gap-1.5 text-xs leading-relaxed text-muted">
-          <span className="mt-[1px] shrink-0">
+    <ul className="mt-4 grid gap-2.5">
+      {shown.map(({ f, summary, quotes }) => (
+        <li key={f.key} className="flex items-start gap-2 text-left">
+          <span className="mt-[3px] shrink-0">
             <StatusIcon status={f.status} />
           </span>
-          <span>
-            <span className="font-medium text-ink">{shortLabel(f)}:</span> {f.details.join(" ")}
-          </span>
+          <div className="min-w-0">
+            <p className="text-[13px] leading-relaxed text-ink">
+              <span className="font-medium">{shortLabel(f)}:</span> {summary}
+            </p>
+            {quotes.map((q) => (
+              <PostingQuote key={q} quote={q} />
+            ))}
+          </div>
         </li>
       ))}
     </ul>
@@ -120,35 +164,43 @@ export default function ApplyVerdict({
 }) {
   const pct = skills?.percent ?? null;
   const verdict = verdictFor(decision, pct);
+  const headline = headlineFor(decision, skills);
   const unclear = decision.filters.filter((f) => f.status === "unknown").length;
-  const basisLabel = skills?.basis === "keywords" ? "Keyword match" : "Skills match";
   const mentioned = skills?.basis === "mentioned";
+  // Short, beside the verdict. Why a must-have failed or is unclear is listed once, under the pills.
   const reason =
     verdict === "dont-apply"
-      ? decision.failed.map((f) => f.details.join(" ")).join(" ")
+      ? ""
       : pct === null
         ? skills
           ? "Nothing rules you out, but the saved text lists no skills to compare. Paste the full job description to get a match."
           : "Nothing rules you out. Add your experience on the Resumes page to see how well you match."
         : unclear > 0
-          ? `Nothing rules you out, but ${unclear} of your must-haves ${unclear === 1 ? "is" : "are"} unclear.`
+          ? "Nothing fails, but check the unclear must-haves before applying."
           : VERDICT_TEXT[verdict].detail;
+  const numberColor = headline.strong ? "text-accent" : pct === null ? "text-black/20" : "text-ink";
 
   return (
     <section className={outlinedClass}>
-      <div className="flex items-start justify-between gap-6 p-6">
-        <div>
-          <p className="text-[13px] font-medium text-muted">{basisLabel}</p>
-          <p className={`mt-1 text-[56px] font-semibold leading-none tracking-display tabular-nums ${pct === null ? "text-black/20" : "text-accent"}`}>
-            {pct === null ? "–" : `${pct}%`}
-          </p>
+      <div className="flex flex-col gap-4 p-6 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+        <div className="min-w-0">
+          {headline.kind === "not-a-fit" ? (
+            <p className="text-[34px] font-semibold leading-none tracking-display text-ink">{headline.label}</p>
+          ) : (
+            <>
+              <p className="text-[13px] font-medium text-muted">{skills?.basis === "keywords" ? "Keyword match" : headline.label}</p>
+              <p className={`mt-1 text-[56px] font-semibold leading-none tracking-display tabular-nums ${numberColor}`}>{pct === null ? "–" : `${pct}%`}</p>
+            </>
+          )}
+          {headline.summary && <p className="mt-2 text-[13px] leading-relaxed text-ink">{headline.summary}</p>}
+          {headline.aside && <p className="mt-1 text-xs leading-relaxed text-muted">{headline.aside}</p>}
         </div>
-        <div className="max-w-[60%] text-right">
+        <div className="sm:max-w-[45%] sm:text-right">
           <p className="inline-flex items-center gap-2 text-[17px] font-semibold tracking-display">
             <span className={`h-2 w-2 rounded-full ${VERDICT_DOT[verdict]}`} aria-hidden="true" />
             {VERDICT_TEXT[verdict].label}
           </p>
-          <p className="mt-1 text-[13px] leading-relaxed text-muted">{reason}</p>
+          {reason && <p className="mt-1 text-[13px] leading-relaxed text-muted">{reason}</p>}
           {note && <p className="mt-1 text-xs leading-relaxed text-muted">{note}</p>}
           {posted && (
             <p className="mt-2">

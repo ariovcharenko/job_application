@@ -33,6 +33,11 @@ export interface FilterResult {
   /** "fail" if any of its checks failed, "unknown" if any is unclear, otherwise "pass". */
   status: Criterion["status"];
   details: string[];
+  /** One plain line for a failed or unclear filter, without the posting's quotes. Missing on
+   * results saved before it existed: filterExplanation derives it from details then. */
+  summary?: string;
+  /** The posting's own words behind it, each shown once (sponsorship and OPT often quote the same sentence). */
+  quotes?: string[];
 }
 
 export interface ApplyDecision {
@@ -56,11 +61,107 @@ export function decideApply(rawCriteria: Criterion[], mustHaves: MustHaves): App
         : "pass";
     // Show why it failed first; for a pass or unclear filter show every check's detail.
     const shown = status === "fail" ? checks.filter((c) => c.status === "fail") : checks;
-    return { key: f.key, label: f.label, short: f.short, status, details: shown.map((c) => c.detail) };
+    const result: FilterResult = { key: f.key, label: f.label, short: f.short, status, details: shown.map((c) => c.detail) };
+    if (status === "pass") return result;
+    // The reasons line covers only the checks that make it fail or unclear.
+    const why = checks.filter((c) => c.status === status);
+    return { ...result, summary: summarizeChecks(why), quotes: uniqueQuotes(why.flatMap((c) => (c.quote ? [c.quote] : quotesIn(c.detail)))) };
   });
   const failed = filters.filter((f) => f.status === "fail");
   return { filters, failed, unclear: filters.filter((f) => f.status === "unknown"), canApply: failed.length === 0 };
 }
+
+// ---- Reasons: one plain line per failed or unclear must-have, the posting's quote once ----
+
+/** Plain words for a failed work-authorization row: "Won't sponsor visas and excludes OPT." */
+const FAIL_PHRASE: Partial<Record<Criterion["key"], string>> = {
+  sponsorship: "won't sponsor visas",
+  opt: "excludes OPT",
+  citizenship: "requires US citizenship",
+};
+
+/** "a", "a and b", "a, b and c". */
+export function joinAnd(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+const capitalize = (t: string) => (t ? t[0].toUpperCase() + t.slice(1) : t);
+
+/** Quoted passages ("...") in a detail line. Older saved rows carry the posting's words only there. */
+export function quotesIn(text: string): string[] {
+  return [...text.matchAll(/"([^"]{3,})"/g)].map((m) => m[1].trim());
+}
+
+/** A detail line without its quoted passages. */
+export function withoutQuotes(text: string): string {
+  return text
+    .replace(/\s*"[^"]{3,}"/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([.,])/g, "$1")
+    .trim();
+}
+
+const quoteKey = (q: string) => q.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+/** Distinct quotes in order. Identical or near-identical ones (one inside the other) collapse to the longer. */
+export function uniqueQuotes(quotes: string[]): string[] {
+  const out: string[] = [];
+  for (const raw of quotes) {
+    const q = raw.trim();
+    const k = quoteKey(q);
+    if (!k) continue;
+    const i = out.findIndex((o) => {
+      const ok = quoteKey(o);
+      return ok === k || ok.includes(k) || k.includes(ok);
+    });
+    if (i === -1) out.push(q);
+    else if (k.length > quoteKey(out[i]).length) out[i] = q;
+  }
+  return out;
+}
+
+/** Distinct sentences, in order. */
+function uniqueSentences(lines: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const line of lines) {
+    for (const s of line.match(/[^.!?]+[.!?]*/g) ?? []) {
+      const t = s.trim();
+      const k = t.toLowerCase();
+      if (t && !seen.has(k)) {
+        seen.add(k);
+        out.push(t);
+      }
+    }
+  }
+  return out;
+}
+
+/** One line for the checks behind a failed or unclear must-have. */
+function summarizeChecks(checks: Criterion[]): string {
+  if (checks.length && checks.every((c) => c.status === "fail" && FAIL_PHRASE[c.key])) {
+    return `${capitalize(joinAnd([...new Set(checks.map((c) => FAIL_PHRASE[c.key]!))]))}.`;
+  }
+  return uniqueSentences(checks.map((c) => withoutQuotes(c.detail))).join(" ");
+}
+
+/** What to show for a failed or unclear must-have: a plain line, then the posting's words once. */
+export function filterExplanation(f: FilterResult): { summary: string; quotes: string[] } {
+  if (f.summary !== undefined) return { summary: f.summary, quotes: f.quotes ?? [] };
+  const sentences = uniqueSentences(f.details.map(withoutQuotes));
+  // Older saved work-auth failures: the same plain words a new check gets.
+  const keys = f.status === "fail" ? sentences.map((s) => LEGACY_FAIL_DETAIL[s]) : [];
+  const summary = keys.length && keys.every(Boolean) ? `${capitalize(joinAnd(keys.map((k) => FAIL_PHRASE[k!]!)))}.` : sentences.join(" ");
+  return { summary, quotes: uniqueQuotes(f.details.flatMap(quotesIn)) };
+}
+
+/** The fail details criteria.ts writes for work authorization, without their quotes. */
+const LEGACY_FAIL_DETAIL: Record<string, Criterion["key"]> = {
+  "Rules out sponsorship.": "sponsorship",
+  "Rules out OPT or future sponsorship.": "opt",
+  "Requires US citizenship.": "citizenship",
+};
 
 export interface SkillsMatch {
   /** 0-100, or null when there's nothing to compare. */
@@ -110,4 +211,69 @@ export function verdictFor(decision: Pick<ApplyDecision, "canApply">, percent: n
   if (!decision.canApply) return "dont-apply";
   if (percent === null) return "unknown-match";
   return percent < LOW_MATCH_BELOW ? "low-match" : "apply";
+}
+
+// ---- The headline number: "how good a fit is this for me", not only skills ----
+
+/**
+ * "match": every must-have passes and the match isn't weak (the only purple state).
+ * "check-first": nothing fails, but a must-have isn't stated. "weak": nothing fails, few skills.
+ * "not-a-fit": a must-have fails, so no big percentage. "unknown": no skills number yet.
+ */
+export type HeadlineKind = "match" | "check-first" | "weak" | "not-a-fit" | "unknown";
+
+export interface Headline {
+  kind: HeadlineKind;
+  /** The skills percentage, when there is one. For "not-a-fit" it's only a small aside. */
+  percent: number | null;
+  /** "Match" or "Not a fit". */
+  label: string;
+  /** One line under the number ("Work auth and Location rule this out.", "Check first: Work auth."). Empty when none. */
+  summary: string;
+  /** A small muted aside: the skills overlap of a job that fails a must-have. */
+  aside?: string;
+  /** Short text for a pill in lists ("95% · Apply", "Not a fit"). */
+  pill: string;
+  /** Purple only for "match": good and confirmed. */
+  strong: boolean;
+}
+
+const filterShort = (f: Pick<FilterResult, "key" | "short" | "label">) => f.short ?? MUST_HAVE_FILTERS.find((m) => m.key === f.key)?.short ?? f.label;
+
+/**
+ * The one rule for showing a job's number, used by every screen and list. Pure code over the
+ * stored decision and skills match (decision #7), so it follows the must-haves for free.
+ */
+export function headlineFor(
+  decision: Pick<ApplyDecision, "filters" | "canApply"> & Partial<Pick<ApplyDecision, "failed" | "unclear">>,
+  skills: Pick<SkillsMatch, "percent"> | null | undefined,
+): Headline {
+  const percent = skills?.percent ?? null;
+  const failed = decision.failed ?? (decision.filters ?? []).filter((f) => f.status === "fail");
+  if (!decision.canApply || failed.length > 0) {
+    const names = joinAnd(failed.map(filterShort));
+    return {
+      kind: "not-a-fit",
+      percent,
+      label: "Not a fit",
+      summary: names ? `${names} ${failed.length === 1 ? "rules" : "rule"} this out.` : VERDICT_TEXT["dont-apply"].detail,
+      aside: percent === null ? undefined : `Skills overlap ${percent}%. Doesn't count while a must-have fails.`,
+      pill: "Not a fit",
+      strong: false,
+    };
+  }
+  const unclear = decision.unclear ?? (decision.filters ?? []).filter((f) => f.status === "unknown");
+  const check = unclear.length ? `Check first: ${joinAnd(unclear.map(filterShort))}.` : "";
+  if (percent === null) return { kind: "unknown", percent, label: "Match", summary: check, pill: VERDICT_TEXT["unknown-match"].label, strong: false };
+  if (percent < LOW_MATCH_BELOW) return { kind: "weak", percent, label: "Match", summary: check, pill: `${percent}% · ${VERDICT_TEXT["low-match"].label}`, strong: false };
+  if (unclear.length) return { kind: "check-first", percent, label: "Match", summary: check, pill: `${percent}% · Check first`, strong: false };
+  return { kind: "match", percent, label: "Match", summary: "", pill: `${percent}% · ${VERDICT_TEXT.apply.label}`, strong: true };
+}
+
+/** Order by headline: jobs that fail a must-have last, then best match first, no number after numbers. */
+export function compareHeadlines(a: Headline, b: Headline): number {
+  const failA = a.kind === "not-a-fit" ? 1 : 0;
+  const failB = b.kind === "not-a-fit" ? 1 : 0;
+  if (failA !== failB) return failA - failB;
+  return (b.percent ?? -1) - (a.percent ?? -1);
 }

@@ -10,8 +10,7 @@ import { loadGeo, type GeoIndex } from "@/lib/geo/index";
 import { analyzeJob, assessJob, looksLikeUrl, readJobPosting, toStoredBreakdown, type JobAnalysis } from "@/lib/intake/analyze";
 import { findExistingJob } from "@/lib/intake/dedupe";
 import { saveAnalyzedJob, type SavedJob } from "@/lib/intake/save";
-import { verdictFor, VERDICT_TEXT } from "@/lib/intake/decision";
-import { readBreakdown } from "@/lib/intake/stored";
+import { headlineOf } from "@/lib/intake/stored";
 import { postedAge, postedLabel } from "@/lib/tracker/postedAge";
 import { saveApplication } from "@/lib/tracker/repo";
 import { skipJob, trackJob } from "@/lib/tracker/triage";
@@ -43,9 +42,7 @@ function AlreadyChecked({
   /** The second button: re-check (before spending) or keep this new check (after it was paid for). */
   againLabel?: string;
 }) {
-  const b = readBreakdown(app);
-  const pct = b?.skills?.percent ?? null;
-  const verdict = b?.decision ? VERDICT_TEXT[verdictFor(b.decision, pct)].label : null;
+  const verdict = headlineOf(app)?.pill ?? null;
   const when = new Date(app.updatedAt || app.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   const where = app.triage === "skipped" ? "marked as not applying" : app.triage === "checked" ? "under Checked jobs" : `in your applications (${app.stage})`;
   return (
@@ -54,7 +51,7 @@ function AlreadyChecked({
       <p className="mt-1 text-sm text-muted">
         {app.role || "This job"}
         {app.company ? ` at ${app.company}` : ""}, on {when}
-        {verdict ? `: ${pct === null ? "" : `${pct}% · `}${verdict}` : ""}. It&apos;s {where}.
+        {verdict ? `: ${verdict}` : ""}. It&apos;s {where}.
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
         {onOpen && <Button onClick={() => onOpen(app)}>Open it</Button>}

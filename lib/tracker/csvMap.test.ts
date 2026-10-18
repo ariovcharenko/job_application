@@ -130,7 +130,7 @@ describe("exportCsv", () => {
     expect(back.fitScore).toBeUndefined();
   });
 
-  it("exports the match % and verdict the app shows, not the hidden weighted score", () => {
+  it("exports the skills match % next to the verdict the app shows, not the hidden weighted score", () => {
     const decision = { canApply: true, failed: [], unclear: [] };
     const posting = `About the role. Responsibilities: build features. Qualifications: a bachelor's degree and experience with React skills. ${"word ".repeat(130)}`;
     const checked = { ...blankApplication(1), company: "Brightloop", role: "SWE", jdText: posting, fitScore: 41, fitBreakdown: JSON.stringify({ decision, skills: { percent: 95 } }) };
@@ -140,11 +140,11 @@ describe("exportCsv", () => {
     const manual = { ...blankApplication(1), company: "Lakeside", role: "Analyst" };
     const rows = parseCsv(exportCsv([checked, weak, ruledOut, shell, manual]));
     const header = rows[0];
-    expect(header).toContain("Match %");
+    expect(header).toContain("Skills match %");
     expect(header).toContain("Verdict");
     expect(header).not.toContain("Fit Score");
     const col = (name: string) => rows.slice(1).map((r) => r[header.indexOf(name)]);
-    expect(col("Match %")).toEqual(["95", "20", "90", "", ""]);
+    expect(col("Skills match %")).toEqual(["95", "20", "90", "", ""]);
     expect(col("Verdict")).toEqual(["Apply", "Weak match", "Don't apply", "Incomplete", ""]);
   });
 
@@ -153,6 +153,15 @@ describe("exportCsv", () => {
     expect(r.applications[0].fitScore).toBe(77);
     expect(r.applications[0].notes).toBe("");
     expect(r.unmapped).toEqual([]);
+    const now = importCsv("Company,Job Position,Skills match %,Verdict\nAcme,SWE,95,Don't apply\n");
+    expect(now.applications[0].notes).toBe("");
+    expect(now.unmapped).toEqual([]);
+  });
+
+  it("names the number a skills match and puts the verdict right after it", () => {
+    const header = parseCsv(exportCsv([blankApplication(1)]))[0];
+    expect(header).not.toContain("Match %");
+    expect(header.indexOf("Verdict")).toBe(header.indexOf("Skills match %") + 1);
   });
 });
 
