@@ -251,6 +251,32 @@ describe("readFetchResult", () => {
     expect(() => readFetchResult(err, "u")).toThrow(/couldn't be opened/);
     expect(() => readFetchResult(msg([{ type: "text", text: "DONE" }]), "u")).toThrow(AIError);
   });
+
+  it("marks momentary failures retryable and permanent ones not", async () => {
+    const { readFetchResult } = await import("./anthropic");
+    const { isTransientFetchError } = await import("./provider");
+    const code = (c: string) => msg([{ type: "web_fetch_tool_result", tool_use_id: "t", content: { type: "web_fetch_tool_result_error", error_code: c } }]);
+    const caught = (m: Anthropic.Message) => {
+      try {
+        readFetchResult(m, "u");
+      } catch (e) {
+        return e;
+      }
+    };
+    expect(isTransientFetchError(caught(code("too_many_requests")))).toBe(true);
+    expect(isTransientFetchError(caught(code("url_not_accessible")))).toBe(true);
+    expect(isTransientFetchError(caught(msg([{ type: "text", text: "DONE" }])))).toBe(true);
+    expect(isTransientFetchError(caught(code("url_not_allowed")))).toBe(false);
+    expect(isTransientFetchError(caught(code("unsupported_content_type")))).toBe(false);
+    expect(isTransientFetchError(caught(page("Loading...")))).toBe(false);
+  });
+
+  it("explains a PDF posting", async () => {
+    const { readFetchResult } = await import("./anthropic");
+    const source = { type: "base64", media_type: "application/pdf", data: "AAAA" };
+    const pdf = msg([{ type: "web_fetch_tool_result", tool_use_id: "t", content: { type: "web_fetch_result", url: "u", retrieved_at: null, content: { type: "document", title: "x", citations: null, source } } }]);
+    expect(() => readFetchResult(pdf, "u")).toThrow(/PDF.*Paste the job description/);
+  });
 });
 
 describe("actionable error kinds", () => {

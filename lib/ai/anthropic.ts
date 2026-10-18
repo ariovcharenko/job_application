@@ -204,14 +204,18 @@ const FETCH_ERRORS: Record<string, string> = {
   content_too_large: "That page is too large to read.",
 };
 
+const NO_TOOL_RESULT = "Couldn't read that page.";
+
 /** Pulls the fetched page's text out of the response. Exported for tests. */
 export function readFetchResult(res: Anthropic.Message, url: string): FetchedPage {
   const paste = " Paste the job description instead.";
   const block = res.content.find((b): b is Anthropic.Messages.WebFetchToolResultBlock => b.type === "web_fetch_tool_result");
-  if (!block) throw new AIError("fetch_failed", `Couldn't read that page.${paste}`);
+  if (!block) throw new AIError("fetch_failed", `${NO_TOOL_RESULT}${paste}`, undefined, true);
   if (block.content.type === "web_fetch_tool_result_error") {
-    const msg = FETCH_ERRORS[block.content.error_code] ?? "Couldn't read that page.";
-    throw new AIError("fetch_failed", `${msg}${paste}`);
+    const code = block.content.error_code;
+    const msg = FETCH_ERRORS[code] ?? "Couldn't read that page.";
+    // Rate limits and "couldn't open it" are often momentary; the intake step retries these once.
+    throw new AIError("fetch_failed", `${msg}${paste}`, undefined, code === "too_many_requests" || code === "url_not_accessible");
   }
   const doc = block.content.content;
   if (doc.source.type !== "text") {
@@ -221,7 +225,7 @@ export function readFetchResult(res: Anthropic.Message, url: string): FetchedPag
   if (text.length < MIN_POSTING_CHARS) {
     throw new AIError(
       "fetch_failed",
-      `That page loads its content with JavaScript (common on Workday, Ashby and LinkedIn), so only an empty shell could be read.${paste}`,
+      `That page loads its content with JavaScript, so only an empty shell could be read.${paste}`,
     );
   }
   return { url: block.content.url || url, title: doc.title ?? "", text };

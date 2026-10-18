@@ -13,7 +13,7 @@ const { PHASE_DEVELOPMENT_SERVER } = require("next/constants");
  * every page). The risk 'unsafe-inline' leaves is injected markup, and this app never renders
  * untrusted HTML: posting text is shown as text, and the resume preview HTML is fully escaped
  * (lib/resume/engine/html.ts). Everything else stays locked down: no eval, no third-party scripts,
- * no plugins, no framing, and connections only to this site, Anthropic and OpenAI.
+ * no plugins, no framing, and connections only to this site, Anthropic, OpenAI and four public job-posting APIs.
  *
  * If the job Feed (FEATURES.jobFeed) is turned back on, add https://jsearch.p.rapidapi.com to
  * connect-src or its searches will be blocked.
@@ -27,8 +27,19 @@ function buildCsp(dev) {
     "style-src": ["'self'", "'unsafe-inline'"],
     "img-src": ["'self'", "data:", "blob:"],
     "font-src": ["'self'", "data:"],
-    // Dev only: hot reload uses a websocket back to the dev server.
-    "connect-src": ["'self'", "https://api.anthropic.com", "https://api.openai.com", ...(dev ? ["ws:", "wss:"] : [])],
+    // The job-board hosts are public posting APIs read directly (lib/intake/sources.ts DIRECT_API_HOSTS).
+    // Dev only: ws/wss is hot reload's websocket back to the dev server.
+    "connect-src": [
+      "'self'",
+      "https://api.anthropic.com",
+      "https://api.openai.com",
+      "https://boards-api.greenhouse.io",
+      "https://api.lever.co",
+      "https://api.eu.lever.co",
+      "https://api.ashbyhq.com",
+      "https://api.smartrecruiters.com",
+      ...(dev ? ["ws:", "wss:"] : []),
+    ],
     // Resume PDFs are previewed from a blob: URL in an iframe.
     "frame-src": ["'self'", "blob:"],
     "worker-src": ["'self'", "blob:"],

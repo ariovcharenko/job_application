@@ -84,8 +84,10 @@ export default function PrivacyPage() {
 
         <Section title="Pasting a job link">
           <p>
-            When you paste a link, Anthropic&apos;s servers open that page (their web fetch tool) and read it. This site never fetches it.
-            If a page can&apos;t be read that way, you&apos;ll be asked to paste the description instead.
+            Links to Greenhouse, Lever, Ashby and SmartRecruiters postings are read straight from your browser, from those companies&apos;
+            public job listing APIs (the request contains only the posting&apos;s address and no key). For any other link, Anthropic&apos;s
+            servers open the page (their web fetch tool) and read it. This site never fetches it. LinkedIn, Indeed and Workday links
+            are not read at all: you&apos;ll be asked to paste the description instead, as you will be for any page that can&apos;t be read.
           </p>
         </Section>
 

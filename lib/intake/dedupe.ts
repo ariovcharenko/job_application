@@ -1,5 +1,6 @@
 import { db } from "../db";
 import type { Application } from "../types";
+import { canonicalPostingUrl, unwrapRedirect } from "./sources";
 
 // Recognizing a position she already checked, so she isn't charged (or confused) twice.
 
@@ -28,6 +29,28 @@ export function normalizeJobUrl(raw: string): string {
   return `${host}${path}${query}`;
 }
 
+/** Click ids that only say which ad or email a link came from. */
+const CLICK_ID = /^(gclid|fbclid|igshid|mc_cid|mc_eid|lipi|licu|_hsenc|_hsmi)$/i;
+
+/**
+ * What the app compares postings by: normalizeJobUrl, after unwrapping redirector links and click
+ * ids, and with the known job boards reduced to their ids (so Lever "/apply", Greenhouse embed
+ * and board-host variants of one posting match). The extension keeps its own simpler copy of
+ * normalizeJobUrl (lib/intake/dedupe.extension.test.ts), which this does not change.
+ */
+export function postingKey(raw: string): string {
+  const unwrapped = unwrapRedirect(raw.trim());
+  const canonical = canonicalPostingUrl(unwrapped);
+  if (canonical) return canonical;
+  try {
+    const url = new URL(/^https?:\/\//i.test(unwrapped) ? unwrapped : `https://${unwrapped}`);
+    for (const k of [...url.searchParams.keys()]) if (CLICK_ID.test(k)) url.searchParams.delete(k);
+    return normalizeJobUrl(url.toString());
+  } catch {
+    return "";
+  }
+}
+
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
 /** Same company and same role title, ignoring case and punctuation. Both must be known. */
@@ -40,15 +63,15 @@ export function findMatch<T extends Application>(
   apps: T[],
   job: { url?: string; company?: string; role?: string },
 ): T | undefined {
-  const key = normalizeJobUrl(job.url ?? "");
+  const key = postingKey(job.url ?? "");
   if (key) {
-    const byUrl = apps.find((a) => normalizeJobUrl(a.url) === key);
+    const byUrl = apps.find((a) => postingKey(a.url) === key);
     if (byUrl) return byUrl;
   }
   // Same company and title only counts when one side has no link: two different postings can
   // share a title ("Software Engineer" on two teams), and their links tell them apart.
   if (job.company && job.role) {
-    return apps.find((a) => (!key || !normalizeJobUrl(a.url)) && sameCompanyAndRole(a, { company: job.company!, role: job.role! }));
+    return apps.find((a) => (!key || !postingKey(a.url)) && sameCompanyAndRole(a, { company: job.company!, role: job.role! }));
   }
   return undefined;
 }
