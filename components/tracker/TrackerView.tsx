@@ -10,6 +10,7 @@ import { looksLikeUrl } from "@/lib/intake/analyze";
 import { readyToApply, refreshStoredAnalyses } from "@/lib/intake/stored";
 import { readiness } from "@/lib/readiness";
 import { hasApiKey } from "@/lib/wipe";
+import { planLink } from "@/lib/intake/sources";
 import { downloadBlob } from "@/lib/download";
 import { exportCsv } from "@/lib/tracker/csvMap";
 import { blankApplication } from "@/lib/tracker/blank";
@@ -323,11 +324,14 @@ export default function TrackerView() {
       return;
     }
     setQuickError("");
-    withKey(() => {
+    const open = () => {
       setCapturedJob({ url: link, text: "" });
       setAutoAnalyze(true);
       setPastingJob(true);
-    });
+    };
+    // A site we refuse to read needs no key: show the plain refusal right away.
+    if (planLink(link).kind === "paste") open();
+    else withKey(open);
   };
 
   useEffect(() => {
