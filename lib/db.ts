@@ -3,6 +3,7 @@ import { DEFAULT_PROFILE, DEFAULT_SETTINGS } from "./defaults";
 import { migratePreferences } from "./eligibility/migrate";
 import { migrateRoleType } from "./eligibility/roles";
 import type {
+  AIUsageEntry,
   AnswerBankEntry,
   AppSettings,
   Application,
@@ -26,6 +27,7 @@ class JobDB extends Dexie {
   tailoredResumes!: Table<TailoredResume, number>;
   contacts!: Table<Contact, number>;
   docs!: Table<TextDoc, string>;
+  aiUsage!: Table<AIUsageEntry, number>;
 
   constructor() {
     super("job-application-copilot");
@@ -93,6 +95,9 @@ class JobDB extends Dexie {
             if (typeof r.label === "string" && ["SWE", "AI Engineer", "Product", "UX/UI"].includes(r.label)) r.label = migrateRoleType(r.label);
           });
       });
+    // v5: a local log of AI token use, for "AI spend this month" (lib/ai/usage.ts). A new table
+    // only: no existing row changes.
+    this.version(5).stores({ aiUsage: "++id, at" });
   }
 }
 

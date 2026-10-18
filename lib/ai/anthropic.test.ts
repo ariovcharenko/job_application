@@ -16,6 +16,32 @@ function fakeClient(reply: { text?: string; stop_reason?: string } | Error) {
   return { client: { messages: { create } } as unknown as Anthropic, create };
 }
 
+describe("anthropic usage for the spend meter", () => {
+  it("reports input, output and cache tokens of each response, with the model", async () => {
+    const create = vi.fn(async () => ({
+      stop_reason: "end_turn",
+      content: [{ type: "text", text: "hi" }],
+      usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 3000, cache_creation_input_tokens: 50 },
+    }));
+    const seen: unknown[] = [];
+    await createAnthropicProvider({ ...cfg, onUsage: (u) => seen.push(u) }, { messages: { create } } as unknown as Anthropic).complete({ prompt: "x" });
+    expect(seen).toEqual([
+      { provider: "anthropic", model: "smart-model", inputTokens: 100, outputTokens: 20, cacheReadTokens: 3000, cacheWriteTokens: 50 },
+    ]);
+  });
+
+  it("still reports usage when the answer was cut off, and a failing meter never breaks the call", async () => {
+    const create = vi.fn(async () => ({ stop_reason: "end_turn", content: [{ type: "text", text: "ok" }], usage: { input_tokens: 1, output_tokens: 1 } }));
+    const p = createAnthropicProvider({ ...cfg, onUsage: () => { throw new Error("meter broke"); } }, { messages: { create } } as unknown as Anthropic);
+    expect(await p.complete({ prompt: "x" })).toBe("ok");
+    const seen: unknown[] = [];
+    const cut = vi.fn(async () => ({ stop_reason: "max_tokens", content: [], usage: { input_tokens: 5, output_tokens: 9 } }));
+    const q = createAnthropicProvider({ ...cfg, onUsage: (u) => seen.push(u) }, { messages: { create: cut } } as unknown as Anthropic);
+    await expect(q.complete({ prompt: "x" })).rejects.toMatchObject({ kind: "truncated" });
+    expect(seen).toHaveLength(1);
+  });
+});
+
 describe("anthropic provider", () => {
   it("routes the fast tier to the fast model and omits sampling params", async () => {
     const { client, create } = fakeClient({ text: "hi" });

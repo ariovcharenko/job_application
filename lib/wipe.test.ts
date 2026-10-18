@@ -77,6 +77,7 @@ describe("wipeAllData", () => {
   it("really deletes the app's IndexedDB database with the default deps", async () => {
     await saveProfile({ ...DEFAULT_PROFILE, fullName: "Sam Rivera" });
     await db.applications.add(blankApplication());
+    await db.aiUsage.add({ at: 1, provider: "anthropic", model: "m", task: "check_job", inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 });
     expect(await Dexie.exists(db.name)).toBe(true);
 
     const real = browserWipeDeps();
@@ -90,6 +91,7 @@ describe("wipeAllData", () => {
     await db.open();
     expect(await db.applications.count()).toBe(0);
     expect(await db.profile.count()).toBe(0);
+    expect(await db.aiUsage.count()).toBe(0);
   });
 });
 

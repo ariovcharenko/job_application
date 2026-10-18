@@ -237,6 +237,23 @@ export interface FeedItem {
   state: "new" | "saved" | "dismissed" | "started";
 }
 
+/**
+ * One AI response's token use, for the local spend meter (lib/ai/usage.ts). Stays in this browser:
+ * never sent anywhere. `task` is an AITask from lib/ai/route.ts.
+ */
+export interface AIUsageEntry {
+  id?: number;
+  /** When the response arrived (ms since epoch). */
+  at: number;
+  provider: "anthropic" | "openai";
+  model: string;
+  task: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+}
+
 export interface TailoredResume {
   id?: number;
   applicationId: number;

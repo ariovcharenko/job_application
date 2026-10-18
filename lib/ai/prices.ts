@@ -19,6 +19,36 @@ export const MODEL_PRICES: Record<string, [number, number]> = {
  * toward "more expensive than it really is". */
 export const UNKNOWN_MODEL_PRICE: [number, number] = [10, 50];
 
+/** What Anthropic charges for cached prompt tokens, as a share of the input price. */
+const ANTHROPIC_CACHE_READ = 0.1;
+const ANTHROPIC_CACHE_WRITE = 1.25;
+
+export interface PricedUsage {
+  usd: number;
+  /** False when the model isn't in MODEL_PRICES and the high fallback was used. */
+  known: boolean;
+}
+
+/**
+ * Dollars for one response's tokens. Anthropic cache reads cost 10% of input and writes 125%.
+ * OpenAI's cached-token discount varies by model and wasn't verified, so its cached tokens are
+ * priced as full input (errs high).
+ */
+export function costOf(u: {
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+}): PricedUsage {
+  const { price, known } = priceFor(u.model);
+  const [inP, outP] = price;
+  const anthropic = u.provider === "anthropic";
+  const input = u.inputTokens + u.cacheReadTokens * (anthropic ? ANTHROPIC_CACHE_READ : 1) + u.cacheWriteTokens * (anthropic ? ANTHROPIC_CACHE_WRITE : 1);
+  return { usd: (input * inP + u.outputTokens * outP) / 1_000_000, known };
+}
+
 export function priceFor(model: string): { price: [number, number]; known: boolean } {
   const price = MODEL_PRICES[model];
   return price ? { price, known: true } : { price: UNKNOWN_MODEL_PRICE, known: false };

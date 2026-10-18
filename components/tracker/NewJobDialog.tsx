@@ -138,7 +138,7 @@ export default function NewJobDialog({
           return;
         }
       }
-      const [provider, current, masterText, me] = await Promise.all([getProvider(), getPreferences(), getMasterProfile(), getProfile()]);
+      const [provider, current, masterText, me] = await Promise.all([getProvider("check_job"), getPreferences(), getMasterProfile(), getProfile()]);
       setMaster(masterText);
       setProfile(me);
       // Two visible steps for a link, so a slow page read doesn't look like a hang.

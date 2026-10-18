@@ -28,6 +28,8 @@ export const MIN_SHORT_LINES = 3;
 
 export interface TailorInput {
   provider: AIProvider;
+  /** For the automatic follow-up pass, so its spend is labeled apart. Defaults to `provider`. */
+  polishProvider?: AIProvider;
   master: string;
   company: string;
   jdText: string;
@@ -159,7 +161,7 @@ export async function tailorResume(input: TailorInput): Promise<TailorOutput> {
   let notes: string[] = [];
   try {
     input.onProgress?.({ step: "polishing", chars: 0 });
-    const out = await reviseResume(provider, master, company, jdText, result.doc as ResumeDoc, comments, progress("polishing"), FOLLOW_UP_EFFORT);
+    const out = await reviseResume(input.polishProvider ?? provider, master, company, jdText, result.doc as ResumeDoc, comments, progress("polishing"), FOLLOW_UP_EFFORT);
     const { changes, ...doc } = out;
     result = validateResume(doc, master, checkOpts);
     const keywords = comments.filter((c) => c.id.startsWith("keywords:")).length;

@@ -90,7 +90,7 @@ export default function BatchTailorPanel({ matches }: { matches: FeedItem[] }) {
     cancelled.current = false;
     setProgress({ done: 0, total: chosen.length });
     try {
-      const provider = await getProvider();
+      const provider = await getProvider("write_resume");
       const result = await runBatchTailor(chosen, plan.resumes, provider, {
         smartModel: plan.smartModel,
         onProgress: setProgress,

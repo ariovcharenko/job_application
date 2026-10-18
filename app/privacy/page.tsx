@@ -27,6 +27,10 @@ export default function PrivacyPage() {
             There is no Job Copilot server and no account. Everything you add is stored in this browser&apos;s own database on this
             device. Nobody else can see it, including us.
           </p>
+          <p className="mt-2">
+            That includes the AI spend meter in Settings: how many tokens each AI answer used, with the model and the kind of task. It is
+            worked out and kept here, never sent anywhere.
+          </p>
           <p className="mt-2 text-muted">
             It isn&apos;t backed up anywhere unless you use{" "}
             <Link href="/settings#backup-and-restore" className="text-accent hover:underline">

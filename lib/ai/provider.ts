@@ -89,6 +89,19 @@ export interface FetchedPage {
   text: string;
 }
 
+/**
+ * Tokens one API response used, as the provider reported them. Input excludes cached tokens:
+ * cache reads and writes are counted separately (they are priced differently).
+ */
+export interface UsageReport {
+  provider: ProviderId;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+}
+
 /** What a provider can do beyond plain text and JSON. Absent = everything false. */
 export interface ProviderCapabilities {
   /** PDF attachments (resume import). Anthropic only. */

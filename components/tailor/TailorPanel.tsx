@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { canFallBackToClaude, providerFor } from "@/lib/ai/route";
+import { canFallBackToClaude, providerFor, RESUME_WRITING_TASKS } from "@/lib/ai/route";
+import { formatRunCost, spendSince } from "@/lib/ai/usage";
 import type { ProviderId } from "@/lib/ai/provider";
 import { getMasterProfile, getProfile, saveMasterProfile } from "@/lib/db";
 import { buildHeader, type ResumeHeader } from "@/lib/resume/engine";
@@ -177,6 +178,10 @@ export default function TailorPanel({
   const openedFrom = useRef<HTMLElement | null>(null);
   const [note, setNote] = useState("");
   const [changes, setChanges] = useState<string[]>([]);
+  // What the last generation or update cost, from the local spend meter ("This update: about 4¢").
+  const [runCost, setRunCost] = useState<{ label: string; usd: number; estimated: boolean } | null>(null);
+  const showRunCost = (label: string, from: number) =>
+    void spendSince(from, RESUME_WRITING_TASKS).then((s) => setRunCost(s.calls ? { label, usd: s.usd, estimated: s.estimated } : null));
   const [history, setHistory] = useState<{ result: ValidationResult; approved: Set<string> }[]>([]);
   const previewBox = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
@@ -256,11 +261,14 @@ export default function TailorPanel({
     }
     setProgress(null);
     setPhase("generating");
+    setRunCost(null);
+    const runStart = Date.now();
     try {
       // One call writes the final page to a plan computed from the real layout; a second, short one
       // only when the measured page ends short or code found a writing fix (pipeline.ts).
       const out = await tailorResume({
         provider: await providerFor("write_resume", { override }),
+        polishProvider: await providerFor("polish_resume", { override }),
         master: m,
         company: application.company,
         jdText: application.jdText,
@@ -274,6 +282,7 @@ export default function TailorPanel({
       setResult(out.result);
       setApproved(new Set());
       setChanges(out.notes);
+      showRunCost("This resume", runStart);
       setHistory([]);
       setPlacements([]);
       setChangedFrom(null);
@@ -536,6 +545,8 @@ export default function TailorPanel({
     setSaved(null);
     setSelection(null);
     setPhase("revising");
+    setRunCost(null);
+    const runStart = Date.now();
     try {
       const out = await reviseResume(await providerFor("revise_resume", { override }), m, application.company, application.jdText, result.doc, all);
       const { changes: done, ...doc } = out;
@@ -547,6 +558,7 @@ export default function TailorPanel({
       setApproved((current) => carryApprovals(result.flags, current, next.flags));
       setResult(next);
       setChanges(done);
+      showRunCost("This update", runStart);
       setPlacements([]);
     } catch (e) {
       retryRef.current = (o) => void runRevision(requests, o);
@@ -1031,6 +1043,12 @@ export default function TailorPanel({
         )}
       </section>
 
+      {runCost && (
+        <p className="text-[13px] text-muted">
+          {runCost.label}: {formatRunCost(runCost.usd)}
+          {runCost.estimated ? " (estimate, this model's price isn't known)" : ""}.
+        </p>
+      )}
       {saved && (
         <Notice kind="ok">
           Downloaded {saved.fileName}

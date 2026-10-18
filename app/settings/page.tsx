@@ -4,6 +4,7 @@ import BackupCard from "@/components/settings/BackupCard";
 import JSearchKeyCard from "@/components/settings/JSearchKeyCard";
 import ApiKeyCard from "@/components/settings/ApiKeyCard";
 import OpenAIKeyCard from "@/components/settings/OpenAIKeyCard";
+import AISpendCard from "@/components/settings/AISpendCard";
 import PreferencesCard from "@/components/settings/PreferencesCard";
 import ProfileCard from "@/components/settings/ProfileCard";
 import SettingsNav from "@/components/settings/SettingsNav";
@@ -16,6 +17,7 @@ export const metadata: Metadata = { title: "Settings" };
 const SECTIONS = [
   "Anthropic API key",
   "OpenAI API key",
+  "AI spend",
   "Profile",
   "Job preferences",
   "Answer bank",
@@ -32,6 +34,7 @@ export default function SettingsPage() {
         <div className="min-w-0 max-w-4xl">
           <ApiKeyCard />
           <OpenAIKeyCard />
+          <AISpendCard />
           <ProfileCard />
           <PreferencesCard />
           <AnswerBankCard />

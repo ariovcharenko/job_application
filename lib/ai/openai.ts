@@ -1,4 +1,4 @@
-import { AIError, type AIProvider, type CompleteOptions, type JsonOptions, type JsonSchema, type ModelInfo } from "./provider";
+import { AIError, type AIProvider, type CompleteOptions, type JsonOptions, type JsonSchema, type ModelInfo, type UsageReport } from "./provider";
 
 // OpenAI, called straight from the browser with fetch (no SDK, so the bundle stays small). The key
 // lives in this browser and goes only to api.openai.com (decision #1). Only resume writing and
@@ -20,6 +20,16 @@ export interface OpenAIConfig {
   /** For tests. Defaults to the browser's fetch. */
   fetch?: typeof fetch;
   baseUrl?: string;
+  /** Told the tokens of every response (the local spend meter, lib/ai/usage.ts). Never throws into the call. */
+  onUsage?: (u: UsageReport) => void;
+}
+
+/** Reads Chat Completions `usage` into a UsageReport (cached prompt tokens counted apart). Exported for tests. */
+export function openaiUsage(model: string, usage: unknown): UsageReport {
+  const u = (usage ?? {}) as { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } };
+  const prompt = u.prompt_tokens ?? 0;
+  const cached = Math.min(prompt, u.prompt_tokens_details?.cached_tokens ?? 0);
+  return { provider: "openai", model, inputTokens: prompt - cached, outputTokens: u.completion_tokens ?? 0, cacheReadTokens: cached, cacheWriteTokens: 0 };
 }
 
 /**
@@ -80,7 +90,11 @@ export function buildRequest(model: string, opts: CompleteOptions, format: Forma
   if (format) {
     body.response_format = { type: "json_schema", json_schema: { name: "response", strict: flags.strict, schema: format.schema } };
   }
-  if (flags.stream) body.stream = true;
+  if (flags.stream) {
+    body.stream = true;
+    // The last event then carries the token usage, for the spend meter.
+    body.stream_options = { include_usage: true };
+  }
   return body;
 }
 
@@ -118,6 +132,7 @@ interface Answer {
   text: string;
   refusal: string;
   finish: string | null;
+  usage?: unknown;
 }
 
 /** Reads a server-sent-events body into the answer, reporting characters as they arrive. Exported for tests. */
@@ -131,6 +146,7 @@ export async function readStream(body: ReadableStream<Uint8Array>, onProgress?: 
     const data = line.slice(5).trim();
     if (!data || data === "[DONE]") return;
     let chunk: {
+      usage?: unknown;
       error?: { message?: string; type?: string; code?: string };
       choices?: { delta?: { content?: string | null; refusal?: string | null }; finish_reason?: string | null }[];
     };
@@ -143,6 +159,7 @@ export async function readStream(body: ReadableStream<Uint8Array>, onProgress?: 
       const status = chunk.error.type === "server_error" ? 500 : 400;
       throw new OpenAIHttpError(status, chunk.error.message ?? "Stream error", chunk.error.type, chunk.error.code);
     }
+    if (chunk.usage) out.usage = chunk.usage;
     const choice = chunk.choices?.[0];
     if (!choice) return;
     if (choice.delta?.content) {
@@ -201,16 +218,24 @@ export function createOpenAIProvider(cfg: OpenAIConfig): AIProvider {
           answer = await readStream(res.body, opts.onProgress);
         } else {
           const json = (await res.json()) as {
+            usage?: unknown;
             choices?: { message?: { content?: string | null; refusal?: string | null }; finish_reason?: string | null }[];
           };
           const c = json.choices?.[0];
-          answer = { text: c?.message?.content ?? "", refusal: c?.message?.refusal ?? "", finish: c?.finish_reason ?? null };
+          answer = { text: c?.message?.content ?? "", refusal: c?.message?.refusal ?? "", finish: c?.finish_reason ?? null, usage: json.usage };
           opts.onProgress?.(answer.text.length);
         }
         break;
       }
     } catch (err) {
       throw toOpenAIError(err);
+    }
+    if (answer.usage && cfg.onUsage) {
+      try {
+        cfg.onUsage(openaiUsage(cfg.model, answer.usage));
+      } catch {
+        // The meter must never break a call.
+      }
     }
     if (answer.refusal || answer.finish === "content_filter") {
       throw new AIError("refusal", "The OpenAI model declined this request.", "openai");

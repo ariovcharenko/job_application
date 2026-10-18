@@ -3,7 +3,8 @@ import { DEFAULT_OPENAI_MODEL } from "../options";
 import type { AppSettings } from "../types";
 import { createAnthropicProvider } from "./anthropic";
 import { createOpenAIProvider } from "./openai";
-import { AIError, type AIProvider, type ProviderCapabilities, type ProviderId } from "./provider";
+import { recordUsage } from "./usage";
+import { AIError, type AIProvider, type ProviderCapabilities, type ProviderId, type UsageReport } from "./provider";
 
 // The one place that decides which company's model does which job. Only resume writing goes to
 // OpenAI (when she chose it); everything else stays on Claude: reading links needs Anthropic's web
@@ -65,13 +66,17 @@ export function chooseProvider(task: AITask, s: RouteSettings, override?: Provid
   return pick;
 }
 
-/** Builds one provider from saved settings. Throws AIError("no_key") naming the provider when its key is missing. */
-export function buildProvider(id: ProviderId, s: AppSettings): AIProvider {
+/**
+ * Builds one provider from saved settings. Throws AIError("no_key") naming the provider when its
+ * key is missing. Every response's tokens go to the local spend meter under `task`.
+ */
+export function buildProvider(id: ProviderId, s: AppSettings, task: AITask | "other" = "other"): AIProvider {
+  const onUsage = (u: UsageReport) => void recordUsage(task, u);
   if (id === "openai") {
     if (!has(s.openaiKey)) {
       throw new AIError("no_key", "OpenAI is set to write your resumes, but no OpenAI API key is saved. Add one, or use Claude for this run.", "openai");
     }
-    return createOpenAIProvider({ apiKey: s.openaiKey!.trim(), model: s.openaiModel?.trim() || DEFAULT_OPENAI_MODEL });
+    return createOpenAIProvider({ apiKey: s.openaiKey!.trim(), model: s.openaiModel?.trim() || DEFAULT_OPENAI_MODEL, onUsage });
   }
   if (!has(s.anthropicKey)) {
     throw new AIError("no_key", "Add your Anthropic API key in Settings first.");
@@ -81,13 +86,14 @@ export function buildProvider(id: ProviderId, s: AppSettings): AIProvider {
     workspaceId: s.workspaceId,
     fastModel: s.fastModel,
     smartModel: s.smartModel,
+    onUsage,
   });
 }
 
 /** The provider for a task, from saved settings. Pass `{ override: "anthropic" }` to use Claude for one run. */
 export async function providerFor(task: AITask, opts: { override?: ProviderId } = {}): Promise<AIProvider> {
   const s = await getSettings();
-  return buildProvider(chooseProvider(task, s, opts.override), s);
+  return buildProvider(chooseProvider(task, s, opts.override), s, task);
 }
 
 /** True when this error means "OpenAI can't be used right now" and Claude could do this run instead. */

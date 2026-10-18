@@ -104,6 +104,29 @@ describe("openai provider: requests", () => {
   });
 });
 
+describe("openai usage for the spend meter", () => {
+  it("reports usage from a plain answer, counting cached prompt tokens apart", async () => {
+    const f = fakeFetch(
+      json({
+        choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1000, completion_tokens: 200, prompt_tokens_details: { cached_tokens: 600 } },
+      }),
+    );
+    const seen: unknown[] = [];
+    await createOpenAIProvider({ apiKey: KEY, model: "test-model", fetch: f.fetch, onUsage: (u) => seen.push(u) }).complete({ prompt: "x" });
+    expect(seen).toEqual([{ provider: "openai", model: "test-model", inputTokens: 400, outputTokens: 200, cacheReadTokens: 600, cacheWriteTokens: 0 }]);
+  });
+
+  it("asks for usage in the stream and reads it from the last event", async () => {
+    const usage = `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 50, completion_tokens: 7 } })}\n\n`;
+    const f = fakeFetch(sse([delta("hi", "stop"), usage, "data: [DONE]\n\n"]));
+    const seen: { outputTokens: number }[] = [];
+    await createOpenAIProvider({ apiKey: KEY, model: "test-model", fetch: f.fetch, onUsage: (u) => seen.push(u) }).complete({ prompt: "x", onProgress: () => {} });
+    expect(f.body().stream_options).toEqual({ include_usage: true });
+    expect(seen[0].outputTokens).toBe(7);
+  });
+});
+
 describe("openai provider: streaming", () => {
   it("streams when onProgress is given and reports characters as they arrive", async () => {
     const f = fakeFetch(sse([delta('{"a":'), delta('1}'), delta("", "stop"), "data: [DONE]\n\n"]));

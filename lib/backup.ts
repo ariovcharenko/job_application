@@ -3,7 +3,7 @@ import { db, getMasterProfile, getPreferences, getProfile, getSettings, saveMast
 import { DEFAULT_PROFILE } from "./defaults";
 import { migratePreferences } from "./eligibility/migrate";
 import { migrateRoleType } from "./eligibility/roles";
-import type { AnswerBankEntry, AppSettings, Application, BaseResume, Contact, FeedItem, Preferences, Profile, TailoredResume } from "./types";
+import type { AIUsageEntry, AnswerBankEntry, AppSettings, Application, BaseResume, Contact, FeedItem, Preferences, Profile, TailoredResume } from "./types";
 
 // A backup file carries EVERYTHING in this browser's database, so moving to another browser (or
 // from localhost to the deployed site) loses nothing: settings (API keys only if she opts in),
@@ -45,6 +45,7 @@ const BackupSchema = z.object({
       contacts: Rows.optional(),
       baseResumes: Rows.optional(),
       feed: Rows.optional(),
+      aiUsage: Rows.optional(),
     })
     .optional(),
 });
@@ -57,6 +58,8 @@ export interface BackupTables {
   contacts: Contact[];
   baseResumes: BaseResume[];
   feed: FeedItem[];
+  /** The local AI spend log. Absent in backups made before it existed (restored as empty). */
+  aiUsage?: AIUsageEntry[];
 }
 
 export interface ParsedBackup {
@@ -127,6 +130,7 @@ export function buildBackup(
             contacts: t.contacts,
             baseResumes: t.baseResumes.map(encodeFile),
             feed: t.feed,
+            aiUsage: t.aiUsage ?? [],
           },
         }
       : {}),
@@ -136,7 +140,7 @@ export function buildBackup(
 
 /** Reads the whole database into a backup file's text. API keys only when `includeKey`. */
 export async function exportBackup(opts: { includeKey: boolean; now?: Date }): Promise<string> {
-  const [settings, profile, preferences, masterProfile, answerBank, applications, tailoredResumes, contacts, baseResumes, feed] = await Promise.all([
+  const [settings, profile, preferences, masterProfile, answerBank, applications, tailoredResumes, contacts, baseResumes, feed, aiUsage] = await Promise.all([
     getSettings(),
     getProfile(),
     getPreferences(),
@@ -147,11 +151,12 @@ export async function exportBackup(opts: { includeKey: boolean; now?: Date }): P
     db.contacts.toArray(),
     db.baseResumes.toArray(),
     db.feed.toArray(),
+    db.aiUsage.toArray(),
   ]);
   return buildBackup(settings, profile, preferences, {
     ...opts,
     masterProfile,
-    tables: { answerBank, applications, tailoredResumes, contacts, baseResumes, feed },
+    tables: { answerBank, applications, tailoredResumes, contacts, baseResumes, feed, aiUsage },
   });
 }
 
@@ -187,6 +192,7 @@ export function parseBackup(text: string): ParsedBackup {
           contacts: (t.contacts ?? []) as unknown as Contact[],
           baseResumes: (t.baseResumes ?? []).map((r) => decodeFile<BaseResume>(r)),
           feed: (t.feed ?? []) as unknown as FeedItem[],
+          aiUsage: (t.aiUsage ?? []) as unknown as AIUsageEntry[],
         }
       : undefined,
     includesKey:
@@ -217,20 +223,21 @@ export async function restoreBackup(input: string | ParsedBackup): Promise<Resto
   const t = b.tables;
   await db.transaction(
     "rw",
-    [db.settings, db.profile, db.preferences, db.docs, db.answerBank, db.applications, db.tailoredResumes, db.contacts, db.baseResumes, db.feed],
+    [db.settings, db.profile, db.preferences, db.docs, db.answerBank, db.applications, db.tailoredResumes, db.contacts, db.baseResumes, db.feed, db.aiUsage],
     async () => {
       await saveSettings(b.settings);
       await saveProfile(b.profile);
       await savePreferences(b.preferences);
       if (b.masterProfile !== undefined) await saveMasterProfile(b.masterProfile);
       if (!t) return;
-      await Promise.all([db.answerBank.clear(), db.applications.clear(), db.tailoredResumes.clear(), db.contacts.clear(), db.baseResumes.clear(), db.feed.clear()]);
+      await Promise.all([db.answerBank.clear(), db.applications.clear(), db.tailoredResumes.clear(), db.contacts.clear(), db.baseResumes.clear(), db.feed.clear(), db.aiUsage.clear()]);
       await db.answerBank.bulkPut(t.answerBank);
       await db.applications.bulkPut(t.applications);
       await db.tailoredResumes.bulkPut(t.tailoredResumes);
       await db.contacts.bulkPut(t.contacts);
       await db.baseResumes.bulkPut(t.baseResumes);
       await db.feed.bulkPut(t.feed);
+      await db.aiUsage.bulkPut(t.aiUsage ?? []);
     },
   );
   return {

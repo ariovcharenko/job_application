@@ -96,7 +96,7 @@ export default function OutreachDialog({ application, onClose }: { application: 
     setError(null);
     setDraftingId(contact.id ?? -1);
     try {
-      const [provider, answerBank] = await Promise.all([getProvider(), getAnswerBank()]);
+      const [provider, answerBank] = await Promise.all([getProvider("draft_outreach"), getAnswerBank()]);
       const profile = await getProfile();
       const draft = await draftOutreachMessage(provider, contact, application, profile, answerBank);
       const text = `Connection note (${draft.note.length} chars):\n${draft.note}\n\nFollow-up after connecting:\n${draft.followUp}`;
