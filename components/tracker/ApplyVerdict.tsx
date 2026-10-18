@@ -1,5 +1,6 @@
 import { MUST_HAVE_FILTERS, verdictFor, VERDICT_TEXT, type ApplyDecision, type FilterResult, type SkillsMatch, type Verdict } from "@/lib/intake/decision";
 import { outlinedClass } from "@/components/ui";
+import { PostedPill } from "./StageBadge";
 
 // The answer to "should I apply?", kept deliberately quiet: one number, one verdict, then the
 // must-haves as small pills and the skills behind the number. Color is only used to carry meaning
@@ -108,11 +109,14 @@ export default function ApplyVerdict({
   decision,
   skills,
   note,
+  posted,
 }: {
   decision: ApplyDecision;
   skills: SkillsMatch | null | undefined;
   /** A soft, informational note (e.g. "Outside the roles you picked"). Never changes the verdict. */
   note?: string;
+  /** "Posted 2 days ago", when the posting said. Informational only. */
+  posted?: string | null;
 }) {
   const pct = skills?.percent ?? null;
   const verdict = verdictFor(decision, pct);
@@ -146,6 +150,11 @@ export default function ApplyVerdict({
           </p>
           <p className="mt-1 text-[13px] leading-relaxed text-muted">{reason}</p>
           {note && <p className="mt-1 text-xs leading-relaxed text-muted">{note}</p>}
+          {posted && (
+            <p className="mt-2">
+              <PostedPill label={posted} />
+            </p>
+          )}
         </div>
       </div>
 

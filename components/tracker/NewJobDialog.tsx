@@ -11,6 +11,7 @@ import { findExistingJob } from "@/lib/intake/dedupe";
 import { saveAnalyzedJob, type SavedJob } from "@/lib/intake/save";
 import { verdictFor, VERDICT_TEXT } from "@/lib/intake/decision";
 import { readBreakdown } from "@/lib/intake/stored";
+import { postedAge, postedLabel } from "@/lib/tracker/postedAge";
 import { saveApplication } from "@/lib/tracker/repo";
 import { skipJob, trackJob } from "@/lib/tracker/triage";
 import { todayISO } from "@/lib/tracker/stage";
@@ -263,7 +264,7 @@ export default function NewJobDialog({
               <Notice kind="ok">In your applications.</Notice>
             </div>
           )}
-          <ScoreCard result={toStoredBreakdown(live)} />
+          <ScoreCard result={toStoredBreakdown(live)} posted={postedLabel(postedAge(live.signals, app.createdAt, Date.now()))} />
           <MustHavesPanel onChange={setPrefs} />
           <div>
             <h3 className="mb-2 font-semibold tracking-tight">Tailored resume</h3>

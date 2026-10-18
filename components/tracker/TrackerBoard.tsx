@@ -5,6 +5,7 @@ import { changeStage } from "@/lib/tracker/repo";
 import { needsFollowUp } from "@/lib/tracker/stage";
 import { STAGES, type Application, type Stage } from "@/lib/types";
 import { CompanyMark, STAGE_SELECT_CLASS, STAGE_STYLE } from "./StageBadge";
+import { PostedLine } from "./TrackerTable";
 
 export default function TrackerBoard({ apps, onOpen }: { apps: Application[]; onOpen: (a: Application) => void }) {
   const [over, setOver] = useState<Stage | null>(null);
@@ -62,6 +63,7 @@ export default function TrackerBoard({ apps, onOpen }: { apps: Application[]; on
                   </div>
                   <p className="mt-1.5 text-black/70">{a.role}</p>
                   {a.location && <p className="mt-1 text-xs text-muted">{a.location}</p>}
+                  {a.stage === "Saved" && <PostedLine app={a} />}
                   {a.appliedDate && <p className="text-xs text-muted">Applied {a.appliedDate}</p>}
                   {needsFollowUp(a) && <p className="mt-1 text-xs font-medium text-warn">Follow up</p>}
                   <select

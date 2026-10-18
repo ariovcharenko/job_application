@@ -4,6 +4,7 @@ import type { Application, MustHaves, Preferences, Profile } from "../types";
 import { assessJob, looksLikeJobPosting, mentionedSkillsMatch, toStoredBreakdown, type StoredBreakdown } from "./analyze";
 import { dropSoftSkills } from "../resume/master/skills";
 import { decideApply, normalizeLegacyCriteria, skillsMatchPercent, verdictFor } from "./decision";
+import { postedAge, type PostedAge } from "../tracker/postedAge";
 
 /** The saved analysis on a tracker row, or null for rows added by hand or before scoring existed. */
 export function readBreakdown(app: Pick<Application, "fitBreakdown">): StoredBreakdown | null {
@@ -25,13 +26,15 @@ export function hasIncompletePosting(app: Pick<Application, "jdText" | "fitBreak
  * that is not weak), best skills match first: what to apply
  * to next. Jobs analyzed before the must-have filters existed are left out rather than guessed.
  */
-export function readyToApply<T extends Application>(apps: T[]): { app: T; percent: number | null }[] {
+export function readyToApply<T extends Application>(apps: T[], now = Date.now()): { app: T; percent: number | null }[] {
   return apps
     .filter((a) => a.stage === "Saved" && a.triage !== "skipped" && !hasIncompletePosting(a))
     .map((app) => ({ app, b: readBreakdown(app) }))
     .filter((x) => x.b?.decision && verdictFor(x.b.decision, x.b.skills?.percent ?? null) === "apply")
-    .map(({ app, b }) => ({ app, percent: b?.skills?.percent ?? null }))
-    .sort((x, y) => (y.percent ?? -1) - (x.percent ?? -1));
+    .map(({ app, b }) => ({ app, percent: b?.skills?.percent ?? null, age: postedAge(b?.signals, app.createdAt, now)?.days ?? Infinity }))
+    // Equal matches: the fresher posting first (fewer applicants yet); unknown age last.
+    .sort((x, y) => (y.percent ?? -1) - (x.percent ?? -1) || (x.age === y.age ? 0 : x.age - y.age))
+    .map(({ app, percent }) => ({ app, percent }));
 }
 
 /** A stored breakdown without signals: re-map her must-haves over the saved checklist and fix old skill data. */
@@ -105,4 +108,9 @@ export async function refreshStoredAnalyses<T extends Application>(
     if (json !== app.fitBreakdown) out.push({ app, fitBreakdown: json });
   }
   return out;
+}
+
+/** How old the job's posting is now, from its saved check (null when unknown or never checked). */
+export function postedAgeOf(app: Pick<Application, "fitBreakdown" | "createdAt">, now = Date.now()): PostedAge | null {
+  return postedAge(readBreakdown(app)?.signals, app.createdAt, now);
 }

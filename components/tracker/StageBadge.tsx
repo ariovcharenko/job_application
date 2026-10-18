@@ -43,6 +43,12 @@ export function FitPill({ score }: { score: number }) {
   );
 }
 
+/** "Posted 2 days ago" as a quiet gray pill. Renders nothing when the age is unknown. */
+export function PostedPill({ label }: { label: string | null | undefined }) {
+  if (!label) return null;
+  return <span className="inline-flex whitespace-nowrap rounded-full bg-black/[0.04] px-2 py-0.5 text-[11px] font-medium text-muted">{label}</span>;
+}
+
 /**
  * Tile sizes. The corner radius stays about 27% of the side (the macOS icon proportion), and two
  * letters are set smaller than one so both fill the tile about the same.

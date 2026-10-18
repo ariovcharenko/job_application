@@ -7,7 +7,9 @@ import { changeStage } from "@/lib/tracker/repo";
 import { needsFollowUp } from "@/lib/tracker/stage";
 import { STAGES, type Application, type Stage } from "@/lib/types";
 import { panelClass, TrashIcon } from "@/components/ui";
-import { CompanyMark, STAGE_SELECT_CLASS, STAGE_STYLE } from "./StageBadge";
+import { postedAgeOf } from "@/lib/intake/stored";
+import { postedLabel } from "@/lib/tracker/postedAge";
+import { CompanyMark, PostedPill, STAGE_SELECT_CLASS, STAGE_STYLE } from "./StageBadge";
 
 const link = "font-medium text-accent hover:underline underline-offset-2";
 
@@ -21,6 +23,19 @@ function ExtLink({ href, children }: { href: string; children: React.ReactNode }
   );
 }
 
+
+/**
+ * How old the posting is, for jobs she hasn't applied to yet (once applied, it no longer matters).
+ * Nothing when the check couldn't tell.
+ */
+export function PostedLine({ app }: { app: Application }) {
+  const label = postedLabel(postedAgeOf(app));
+  return label ? (
+    <span className="mt-1 block">
+      <PostedPill label={label} />
+    </span>
+  ) : null;
+}
 
 function StageSelect({ app }: { app: Application }) {
   return (
@@ -96,6 +111,7 @@ function MobileCards({ apps, onOpen, onDelete }: { apps: Application[]; onOpen: 
                 <span className="block truncate font-medium">{a.company || "Company not set"}</span>
                 <span className={`block text-[13px] leading-snug ${a.stage === "Rejected" ? "" : "text-ink"}`}>{a.role || "Role not set"}</span>
                 {place && <span className="mt-0.5 block truncate text-xs text-muted">{place}</span>}
+                {a.stage === "Saved" && <PostedLine app={a} />}
               </button>
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
@@ -194,6 +210,7 @@ export default function TrackerTable({
                   <span className={`line-clamp-2 leading-snug ${a.stage === "Rejected" ? "" : "text-ink"}`} title={a.role || undefined}>
                     {a.role || "—"}
                   </span>
+                  {a.stage === "Saved" && <PostedLine app={a} />}
                 </td>
                 <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
                   <StageSelect app={a} />

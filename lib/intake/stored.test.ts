@@ -41,6 +41,14 @@ describe("readyToApply", () => {
     // A job scored from a page shell instead of the posting isn't "ready".
     expect(readyToApply([app({ company: "G", stage: "Saved", jdText: "Careers Home Sign in" }, ok(90))])).toEqual([]);
   });
+
+  it("breaks ties by how fresh the posting is, unknown age last", () => {
+    const now = Date.UTC(2026, 9, 10);
+    const fresh = (company: string, freshness: string, freshnessEvidence = "") =>
+      app({ company, stage: "Saved", createdAt: now }, { ...ok(80), signals: { freshness, freshnessEvidence } });
+    const list = readyToApply([fresh("Old", "older"), fresh("Unknown", "unknown"), fresh("New", "within_24h"), fresh("Week", "within_week", "Posted 4 days ago")], now);
+    expect(list.map((x) => x.app.company)).toEqual(["New", "Week", "Old", "Unknown"]);
+  });
 });
 
 describe("refreshBreakdowns", () => {

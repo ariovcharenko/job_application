@@ -63,13 +63,13 @@ export function CriteriaList({ criteria }: { criteria: Criterion[] }) {
   );
 }
 
-export default function ScoreCard({ result }: { result: StoredBreakdown }) {
+export default function ScoreCard({ result, posted }: { result: StoredBreakdown; /** "Posted 2 days ago", when known. */ posted?: string | null }) {
   // Jobs analyzed since the must-have filters exist show only the verdict: one number, one answer.
   // The older weighted score is still stored (the hidden Feed sorts by it) but no longer shown,
   // since two different numbers for the same job was confusing.
   if (result.decision) {
     const role = result.criteria?.find((c) => c.key === "role" && c.status !== "pass");
-    return <ApplyVerdict decision={result.decision} skills={result.skills} note={role?.detail} />;
+    return <ApplyVerdict decision={result.decision} skills={result.skills} note={role?.detail} posted={posted} />;
   }
   return (
     <div className="rounded-2xl bg-paper p-4">

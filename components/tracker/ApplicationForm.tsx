@@ -3,7 +3,8 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { useRef, useState } from "react";
 import { db, getProfile } from "@/lib/db";
-import { hasIncompletePosting, readBreakdown } from "@/lib/intake/stored";
+import { hasIncompletePosting, postedAgeOf, readBreakdown } from "@/lib/intake/stored";
+import { postedLabel } from "@/lib/tracker/postedAge";
 import { JOB_SOURCES, WORK_MODES } from "@/lib/options";
 import { REGION_NAMES, looksRemote } from "@/lib/regions";
 import { exportResume, getJobResume } from "@/lib/resume/engine/save";
@@ -235,7 +236,7 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
             </div>
           )}
           {incomplete ? null : breakdown ? (
-            <ScoreCard result={breakdown} />
+            <ScoreCard result={breakdown} posted={postedLabel(postedAgeOf(app))} />
           ) : (
             <p className="rounded-2xl bg-paper px-5 py-4 text-sm text-muted">
               Not analyzed. Add it from its link with <span className="font-medium text-ink">Add job</span> to see if it fits.
