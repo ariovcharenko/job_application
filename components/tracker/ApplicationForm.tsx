@@ -73,6 +73,7 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
   const [previewing, setPreviewing] = useState(false);
   const [ownError, setOwnError] = useState<string | null>(null);
   const ownInput = useRef<HTMLInputElement>(null);
+  const hadImportedContact = useRef(Boolean(initial.contactName || initial.contactLinkedin));
 
   const dirty = hasUnsavedChanges(app, savedApp);
   // Close, the X, Escape and a click outside all come here: never drop edits without asking.
@@ -373,8 +374,13 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
             <Field label="Heard back on" type="date" value={app.respondDate} onChange={(v) => set("respondDate", v)} />
             <Field label="Follow up on" type="date" value={app.followUpDate} onChange={(v) => set("followUpDate", v)} />
             <Field label="Referral" placeholder="Who referred you, or No" value={app.referral} onChange={(v) => set("referral", v)} />
-            <Field label="Person to reach out to" value={app.contactName} onChange={(v) => set("contactName", v)} />
-            <Field label="Their LinkedIn link" value={app.contactLinkedin} onChange={(v) => set("contactLinkedin", v)} />
+            {/* Only for contacts imported from an old tracker. New contacts live under Outreach. */}
+            {hadImportedContact.current && (
+              <>
+                <Field label="Person to reach out to (from your import)" value={app.contactName} onChange={(v) => set("contactName", v)} />
+                <Field label="Their LinkedIn link" value={app.contactLinkedin} onChange={(v) => set("contactLinkedin", v)} />
+              </>
+            )}
             <SelectField
               label="Where you found it"
               value={app.source}

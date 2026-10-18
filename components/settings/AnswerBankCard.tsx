@@ -67,7 +67,7 @@ export default function AnswerBankCard() {
   if (!entries) return null;
 
   return (
-    <Card title="Answer bank" hint="Reusable answers for applications and outreach. Drafts use only what's here." saveStatus={status}>
+    <Card title="Saved answers" hint="Reusable answers for applications and outreach. Drafts use only what's here." saveStatus={status}>
       <div className="grid gap-3">
         {entries.map((e, i) => (
           <div key={e.id} className="rounded-2xl border border-black/[0.08] p-4">

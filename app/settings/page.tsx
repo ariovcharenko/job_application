@@ -20,7 +20,7 @@ const SECTIONS = [
   "AI spend",
   "Profile",
   "Job preferences",
-  "Answer bank",
+  "Saved answers",
   ...(FEATURES.extension ? ["Chrome extension"] : []),
   "Backup and restore",
 ];

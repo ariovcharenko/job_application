@@ -98,13 +98,13 @@ export default function ApiKeyCard({
       />
       <div className="grid gap-4 sm:grid-cols-2">
         <SelectField
-          label="Fast model (reading and checking jobs)"
+          label="Model for reading and checking jobs"
           value={s.fastModel}
           onChange={(v) => setS({ ...s, fastModel: v })}
           options={modelChoices}
         />
         <SelectField
-          label="Smart model (tailoring, writing)"
+          label="Model for writing resumes and messages"
           value={s.smartModel}
           onChange={(v) => setS({ ...s, smartModel: v })}
           options={modelChoices}

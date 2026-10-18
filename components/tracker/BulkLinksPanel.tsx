@@ -138,7 +138,7 @@ export default function BulkLinksPanel({ onClose, onPaste }: { onClose: () => vo
           {toCheck.length > 0 && estimate && (
             <p className="mt-1 text-sm text-muted">
               {formatEstimate(estimate).replace(/^a/, "A")} in total
-              {estimate.known ? "" : " (estimate, your fast model's price isn't listed)"}. One at a time, and you can stop at any point.
+              {estimate.known ? "" : " (estimate, the reading model's price isn't listed)"}. One at a time, and you can stop at any point.
             </p>
           )}
         </div>
