@@ -215,7 +215,7 @@ export async function restoreBackup(input: string | ParsedBackup): Promise<Resto
       await saveSettings(b.settings);
       await saveProfile(b.profile);
       await savePreferences(b.preferences);
-      if (b.masterProfile !== undefined) await saveMasterProfile(b.masterProfile);
+      if (b.masterProfile !== undefined) await saveMasterProfile(b.masterProfile, "restore-backup");
       if (!t) return;
       await Promise.all([db.answerBank.clear(), db.applications.clear(), db.tailoredResumes.clear(), db.contacts.clear(), db.baseResumes.clear(), db.feed.clear()]);
       await db.answerBank.bulkPut(t.answerBank);

@@ -77,12 +77,22 @@ export interface Profile {
 }
 
 /** Free-form text documents stored by id. "masterProfile": everything she has done, the only
- * source of truth the resume tailoring engine may draw from (lib/resume/engine). */
+ * source of truth the resume tailoring engine may draw from (lib/resume/engine). Earlier versions
+ * of it are kept as "masterProfile@<savedAt>" rows (`versionOf` set), see lib/db.ts. */
 export interface TextDoc {
-  id: "masterProfile";
+  id: string;
   text: string;
+  /** When this text was saved as the current version. */
   updatedAt: number;
+  /** Set on a kept earlier version: the doc it is a version of. */
+  versionOf?: "masterProfile";
+  /** On a kept version: when it was replaced, and by what. */
+  savedAt?: number;
+  reason?: MasterSaveReason;
 }
+
+/** What replaced a version of "Your experience" (shown next to each kept version). */
+export type MasterSaveReason = "edit" | "import" | "tailor" | "restore" | "restore-backup" | "other";
 
 export interface ScoreWeights {
   sponsorship: number;
