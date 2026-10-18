@@ -3,7 +3,8 @@
 
 export type FillableField = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
 
-const SKIP_INPUT_TYPES = new Set(["submit", "button", "reset", "hidden", "image", "file"]);
+// "password": account pages are never filled, whatever the label says (see guards.ts).
+const SKIP_INPUT_TYPES = new Set(["submit", "button", "reset", "hidden", "image", "file", "password"]);
 
 export function isFillable(el: Element): el is FillableField {
   if (el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return !el.disabled;
@@ -64,6 +65,10 @@ export function getFieldLabel(field: FillableField): string {
     const text = textOf(clone);
     if (text) return text;
   }
+
+  // Lever-style wrappers: the question text is in an explicit ".application-label" element.
+  const wrapperLabel = textOf(field.closest(".application-question, .application-field")?.querySelector(".application-label") ?? null);
+  if (wrapperLabel) return wrapperLabel;
 
   const placeholder = "placeholder" in field ? field.getAttribute("placeholder") : null;
   if (placeholder?.trim()) return placeholder.trim();

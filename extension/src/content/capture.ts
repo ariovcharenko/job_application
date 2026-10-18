@@ -6,7 +6,9 @@
 // or an account page, and never runs on LinkedIn, Indeed or Jobright.
 import { pickAdapter } from "../lib/adapters";
 import { fillForm } from "../lib/fillEngine";
+import { ACCOUNT_PAGE_MESSAGE, isAccountPage } from "../lib/guards";
 import { isBlockedHost } from "../lib/hosts";
+import { watchForNewFields, type FieldWatcher } from "../lib/watch";
 import { getFieldLabel } from "../lib/matching";
 import { extractVisibleText } from "../lib/pageText";
 import { uploadResumeForJob, type ResumeOutcome } from "../lib/resumeFlow";
@@ -67,7 +69,7 @@ function send<T>(message: unknown): Promise<T> {
 
 async function loadContext(): Promise<ContextReply> {
   const adapter = pickAdapter(location);
-  const page = adapter.pageJobInfo?.(document) ?? { company: "", role: "" };
+  const page = adapter.pageJobInfo?.(document, location.hostname) ?? { company: "", role: "" };
   lastContext = await send<ContextReply>({ type: "GET_CONTEXT", url: location.href, page });
   return lastContext;
 }
@@ -99,7 +101,13 @@ async function runScoreThisJob(): Promise<void> {
   setStatus(res.ok ? "Opened in Job Copilot." : res.error);
 }
 
-async function runFillApplication(): Promise<void> {
+let watcher: FieldWatcher | null = null;
+
+async function runFillApplication(onlyEmpty = false): Promise<void> {
+  if (isAccountPage(document, location)) {
+    setStatus(ACCOUNT_PAGE_MESSAGE);
+    return;
+  }
   setStatus("Filling in what it can...");
   const ctx = await loadContext();
   if (!ctx.paired) {
@@ -112,13 +120,27 @@ async function runFillApplication(): Promise<void> {
   }
   const adapter = pickAdapter(location);
   const root = adapter.findFormRoot(document) ?? document.body;
-  const outcomes = fillForm(root, ctx.data.profile);
+  const outcomes = fillForm(root, ctx.data.profile, { experiences: ctx.data.experiences, onlyEmpty });
   // The resume: this job's tailored one when the page matches a saved job. Asked for only now.
   setStatus("Getting your resume from Job Copilot...");
   const resume = await uploadResumeForJob(adapter.findResumeInput(document), ctx.match, {
     requestResume: (jobId) => send<ResumeReply>({ type: "GET_RESUME", jobId }),
   });
   renderChecklist(outcomes, resume, ctx);
+  // A later step or a block she adds shows up as new fields: offer one click, never fill by itself.
+  watcher?.stop();
+  watcher = watchForNewFields(document.body, (count) => {
+    if (isAccountPage(document, location)) return;
+    offerNewFields(count);
+  });
+}
+
+function offerNewFields(count: number): void {
+  ui.panel.classList.remove("jc-hidden");
+  ui.panel.querySelector(".jc-new")?.remove();
+  const btn = el("button", "jc-action jc-primary jc-new", `${count} new field${count === 1 ? "" : "s"} appeared. Fill them`);
+  btn.addEventListener("click", () => void runFillApplication(true));
+  ui.panel.insertBefore(btn, ui.panel.firstChild);
 }
 
 function renderChecklist(outcomes: FillOutcome[], resume: ResumeOutcome, ctx: ContextReply): void {

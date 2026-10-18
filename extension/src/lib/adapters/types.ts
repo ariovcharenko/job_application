@@ -9,5 +9,5 @@ export interface AtsAdapter {
   /** The resume upload <input type="file">, if this ATS has one visible. */
   findResumeInput(doc: Document): HTMLInputElement | null;
   /** The company and role the page shows, for matching it to a tracker job. */
-  pageJobInfo?(doc: Document): PageJobInfo;
+  pageJobInfo?(doc: Document, hostname?: string): PageJobInfo;
 }
