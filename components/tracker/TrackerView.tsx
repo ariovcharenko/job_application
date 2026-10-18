@@ -19,7 +19,7 @@ import { DEFAULT_VIEW_PREFS, filterApplications, hasActiveFilters, loadViewPrefs
 import { isTracked } from "@/lib/tracker/triage";
 import { ROLE_TYPES, STAGES, type Application, type RoleType, type Stage } from "@/lib/types";
 import { OPEN_ADD_JOB_EVENT } from "@/components/Nav";
-import { deleteApplication, saveApplication, setTriage } from "@/lib/tracker/repo";
+import { deleteApplication, saveApplicationChanges, setTriage } from "@/lib/tracker/repo";
 import { Button, ChevronRightIcon, ConfirmDialog, EmptyState, inputClass, Modal, panelClass, SectionHeading, Spinner, textButtonClass } from "@/components/ui";
 import ReadinessStrip from "@/components/ReadinessStrip";
 import SetupCard from "@/components/SetupCard";
@@ -424,8 +424,8 @@ export default function TrackerView() {
                     badge="Follow up"
                     tone="amber"
                     onOpen={() => setEditing(a)}
-                    onDone={() => void saveApplication(completeFollowUp(a))}
-                    onSnooze={() => void saveApplication(snoozeFollowUp(a))}
+                    onDone={() => void saveApplicationChanges(completeFollowUp(a), a)}
+                    onSnooze={() => void saveApplicationChanges(snoozeFollowUp(a), a)}
                   />
                 ))}
                 {upNext.ready.slice(0, 8).map(({ app, percent }) => (

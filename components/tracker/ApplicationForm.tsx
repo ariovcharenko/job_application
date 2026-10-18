@@ -13,7 +13,7 @@ import { attachOwnResume, getCurrentResume, removeOwnResume } from "@/lib/resume
 import { safeHttpUrl } from "@/lib/safeUrl";
 import { blankApplication } from "@/lib/tracker/blank";
 import { hasUnsavedChanges } from "@/lib/tracker/dirty";
-import { deleteApplication, saveApplication } from "@/lib/tracker/repo";
+import { deleteApplication, saveApplicationChanges, setTriage } from "@/lib/tracker/repo";
 import { applyStageChange } from "@/lib/tracker/stage";
 import { ROLE_TYPES, STAGES, VISA_SIGNALS, type Application, type RoleType, type Stage, type VisaSignal } from "@/lib/types";
 import { Button, ConfirmDialog, ExternalLinkIcon, Field, Modal, Notice, outlinedClass, SelectField, TextArea, textButtonClass } from "@/components/ui";
@@ -86,7 +86,9 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
     setSaving(true);
     setError(null);
     try {
-      await saveApplication({ ...app, company: app.company.trim(), role: app.role.trim() });
+      // Only her edits are written, so anything stored meanwhile (a re-check, a stage change in
+      // the table, the background must-have refresh) is kept.
+      await saveApplicationChanges({ ...app, company: app.company.trim(), role: app.role.trim() }, savedApp);
       onClose();
     } catch (e) {
       setError(`Couldn't save: ${e instanceof Error ? e.message : String(e)}`);
@@ -101,7 +103,7 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
     if (app.id === undefined) return;
     const stored = applyStageChange(savedApp, stage);
     setSavedApp(stored);
-    await saveApplication(stored);
+    await saveApplicationChanges(stored, savedApp);
   };
 
   // Where the job sits (table, Checked jobs, or Not applying) also saves right away.
@@ -113,9 +115,8 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
     };
     setApp(apply);
     if (app.id === undefined) return;
-    const stored = apply(savedApp);
-    setSavedApp(stored);
-    await saveApplication(stored);
+    setSavedApp(apply);
+    await setTriage(app.id, triage);
   };
 
   const downloadResume = async () => {
