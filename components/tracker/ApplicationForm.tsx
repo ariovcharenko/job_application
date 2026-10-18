@@ -13,6 +13,7 @@ import { attachOwnResume, getCurrentResume, removeOwnResume } from "@/lib/resume
 import { safeHttpUrl } from "@/lib/safeUrl";
 import { blankApplication } from "@/lib/tracker/blank";
 import { hasUnsavedChanges } from "@/lib/tracker/dirty";
+import { mergeReloaded } from "@/lib/tracker/merge";
 import { deleteApplication, saveApplicationChanges, setTriage } from "@/lib/tracker/repo";
 import { applyStageChange } from "@/lib/tracker/stage";
 import { ROLE_TYPES, STAGES, VISA_SIGNALS, type Application, type RoleType, type Stage, type VisaSignal } from "@/lib/types";
@@ -443,10 +444,11 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
           onClose={async () => {
             setRechecking(false);
             // The re-check updates this same row; show the new result.
+            // Unsaved Details edits are kept (except the analysis, which the re-check replaces).
             const fresh = app.id !== undefined ? await db.applications.get(app.id) : undefined;
             if (fresh) {
               const loaded = { ...blankApplication(), ...fresh };
-              setApp(loaded);
+              setApp((mine) => mergeReloaded(mine, savedApp, loaded));
               setSavedApp(loaded);
             }
           }}
