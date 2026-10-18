@@ -9,6 +9,8 @@ import { db, getMasterProfile, getPreferences, getProfile } from "@/lib/db";
 import { loadGeo, type GeoIndex } from "@/lib/geo/index";
 import { analyzeJob, assessJob, looksLikeUrl, readJobPosting, toStoredBreakdown, type JobAnalysis } from "@/lib/intake/analyze";
 import { findExistingJob } from "@/lib/intake/dedupe";
+import { getPairingToken } from "@/lib/extension/session";
+import { planLink } from "@/lib/intake/sources";
 import { saveAnalyzedJob, type SavedJob } from "@/lib/intake/save";
 import { headlineOf } from "@/lib/intake/stored";
 import { postedAge, postedLabel } from "@/lib/tracker/postedAge";
@@ -95,7 +97,7 @@ export default function NewJobDialog({
   const [url, setUrl] = useState(initialUrl);
   const [jdText, setJdText] = useState(initialJdText);
   const [step, setStep] = useState<string | null>(null);
-  const [error, setError] = useState<{ message: string; needsKey: boolean } | null>(null);
+  const [error, setError] = useState<{ message: string; needsKey: boolean; extensionTip?: boolean } | null>(null);
   const [analysis, setAnalysis] = useState<JobAnalysis | null>(null);
   const [app, setApp] = useState<SavedJob | null>(null);
   // A link she already checked: shown before spending anything on it again.
@@ -129,6 +131,15 @@ export default function NewJobDialog({
     void db.applications.update(app.id, { fitScore: live.score.score, fitBreakdown: JSON.stringify(toStoredBreakdown(live)) });
   }, [live, app]);
 
+  /** Whether the Chrome extension is paired, so an error can point to its "Score this job" button. */
+  const extensionPaired = () => {
+    try {
+      return !!getPairingToken();
+    } catch {
+      return false;
+    }
+  };
+
   const analyze = async (force = false) => {
     const link = url.trim();
     if (mode === "link" && !looksLikeUrl(link)) {
@@ -138,6 +149,15 @@ export default function NewJobDialog({
     if (mode === "paste" && !jdText.trim()) {
       setError({ message: "Paste the job description first.", needsKey: false });
       return;
+    }
+    // A link nothing can read (LinkedIn, Workday, ...): say so now, before a key or a cent is involved.
+    if (mode === "link") {
+      const plan = planLink(link);
+      if (plan.kind === "paste") {
+        setError({ message: plan.message, needsKey: false, extensionTip: extensionPaired() });
+        setMode("paste");
+        return;
+      }
     }
     setError(null);
     setPrevious(null);
@@ -161,7 +181,7 @@ export default function NewJobDialog({
       let text = jdText;
       if (mode === "link") {
         setStep("Reading the job posting...");
-        text = await readJobPosting(provider, link);
+        text = await readJobPosting(provider, link, { onStep: setStep });
       }
       setStep("Scoring the job...");
       const a = await analyzeJob(provider, { url: link, jdText: text }, prefs ?? current, masterText, todayISO(), me);
@@ -179,9 +199,10 @@ export default function NewJobDialog({
       setAnalysis(a);
     } catch (e) {
       const needsKey = e instanceof AIError && e.kind === "no_key";
-      setError({ message: e instanceof Error ? e.message : String(e), needsKey });
+      const unreadable = e instanceof AIError && e.kind === "fetch_failed";
+      setError({ message: e instanceof Error ? e.message : String(e), needsKey, extensionTip: unreadable && extensionPaired() });
       // A page that can't be read automatically: switch to pasting, keeping the link.
-      if (e instanceof AIError && e.kind === "fetch_failed") setMode("paste");
+      if (unreadable) setMode("paste");
     } finally {
       setStep(null);
     }
@@ -329,7 +350,7 @@ export default function NewJobDialog({
             <Field label={mode === "link" ? "Job posting link" : "Job posting link (optional)"} value={url} onChange={setUrl} placeholder="https://..." />
             {mode === "paste" && <TextArea label="Job description" value={jdText} onChange={setJdText} rows={10} />}
             {mode === "link" && (
-              <p className="text-xs leading-relaxed text-muted">Workday, Ashby and LinkedIn pages can&apos;t be read from a link. Paste their text instead.</p>
+              <p className="text-xs leading-relaxed text-muted">Greenhouse, Lever, Ashby and SmartRecruiters links are read for free. LinkedIn, Indeed and Workday pages can&apos;t be read: paste their text instead.</p>
             )}
           </div>
 
@@ -346,6 +367,7 @@ export default function NewJobDialog({
           {error && (
             <Notice kind="error">
               {error.message}
+              {error.extensionTip && <> Or open the posting and press &quot;Score this job&quot; in the Chrome extension.</>}
               {error.needsKey && (
                 <>
                   {" "}

@@ -1,5 +1,5 @@
 import type { AIProvider } from "../ai/provider";
-import { AIError } from "../ai/provider";
+import { AIError, isTransientFetchError } from "../ai/provider";
 import { dropSoftSkills, matchSkills, normalizeSkill, parseSkillInventory, type SkillMatch } from "../resume/master/skills";
 import { mentionsTerm, TECH_TERMS } from "../resume/master/techTerms";
 import { evaluateCriteria, type Criterion } from "../scoring/criteria";
@@ -8,6 +8,7 @@ import { extractJobSignals, type JobSignals } from "../scoring/signals";
 import { candidateFacts, UNKNOWN_CANDIDATE, type CandidateFacts } from "../eligibility/candidate";
 import { getGeo, loadGeo, type GeoIndex } from "../geo/index";
 import type { Preferences, Profile } from "../types";
+import { planLink, readDirectPosting, SOURCE_LABEL } from "./sources";
 import { decideApply, skillsMatchPercent, type ApplyDecision, type SkillsMatch } from "./decision";
 
 // Job intake: a link (read server-side by the AI provider's web fetch) or pasted text, turned
@@ -75,9 +76,48 @@ export function looksLikeJobPosting(text: string): boolean {
 export const NOT_A_POSTING_MESSAGE =
   "That page didn't include the job description (the site probably loads it with JavaScript). Open the posting, copy the description, and paste it here.";
 
-export async function readJobPosting(provider: AIProvider, url: string): Promise<string> {
+export interface ReadOptions {
+  /** Tells the dialog which step is running ("Reading the posting from Greenhouse..."). */
+  onStep?: (label: string) => void;
+  /** For tests: replaces fetch for the direct ATS readers. */
+  fetchImpl?: Parameters<typeof readDirectPosting>[1];
+  /** For tests: replaces the pause before the one retry. */
+  wait?: (ms: number) => Promise<void>;
+}
+
+const RETRY_PAUSE_MS = 1500;
+
+/**
+ * Reads a posting from its link, cheapest and most reliable way first:
+ *  1. LinkedIn, Indeed, Workday and similar: no request, a plain explanation (paste instead).
+ *  2. Greenhouse, Lever, Ashby, SmartRecruiters: their public JSON, read here for free.
+ *  3. Anything else: the AI provider's web fetch, with one retry on a transient failure.
+ * Whatever comes back must read like a job description (looksLikeJobPosting) or it is refused.
+ * Failures that mean "paste it instead" are AIError "fetch_failed".
+ */
+export async function readJobPosting(provider: AIProvider, url: string, opts: ReadOptions = {}): Promise<string> {
+  const plan = planLink(url);
+  if (plan.kind === "invalid") throw new AIError("fetch_failed", plan.message);
+  if (plan.kind === "paste") throw new AIError("fetch_failed", plan.message);
+
+  if (plan.kind === "direct") {
+    opts.onStep?.(`Reading the posting from ${SOURCE_LABEL[plan.source]}...`);
+    const direct = await readDirectPosting(plan, opts.fetchImpl);
+    if (direct) return direct.text;
+    // The ATS didn't answer: fall through to the AI reader.
+  }
+
   if (!provider.fetchUrl) throw new AIError("fetch_failed", "This AI provider can't read links. Paste the job description instead.");
-  const page = await provider.fetchUrl(url.trim());
+  opts.onStep?.("Reading the page with Claude...");
+  let page;
+  try {
+    page = await provider.fetchUrl(plan.url);
+  } catch (err) {
+    if (!isTransientFetchError(err)) throw err;
+    opts.onStep?.("The page didn't load. Trying once more...");
+    await (opts.wait ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms))))(RETRY_PAUSE_MS);
+    page = await provider.fetchUrl(plan.url);
+  }
   const text = page.title && !page.text.startsWith(page.title) ? `${page.title}\n\n${page.text}` : page.text;
   if (!looksLikeJobPosting(text)) throw new AIError("fetch_failed", NOT_A_POSTING_MESSAGE);
   return text;

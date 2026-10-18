@@ -73,10 +73,18 @@ export class AIError extends Error {
     message: string,
     /** Whose API this came from, so the fix links to the right console. Absent = Anthropic. */
     public provider?: ProviderId,
+    /** A page read that failed in a way one more try may fix (busy, dropped connection). */
+    public transient?: boolean,
   ) {
     super(message);
     this.name = "AIError";
   }
+}
+
+/** Whether a failed page read is worth one more try: busy provider, rate limit, dropped connection, page not opened this time. */
+export function isTransientFetchError(err: unknown): boolean {
+  if (!(err instanceof AIError)) return false;
+  return err.kind === "rate_limit" || err.kind === "overloaded" || err.kind === "network" || err.transient === true;
 }
 
 export interface ModelInfo {
