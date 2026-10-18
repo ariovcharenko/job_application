@@ -4,6 +4,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import ApiKeyCard from "@/components/settings/ApiKeyCard";
+import OpenAIKeyCard from "@/components/settings/OpenAIKeyCard";
 import MasterProfileCard from "@/components/settings/MasterProfileCard";
 import PreferencesCard from "@/components/settings/PreferencesCard";
 import ProfileCard from "@/components/settings/ProfileCard";
@@ -219,6 +220,16 @@ export default function OnboardingWizard() {
           </ol>
           <ApiKeyCard compact />
           {!keySaved && <p className="-mt-2 mb-6 text-[13px] text-muted">You can skip this and add it later.</p>}
+          <details className="mb-6 rounded-[22px] bg-white p-5 shadow-soft">
+            <summary className="cursor-pointer text-[15px] font-medium text-ink">Optional: write resumes with OpenAI</summary>
+            <p className="mt-2 text-[14px] leading-relaxed text-muted">
+              If you have an OpenAI key, resumes can be written and revised with it. Everything else still uses Claude. Not needed to get
+              started.
+            </p>
+            <div className="mt-4">
+              <OpenAIKeyCard compact />
+            </div>
+          </details>
         </>
       )}
 

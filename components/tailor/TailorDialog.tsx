@@ -5,7 +5,7 @@ import { Modal } from "@/components/ui";
 import TailorPanel from "./TailorPanel";
 import { useCloseGuard } from "./useCloseGuard";
 
-export { TAILOR_COST_HINT } from "@/lib/resume/costHint";
+export { TAILOR_COST_HINT, tailorCostHint } from "@/lib/resume/costHint";
 
 /** "Tailor resume" from a tracker row: the master-profile engine, started on click. */
 export default function TailorDialog({

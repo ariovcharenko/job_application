@@ -25,11 +25,11 @@ const directives = (csp: string) =>
   );
 
 describe("security headers", () => {
-  it("production CSP only talks to this site and Anthropic, with no eval", async () => {
+  it("production CSP only talks to this site, Anthropic and OpenAI, with no eval", async () => {
     const h = await headersFor("phase-production-server");
     const csp = directives(h["Content-Security-Policy"]);
     expect(csp["default-src"]).toEqual(["'self'"]);
-    expect(csp["connect-src"]).toEqual(["'self'", "https://api.anthropic.com"]);
+    expect(csp["connect-src"]).toEqual(["'self'", "https://api.anthropic.com", "https://api.openai.com"]);
     expect(csp["script-src"]).not.toContain("'unsafe-eval'");
     expect(csp["script-src"].filter((s: string) => s.startsWith("http"))).toEqual([]);
     expect(csp["img-src"]).toEqual(["'self'", "data:", "blob:"]);

@@ -71,7 +71,7 @@ export default function ResumeImport({ current, onImported }: { current: string;
     if (!src) return;
     setStage("reading");
     try {
-      setResult(await importResume(await getProvider(), src));
+      setResult(await importResume(await getProvider("import_resume"), src));
       setStage("review");
     } catch (e) {
       setAiError(e);

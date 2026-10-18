@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { db, getSettings, saveProfile, saveSettings } from "./db";
 import { DEFAULT_PROFILE } from "./defaults";
 import { blankApplication } from "./tracker/blank";
-import { browserWipeDeps, forgetApiKeys, hasApiKey, isDeleteConfirmed, wipeAllData, type WipeDeps } from "./wipe";
+import { browserWipeDeps, forgetApiKeys, hasAnyApiKey, hasApiKey, isDeleteConfirmed, wipeAllData, type WipeDeps } from "./wipe";
 
 function fakeStorage() {
   return { clear: vi.fn() };
@@ -77,6 +77,7 @@ describe("wipeAllData", () => {
   it("really deletes the app's IndexedDB database with the default deps", async () => {
     await saveProfile({ ...DEFAULT_PROFILE, fullName: "Sam Rivera" });
     await db.applications.add(blankApplication());
+    await db.aiUsage.add({ at: 1, provider: "anthropic", model: "m", task: "check_job", inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 });
     expect(await Dexie.exists(db.name)).toBe(true);
 
     const real = browserWipeDeps();
@@ -90,6 +91,7 @@ describe("wipeAllData", () => {
     await db.open();
     expect(await db.applications.count()).toBe(0);
     expect(await db.profile.count()).toBe(0);
+    expect(await db.aiUsage.count()).toBe(0);
   });
 });
 
@@ -104,5 +106,16 @@ describe("forgetApiKeys", () => {
     expect(s.workspaceId).toBe("wrkspc_1");
     expect(s.smartModel).toBe("claude-opus-5");
     expect(await hasApiKey()).toBe(false);
+  });
+
+  it("clears the OpenAI key too, keeping the OpenAI model and writer choice", async () => {
+    await saveSettings({ openaiKey: "test-openai-key", openaiModel: "test-model", resumeWriter: "openai" });
+    expect(await hasAnyApiKey()).toBe(true);
+    await forgetApiKeys();
+    const s = await getSettings();
+    expect(s.openaiKey).toBe("");
+    expect(s.openaiModel).toBe("test-model");
+    expect(s.resumeWriter).toBe("openai");
+    expect(await hasAnyApiKey()).toBe(false);
   });
 });

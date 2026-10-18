@@ -1,5 +1,8 @@
-// Provider-neutral AI interface. Anthropic is the first implementation; OpenAI/Gemini can be
-// added later without touching callers.
+// Provider-neutral AI interface. Anthropic (lib/ai/anthropic.ts) and OpenAI (lib/ai/openai.ts)
+// implement it; lib/ai/route.ts picks which one a task uses.
+
+/** Which company's API answered (or failed). */
+export type ProviderId = "anthropic" | "openai";
 
 export type ModelTier = "fast" | "smart";
 export type JsonSchema = Record<string, unknown>;
@@ -68,6 +71,8 @@ export class AIError extends Error {
   constructor(
     public kind: AIErrorKind,
     message: string,
+    /** Whose API this came from, so the fix links to the right console. Absent = Anthropic. */
+    public provider?: ProviderId,
   ) {
     super(message);
     this.name = "AIError";
@@ -86,8 +91,30 @@ export interface FetchedPage {
   text: string;
 }
 
+/**
+ * Tokens one API response used, as the provider reported them. Input excludes cached tokens:
+ * cache reads and writes are counted separately (they are priced differently).
+ */
+export interface UsageReport {
+  provider: ProviderId;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+}
+
+/** What a provider can do beyond plain text and JSON. Absent = everything false. */
+export interface ProviderCapabilities {
+  /** PDF attachments (resume import). Anthropic only. */
+  attachments: boolean;
+  /** Reading a web page on the provider's side (job links). Anthropic only. */
+  webFetch: boolean;
+}
+
 export interface AIProvider {
   id: string;
+  capabilities?: ProviderCapabilities;
   complete(opts: CompleteOptions): Promise<string>;
   completeJson<T = unknown>(opts: JsonOptions<T>): Promise<T>;
   /** Models this key can use, for the Settings dropdowns. */

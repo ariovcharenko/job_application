@@ -16,6 +16,16 @@ export const MODEL_OPTIONS: ModelOption[] = [
   { id: "claude-fable-5-1", label: "Claude Fable 5.1 (most capable, highest cost)" },
 ];
 
+/**
+ * OpenAI models offered before "Load my models" is pressed. Kept short on purpose: the account's
+ * own list (GET /v1/models, filtered to chat models) is the source of truth.
+ */
+export const OPENAI_MODEL_OPTIONS: ModelOption[] = [
+  { id: "gpt-5", label: "GPT-5 (recommended for writing)" },
+  { id: "gpt-5-mini", label: "GPT-5 mini (faster, cheaper)" },
+];
+export const DEFAULT_OPENAI_MODEL = "gpt-5";
+
 export const WORK_MODES = ["Remote", "Hybrid", "On-site"] as const;
 export type WorkMode = (typeof WORK_MODES)[number];
 

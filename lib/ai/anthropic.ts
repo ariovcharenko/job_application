@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { AIError, type AIProvider, type CompleteOptions, type FetchedPage, type JsonOptions, type ModelInfo } from "./provider";
+import { AIError, type AIProvider, type CompleteOptions, type FetchedPage, type JsonOptions, type ModelInfo, type UsageReport } from "./provider";
 
 export interface AnthropicConfig {
   apiKey: string;
@@ -7,6 +7,22 @@ export interface AnthropicConfig {
   smartModel: string;
   /** Only for keys that are not tied to a workspace; sent as the `anthropic-workspace-id` header. */
   workspaceId?: string;
+  /** Told the tokens of every response (the local spend meter, lib/ai/usage.ts). Never throws into the call. */
+  onUsage?: (u: UsageReport) => void;
+}
+
+/** Reads a Message's usage block into a UsageReport. Exported for tests. */
+export function anthropicUsage(model: string, usage: unknown): UsageReport {
+  const u = (usage ?? {}) as Record<string, unknown>;
+  const n = (k: string) => (typeof u[k] === "number" ? (u[k] as number) : 0);
+  return {
+    provider: "anthropic",
+    model,
+    inputTokens: n("input_tokens"),
+    outputTokens: n("output_tokens"),
+    cacheReadTokens: n("cache_read_input_tokens"),
+    cacheWriteTokens: n("cache_creation_input_tokens"),
+  };
 }
 
 // The key lives in the user's browser and goes only to Anthropic, so browser use is intended here.
@@ -19,6 +35,15 @@ export function createAnthropicProvider(
     defaultHeaders: cfg.workspaceId?.trim() ? { "anthropic-workspace-id": cfg.workspaceId.trim() } : undefined,
   }),
 ): AIProvider {
+  const report = (model: string, res: { usage?: unknown } | undefined) => {
+    if (!cfg.onUsage || !res?.usage) return;
+    try {
+      cfg.onUsage(anthropicUsage(model, res.usage));
+    } catch {
+      // The meter must never break a call.
+    }
+  };
+
   async function run(opts: CompleteOptions, format?: { type: "json_schema"; schema: Record<string, unknown> }) {
     const model = opts.tier === "fast" ? cfg.fastModel : cfg.smartModel;
     const effort = opts.tier === "fast" ? undefined : opts.effort;
@@ -60,6 +85,7 @@ export function createAnthropicProvider(
     } catch (err) {
       throw toAIError(err);
     }
+    report(model, res);
 
     if (res.stop_reason === "refusal") {
       throw new AIError("refusal", "The model declined this request.");
@@ -87,11 +113,13 @@ export function createAnthropicProvider(
     } catch (err) {
       throw toAIError(err);
     }
+    report(model, res);
     return readFetchResult(res, url);
   }
 
   return {
     id: "anthropic",
+    capabilities: { attachments: true, webFetch: true },
 
     complete: (opts) => run(opts),
 
@@ -255,7 +283,7 @@ export function toAIError(err: unknown): AIError {
     return new AIError("bad_request", `Anthropic rejected the request: ${msg}`);
   }
   if (err instanceof Anthropic.APIUserAbortError) {
-    return new AIError("unknown", "The request was cancelled.");
+    return new AIError("cancelled", "Stopped.");
   }
   if (err instanceof Anthropic.APIConnectionError) {
     return new AIError("network", NETWORK_MESSAGE);

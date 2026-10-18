@@ -36,6 +36,43 @@ describe("backup file", () => {
     expect(parsed.includesKey).toBe(true);
   });
 
+  it("treats the OpenAI key like the Anthropic key: out by default, in only when asked", () => {
+    const withOpenAI = { ...settings, openaiKey: "test-openai-key", openaiModel: "test-openai-model", resumeWriter: "openai" as const };
+    const without = buildBackup(withOpenAI, profile, prefs, { includeKey: false });
+    expect(without).not.toContain("test-openai-key");
+    const parsedWithout = parseBackup(without);
+    expect(parsedWithout.includesKey).toBe(false);
+    // The model and the writer choice are settings, not secrets: always kept.
+    expect(parsedWithout.settings).toMatchObject({ openaiModel: "test-openai-model", resumeWriter: "openai" });
+    const parsedWith = parseBackup(buildBackup({ ...withOpenAI, anthropicKey: "", jsearchApiKey: "" }, profile, prefs, { includeKey: true }));
+    expect(parsedWith.settings.openaiKey).toBe("test-openai-key");
+    expect(parsedWith.includesKey).toBe(true);
+  });
+
+  it("restores the OpenAI settings, keeping a key already here when the file has none", async () => {
+    await saveSettings({ openaiKey: "test-openai-key-here" });
+    const text = buildBackup({ ...settings, openaiModel: "test-openai-model", resumeWriter: "anthropic" }, profile, prefs, { includeKey: false });
+    await restoreBackup(text);
+    expect(await getSettings()).toMatchObject({ openaiKey: "test-openai-key-here", openaiModel: "test-openai-model", resumeWriter: "anthropic" });
+  });
+
+  it("carries the AI spend log through export and restore", async () => {
+    await db.aiUsage.bulkAdd([
+      { at: 100, provider: "anthropic", model: "claude-haiku-4-5", task: "check_job", inputTokens: 900, outputTokens: 80, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      { at: 200, provider: "openai", model: "test-model", task: "write_resume", inputTokens: 5000, outputTokens: 2000, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    ]);
+    const text = await exportBackup({ includeKey: false });
+    await db.aiUsage.clear();
+    await restoreBackup(text);
+    const rows = await db.aiUsage.orderBy("at").toArray();
+    expect(rows.map((r) => r.task)).toEqual(["check_job", "write_resume"]);
+    // An older full backup without the log restores with an empty one.
+    const parsed = parseBackup(text);
+    delete parsed.tables!.aiUsage;
+    await restoreBackup(parsed);
+    expect(await db.aiUsage.count()).toBe(0);
+  });
+
   it("round-trips profile, preferences and model choices", () => {
     const parsed = parseBackup(buildBackup(settings, profile, prefs, { includeKey: false }));
     expect(parsed.profile.fullName).toBe("Sam Rivera");

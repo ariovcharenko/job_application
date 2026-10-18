@@ -5,7 +5,7 @@ import { FEATURES } from "@/lib/features";
 
 export const metadata: Metadata = {
   title: "Privacy",
-  description: "What Job Copilot keeps in your browser, what it sends to Anthropic, and what the host sees.",
+  description: "What Job Copilot keeps in your browser, what it sends to Anthropic or OpenAI, and what the host sees.",
 };
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -20,12 +20,16 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 export default function PrivacyPage() {
   return (
     <div className="mx-auto max-w-2xl">
-      <PageHeader title="Privacy" subtitle="What stays in your browser, what goes to Anthropic, and what the host sees." />
+      <PageHeader title="Privacy" subtitle="What stays in your browser, what goes to Anthropic (and OpenAI, if you add a key), and what the host sees." />
       <div className="grid gap-4 text-[15px] leading-relaxed text-ink">
         <Section title="Your data lives in this browser">
           <p>
             There is no Job Copilot server and no account. Everything you add is stored in this browser&apos;s own database on this
             device. Nobody else can see it, including us.
+          </p>
+          <p className="mt-2">
+            That includes the AI spend meter in Settings: how many tokens each AI answer used, with the model and the kind of task. It is
+            worked out and kept here, never sent anywhere.
           </p>
           <p className="mt-2 text-muted">
             It isn&apos;t backed up anywhere unless you use{" "}
@@ -60,6 +64,19 @@ export default function PrivacyPage() {
           </p>
         </Section>
 
+        <Section title="What is sent to OpenAI (only if you add an OpenAI key)">
+          <p>
+            OpenAI is optional. If you add an OpenAI key and choose OpenAI to write resumes, then writing and revising a tailored resume
+            call OpenAI&apos;s API directly from your browser, with your key. That sends the job description, your experience, the
+            current resume draft and any change you ask for. Nothing else goes to OpenAI.
+          </p>
+          <p className="mt-2 text-muted">
+            Checking jobs, reading links and importing your resume always use Anthropic. Every resume OpenAI writes goes through the same
+            checks in your browser, so nothing that isn&apos;t in your experience is added without your OK. OpenAI handles API data
+            under its own terms and privacy policy.
+          </p>
+        </Section>
+
         <Section title="Pasting a job link">
           <p>
             When you paste a link, Anthropic&apos;s servers open that page (their web fetch tool) and read it. This site never fetches it.
@@ -71,9 +88,13 @@ export default function PrivacyPage() {
           <p>
             Your Anthropic key is stored in this browser, <strong>unencrypted</strong>, and sent only to Anthropic. Anyone using this
             browser profile could read it, so set a monthly spend limit and don&apos;t save it on a shared computer. &quot;Forget my API
-            key&quot; in Settings removes it.
+            keys&quot; in Settings removes it.
           </p>
-          <p className="mt-2 text-muted">A backup file leaves the key out unless you tick the box to include it.</p>
+          <p className="mt-2">
+            An optional OpenAI key is stored the same way, in this browser only, and sent only to OpenAI. &quot;Forget my API keys&quot;
+            removes both.
+          </p>
+          <p className="mt-2 text-muted">A backup file leaves the keys out unless you tick the box to include them.</p>
           {FEATURES.jobFeed && (
             <p className="mt-2 text-muted">
               An optional JSearch (RapidAPI) key is stored the same way and sent only to JSearch, for the company watchlist feed.

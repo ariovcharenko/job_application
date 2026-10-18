@@ -54,7 +54,7 @@ export default function FeedView() {
       if (!settings.jsearchApiKey.trim()) {
         throw new AIError("no_key", "Add your JSearch API key in Settings first.");
       }
-      const [prefs, provider] = await Promise.all([getPreferences(), getProvider()]);
+      const [prefs, provider] = await Promise.all([getPreferences(), getProvider("check_job")]);
       const result = await runDiscovery(selected, prefs, settings.jsearchApiKey, provider, (p) =>
         setProgress((log) => [...log.slice(-4), p]),
       );
