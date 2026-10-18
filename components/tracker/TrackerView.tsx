@@ -17,6 +17,7 @@ import { sortApplications } from "@/lib/tracker/sort";
 import { DEFAULT_VIEW_PREFS, filterApplications, hasActiveFilters, loadViewPrefs, saveViewPrefs, stageCounts, type TrackerView as View } from "@/lib/tracker/filter";
 import { isTracked } from "@/lib/tracker/triage";
 import { appliedThisWeek, goalOf } from "@/lib/tracker/weeklyGoal";
+import { buildIcs, followUpEvents } from "@/lib/tracker/ics";
 import { ROLE_TYPES, STAGES, type Application, type RoleType, type Stage } from "@/lib/types";
 import { OPEN_ADD_JOB_EVENT } from "@/components/Nav";
 import { deleteApplication, saveApplication, setTriage } from "@/lib/tracker/repo";
@@ -353,10 +354,27 @@ export default function TrackerView() {
     return {
       ready: readyToApply(list),
       followUps: list.filter((a) => needsFollowUp(a)),
+      // Every follow-up still waiting (due or not yet), for the calendar file.
+      calendar: followUpEvents(list),
     };
   }, [apps]);
 
   if (apps === undefined || setup === undefined) return <Spinner label="Loading your tracker..." />;
+
+  const showUpNext = upNext.ready.length > 0 || upNext.followUps.length > 0;
+  // Follow-up reminders as a calendar file. Lives by Up next; when that's hidden (nothing due
+  // yet), it sits with the other file actions under Your applications.
+  const calendarButton =
+    upNext.calendar.length > 0 ? (
+      <button
+        type="button"
+        className={textButtonClass}
+        title={`${upNext.calendar.length} follow-up${upNext.calendar.length === 1 ? "" : "s"}, as all-day events for Apple Calendar, Google Calendar or Outlook`}
+        onClick={() => downloadBlob(new Blob([buildIcs(upNext.calendar)], { type: "text/calendar;charset=utf-8" }), `job-follow-ups-${todayISO()}.ics`)}
+      >
+        Add follow-ups to calendar
+      </button>
+    ) : null;
 
   // First run: no key and nothing saved yet. The setup card replaces the stats and table.
   const firstRun = apps.length === 0 && !setup.items.find((i) => i.key === "key")?.done;
@@ -424,9 +442,9 @@ export default function TrackerView() {
         <>
           <ReadinessStrip readiness={setup} />
 
-          {(upNext.ready.length > 0 || upNext.followUps.length > 0) && (
+          {showUpNext && (
             <section className="mb-14">
-              <SectionHeading title="Up next" count={upNext.followUps.length + Math.min(upNext.ready.length, 8)} className="mb-4" />
+              <SectionHeading title="Up next" count={upNext.followUps.length + Math.min(upNext.ready.length, 8)} className="mb-4" actions={calendarButton} />
               <div className="-mx-4 flex gap-4 overflow-x-auto px-4 pb-3 sm:-mx-6 sm:px-6">
                 {upNext.followUps.map((a) => (
                   <UpNextCard
@@ -452,6 +470,7 @@ export default function TrackerView() {
               <>
                 {/* CSV in and out are occasional chores: quiet text buttons, so the one real
                     action here (adding a job) isn't one of three equal gray pills. */}
+                {!showUpNext && calendarButton}
                 <button type="button" onClick={() => setImporting(true)} className={textButtonClass}>
                   Import CSV
                 </button>
