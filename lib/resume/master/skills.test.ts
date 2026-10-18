@@ -76,7 +76,7 @@ describe("hasSkill free-text fallback", () => {
 
 describe("matchSkills", () => {
   it("splits job skills into have and gap, de-duplicated", () => {
-    expect(matchSkills(["React", "react", "Kubernetes", "TypeScript"], inventory, MASTER)).toEqual({
+    expect(matchSkills(["React", "react", "Kubernetes", "TypeScript"], inventory, MASTER)).toMatchObject({
       have: ["React", "TypeScript"],
       gap: ["Kubernetes"],
     });

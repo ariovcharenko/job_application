@@ -1,5 +1,7 @@
 import { z } from "zod";
 import type { AIProvider, JsonSchema } from "../ai/provider";
+import { cleanSkillList } from "../resume/master/jobSkills";
+import { normalizeSkill } from "../resume/master/skills";
 
 export const VISA_SIGNAL_VALUES = ["unknown", "sponsors", "opt-friendly", "no-sponsorship"] as const;
 export const FRESHNESS_VALUES = ["within_24h", "within_week", "older", "unknown"] as const;
@@ -31,6 +33,19 @@ const JobSignalsSchema = z.object({
 });
 
 export type JobSignals = z.infer<typeof JobSignalsSchema>;
+
+/**
+ * Tidies the two skill lists the model returned, by code: split pairs ("Python/Java"), drop
+ * degrees, years of experience, soft skills and filler, merge spellings of one skill, cap the
+ * length, and keep a skill out of "preferred" when it is already required. The model is asked to
+ * do this too, but its output is not trusted to.
+ */
+export function cleanSignalSkills(s: JobSignals): JobSignals {
+  const mustHaveSkills = cleanSkillList(s.mustHaveSkills, "required");
+  const required = new Set(mustHaveSkills.map(normalizeSkill));
+  const niceToHaveSkills = cleanSkillList(s.niceToHaveSkills, "preferred").filter((k) => !required.has(normalizeSkill(k)));
+  return { ...s, mustHaveSkills, niceToHaveSkills };
+}
 
 // Mirrors JobSignalsSchema. Anthropic's structured-output feature needs a plain JSON Schema,
 // not a zod schema, so the two are kept in step by hand.
@@ -68,9 +83,9 @@ const JOB_SIGNALS_JSON_SCHEMA: JsonSchema = {
       type: "array",
       items: { type: "string" },
       description:
-        "Required technical skills: languages, frameworks, tools, platforms, technical areas (e.g. \"Swift\", \"React\", \"distributed systems\"). Short names only. Never personality traits or soft skills (communication, attention to detail, positive attitude, teamwork).",
+        "Required technical skills: languages, frameworks, tools, platforms, technical areas (e.g. \"Swift\", \"React\", \"distributed systems\"). One skill per item, short names only, in the posting's own spelling (\"Python\", not \"experience with Python\"). List \"Python\" and \"Java\" separately, never \"Python/Java\"; keep \"A or B\" only when the posting accepts either. Never years of experience, degrees, certifications of a degree, personality traits or soft skills (communication, attention to detail, positive attitude, teamwork). Most important first, at most 15.",
     },
-    niceToHaveSkills: { type: "array", items: { type: "string" }, description: "Preferred but not required technical skills, same rules as mustHaveSkills." },
+    niceToHaveSkills: { type: "array", items: { type: "string" }, description: "Preferred but not required technical skills, same rules as mustHaveSkills, at most 8. Do not repeat a skill already in mustHaveSkills." },
     visaSignal: {
       type: "string",
       enum: [...VISA_SIGNAL_VALUES],
@@ -138,6 +153,6 @@ export async function extractJobSignals(provider: AIProvider, jdText: string, to
     system: SYSTEM_PROMPT(today),
     prompt: `Job posting:\n"""\n${text}\n"""`,
     schema: JOB_SIGNALS_JSON_SCHEMA,
-    parse: (raw) => JobSignalsSchema.parse(raw),
+    parse: (raw) => cleanSignalSkills(JobSignalsSchema.parse(raw)),
   });
 }

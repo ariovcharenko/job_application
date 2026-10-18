@@ -3,7 +3,7 @@
 // which skills the tailoring engine may put on the page.
 
 /** Common spellings that mean the same skill. Keys and values are already normalized. */
-const SYNONYMS: Record<string, string> = {
+export const SYNONYMS: Record<string, string> = {
   postgres: "postgresql",
   psql: "postgresql",
   js: "javascript",
@@ -79,12 +79,68 @@ const SYNONYMS: Record<string, string> = {
   "design system": "design systems",
   "wireframes": "wireframing",
   "prototypes": "prototyping",
+  // Spellings seen in postings (added with the skills evaluation set)
+  es6: "javascript",
+  "es6+": "javascript",
+  ecmascript: "javascript",
+  ml: "machine learning",
+  "ci/cd pipelines": "ci/cd",
+  "ci/cd pipeline": "ci/cd",
+  "ci/cd tools": "ci/cd",
+  cicd: "ci/cd",
+  "ci cd": "ci/cd",
+  "continuous integration": "ci/cd",
+  "continuous delivery": "ci/cd",
+  "continuous deployment": "ci/cd",
+  "continuous integration/continuous deployment": "ci/cd",
+  "continuous integration/continuous delivery": "ci/cd",
+  "unit tests": "unit testing",
+  oop: "object-oriented programming",
+  "object oriented programming": "object-oriented programming",
+  mongo: "mongodb",
+  mssql: "sql server",
+  "ms sql server": "sql server",
+  "microsoft sql server": "sql server",
+  cpp: "c++",
+  csharp: "c#",
+  "c sharp": "c#",
+  dotnet: ".net",
+  ".net core": ".net",
+  "swift ui": "swiftui",
+  "open cv": "opencv",
+  "tensor flow": "tensorflow",
+  "docker containers": "docker",
+  "agile methodology": "agile",
+  "agile methodologies": "agile",
+  "agile development": "agile",
+  "microservice architecture": "microservices",
+  "microservices architecture": "microservices",
+  websocket: "websockets",
+  "graph ql": "graphql",
+  "nosql databases": "nosql",
+  "nosql database": "nosql",
+  "apache spark": "spark",
+  "apache kafka": "kafka",
+  "apache airflow": "airflow",
+  "bash scripting": "bash",
+  "shell scripting": "bash",
+  shell: "bash",
+  "product roadmapping": "roadmapping",
+  "product roadmaps": "roadmapping",
+  roadmaps: "roadmapping",
+  "automated testing": "test automation",
+  "test automation frameworks": "test automation",
+  "version control systems": "version control",
 };
+
+/** Aliases that are also ordinary words: fine for reading a job's spelling, never searched for in her text. */
+const AMBIGUOUS_ALIASES = new Set(["node", "rest", "shell", "roadmaps", "ml"]);
 
 export function normalizeSkill(skill: string): string {
   const s = skill
     .toLowerCase()
     .replace(/[“”"'`]/g, "")
+    .replace(/\s+&\s+/g, " and ")
     .replace(/\s+/g, " ")
     .trim()
     .replace(/[.,;:]+$/, "");
@@ -153,7 +209,7 @@ export function parseSkillInventory(masterText: string): string[] {
 
 import { mentionsTerm } from "./techTerms";
 
-const SQL_DATABASES = ["postgresql", "mysql", "sqlite", "sql server", "t-sql", "oracle", "mariadb"];
+const SQL_DATABASES = ["postgresql", "mysql", "sqlite", "sql server", "t-sql", "oracle database", "oracle db", "mariadb"];
 const WAREHOUSES = ["snowflake", "bigquery", "redshift", "databricks"];
 
 /**
@@ -189,6 +245,11 @@ export const IMPLIED_BY: Record<string, string[]> = {
   orm: ["prisma", "hibernate", "jpa", "sqlalchemy", "sequelize", "typeorm", "entity framework", "django orm"],
   "version control": ["git"],
   prototyping: ["figma", "framer", "adobe xd"],
+  rtos: ["freertos", "zephyr", "threadx", "rtems"],
+  "computer vision": ["opencv"],
+  "performance testing": ["k6", "jmeter", "gatling", "locust"],
+  "load testing": ["k6", "jmeter", "gatling", "locust"],
+  "object-oriented programming": ["java", "c++", "c#", "kotlin", "swift"],
   "ui design": ["figma", "sketch", "adobe xd"],
 };
 
@@ -208,7 +269,8 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 function mentions(text: string, skill: string): boolean {
   if (!skill) return false;
   const re = new RegExp(`(^|[^a-z0-9+#])${escapeRe(skill)}($|[^a-z0-9+#])`, "i");
-  return re.test(text);
+  // "React Native" is not "React": a mention of only the first must not count as the second.
+  return re.test(skill === "react" ? text.replace(/react native/gi, " ") : text);
 }
 
 /**
@@ -222,15 +284,26 @@ export function skillEvidenceText(masterText: string): string {
   if (!lines.some((l) => /^#{1,6}\s/.test(l.trim()))) return masterText;
   const keep: string[] = [];
   let counts = false;
+  let skillsSection = false;
   for (const raw of lines) {
     const line = raw.trim();
     if (/^#{1,6}\s/.test(line)) {
       counts = /experience|project|skill|work history|employment/i.test(line);
+      skillsSection = /skill/i.test(line);
       continue;
     }
-    if (counts) keep.push(raw);
+    if (!counts) continue;
+    // "- **ML and data:** PyTorch, ..." : the label is a category name, not something she used.
+    keep.push(skillsSection ? raw.replace(/^(\s*[-*•]?\s*)\**[^:*]{1,60}:\**\s*/, "$1") : raw);
   }
   return keep.join("\n");
+}
+
+/** "HTML/CSS" -> ["HTML", "CSS"]; names that are one thing (CI/CD, TCP/IP) stay whole. */
+function slashParts(item: string): string[] {
+  if (!item.includes("/") || item.includes("(") || /^(?:ci\/cd|a\/b[a-z ]*|tcp\/ip|i\/o|ui\/ux|ux\/ui|pl\/sql|t-sql)$/i.test(item.trim())) return [];
+  const parts = item.split("/").map((p) => p.trim()).filter(Boolean);
+  return parts.length > 1 && parts.every((p) => p.split(" ").length <= 3) ? parts : [];
 }
 
 const VENDOR_PREFIX = /^(?:amazon|aws|google cloud)\s+/i;
@@ -252,7 +325,7 @@ export function hasSkill(skill: string, inventory: string[], masterText: string)
 function hasSkillAsWritten(skill: string, inventory: string[], masterText: string): boolean {
   const n = normalizeSkill(skill);
   if (!n) return false;
-  const inv = inventory.map(normalizeSkill);
+  const inv = inventory.flatMap((i) => [normalizeSkill(i), ...slashParts(i).map(normalizeSkill)]);
   if (inv.includes(n)) return true;
   // "React Testing Library" vs inventory "React Testing Library"; "AWS S3" vs "S3".
   if (inv.some((i) => i.length > 2 && (mentions(n, i) || mentions(i, n)) && Math.min(i.length, n.length) / Math.max(i.length, n.length) > 0.5)) {
@@ -270,30 +343,26 @@ function hasSkillAsWritten(skill: string, inventory: string[], masterText: strin
   const lowerMaster = evidence.toLowerCase();
   if (mentions(lowerMaster, n)) return true;
   // Synonym spelled differently in the profile (JD "Postgres", profile "PostgreSQL").
-  const reverse = Object.entries(SYNONYMS).filter(([, v]) => v === n).map(([k]) => k);
+  const reverse = Object.entries(SYNONYMS).filter(([k, v]) => v === n && !AMBIGUOUS_ALIASES.has(k)).map(([k]) => k);
   return reverse.some((alt) => mentions(lowerMaster, alt));
 }
 
 export interface SkillMatch {
   have: string[];
   gap: string[];
+  /**
+   * Where each skill in `have` was found in her experience: a role or project ("Brightloop
+   * (Software Engineer Intern)"), her skills list, or her education coursework. Optional: results
+   * saved before it existed don't have it. Shown only as a tooltip.
+   */
+  evidence?: Record<string, string>;
 }
 
-export function matchSkills(jobSkills: string[], inventory: string[], masterText: string): SkillMatch {
-  const have: string[] = [];
-  const gap: string[] = [];
-  const seen = new Set<string>();
-  for (const s of jobSkills) {
-    const key = normalizeSkill(s);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    (hasSkill(s, inventory, masterText) ? have : gap).push(s.trim());
-  }
-  return { have, gap };
-}
+// matchSkills (clean the job's list, then match each skill with evidence) lives in jobSkills.ts.
+export { matchSkills } from "./jobSkills";
 
 /** Traits postings list under qualifications that aren't skills a resume can show or lack. */
-const SOFT_SKILL = /\b(communication|attention to detail|detail[- ]oriented|team ?work|team player|collaborat\w*|attitude|upbeat|adaptab\w*|results[- ]oriented|self[- ]starter|motivated|passion\w*|curio\w*|work ethic|interpersonal|leadership skills|problem[- ]solving skills|fast[- ]paced|ownership|growth mindset)\b/i;
+const SOFT_SKILL = /\b(communication|attention to detail|detail[- ]oriented|team ?work|team player|collaborat\w*|attitude|upbeat|adaptab\w*|results[- ]oriented|self[- ]starter|motivated|passion\w*|curio\w*|work ethic|interpersonal|leadership skills|problem[- ]solving|critical thinking|analytical (?:skills|mindset)|written and verbal|organizational skills|time management|willing(?:ness)? to learn|eager to learn|fast learner|fast[- ]paced|ownership|growth mindset)\b/i;
 
 /** Words that make a phrase technical even when it contains a soft word ("inter-process communication"). */
 const TECHNICAL_CONTEXT = /inter-?process|protocol|network|system|serial|socket|api|bus\b|data|machine|real-?time|async/i;
@@ -304,7 +373,9 @@ export function isSoftSkill(skill: string): boolean {
 
 /** Drops soft skills from a match, so they don't move the skills percentage either way. */
 export function dropSoftSkills(m: SkillMatch): SkillMatch {
-  return { have: m.have.filter((s) => !isSoftSkill(s)), gap: m.gap.filter((s) => !isSoftSkill(s)) };
+  const have = m.have.filter((s) => !isSoftSkill(s));
+  const evidence = m.evidence ? Object.fromEntries(Object.entries(m.evidence).filter(([k]) => have.includes(k))) : undefined;
+  return { have, gap: m.gap.filter((s) => !isSoftSkill(s)), ...(evidence && Object.keys(evidence).length ? { evidence } : {}) };
 }
 
 /**

@@ -51,7 +51,10 @@ export const TECH_TERMS: string[] = [...new Set(Object.values(TECH_TERM_FAMILIES
  * ("excel at", "sketch out", "a swift response" aren't skills). Short names (4 characters or
  * fewer, like C, R, Go, Git, REST, Jira) are always matched that way too.
  */
-const ORDINARY_WORDS = new Set(["Swift", "Excel", "Sketch", "Framer", "Looker"]);
+const ORDINARY_WORDS = new Set(["Swift", "Excel", "Sketch", "Framer", "Looker", "Spring", "Express", "Spark", "Rails", "Rust", "Dart", "Julia", "Helm", "Statistics"]);
+
+/** Ordinary phrases that start with a language's name: "Go to market", "Go through", "Go live". */
+const NOT_THE_TERM = /^\s+(?:to|through|beyond|above|ahead|live)\b/;
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -61,7 +64,14 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  * every term case-sensitive, for scanning prose where "express" or "spring" are ordinary words.
  */
 export function mentionsTerm(text: string, term: string, opts: { exactCase?: boolean } = {}): boolean {
+  // "React Native" is a different skill from "React": mentioning only the first does not mention the second.
+  if (term === "React") text = text.replace(/React Native/gi, " ");
   const caseSensitive = opts.exactCase || term.length <= 4 || ORDINARY_WORDS.has(term);
   const re = new RegExp(`(^|[^A-Za-z0-9+#.-])${escapeRe(term)}(?![A-Za-z0-9+#&-])`, caseSensitive ? "" : "i");
-  return re.test(text);
+  if (term !== "Go") return re.test(text);
+  const g = new RegExp(re.source, "g");
+  for (let m = g.exec(text); m; m = g.exec(text)) {
+    if (!NOT_THE_TERM.test(text.slice(m.index + m[0].length))) return true;
+  }
+  return false;
 }
