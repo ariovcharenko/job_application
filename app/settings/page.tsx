@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import AnswerBankCard from "@/components/settings/AnswerBankCard";
 import BackupCard from "@/components/settings/BackupCard";
-import JSearchKeyCard from "@/components/settings/JSearchKeyCard";
 import ExtensionCard from "@/components/settings/ExtensionCard";
 import ApiKeyCard from "@/components/settings/ApiKeyCard";
 import OpenAIKeyCard from "@/components/settings/OpenAIKeyCard";
@@ -21,9 +20,8 @@ const SECTIONS = [
   "AI spend",
   "Profile",
   "Job preferences",
-  "Answer bank",
+  "Saved answers",
   ...(FEATURES.extension ? ["Chrome extension"] : []),
-  ...(FEATURES.jobFeed ? ["Job search API (JSearch)"] : []),
   "Backup and restore",
 ];
 
@@ -41,7 +39,6 @@ export default function SettingsPage() {
           <PreferencesCard />
           <AnswerBankCard />
           {FEATURES.extension && <ExtensionCard />}
-          {FEATURES.jobFeed && <JSearchKeyCard />}
           <BackupCard />
         </div>
       </div>

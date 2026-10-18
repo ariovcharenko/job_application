@@ -99,7 +99,7 @@ function BaseResumesCardInner() {
 
   return (
     <Card
-      title="Base resumes"
+      title="Resumes for autofill"
       hint="Ready-made .docx or PDF files the Chrome extension uploads to forms. Tailoring doesn't use them."
     >
       {!folder && <Notice kind="info">Pick a resume folder in the card below first.</Notice>}
@@ -160,7 +160,7 @@ function BaseResumesCardInner() {
       )}
       {removing && (
         <ConfirmDialog
-          title="Remove this base resume?"
+          title="Remove this resume?"
           message={`"${removing.fileName}" will be removed from the app. The file in your folder is kept.`}
           confirmLabel="Remove"
           onCancel={() => setRemoving(null)}

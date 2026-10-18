@@ -1,5 +1,5 @@
 import { db } from "../db";
-import type { Application, FeedItem, Stage } from "../types";
+import type { Application, Stage } from "../types";
 import { blankApplication } from "./blank";
 import { dedupeKey, normalizeRoleType } from "./csvMap";
 import { applyStageChange } from "./stage";
@@ -84,33 +84,4 @@ export async function importApplications(incoming: Application[]): Promise<{ add
   }
   if (fresh.length) await db.applications.bulkAdd(fresh);
   return { added: fresh.length, skipped };
-}
-
-export async function setFeedItemState(id: number, state: FeedItem["state"]): Promise<void> {
-  await db.feed.update(id, { state });
-}
-
-export async function dismissFeedItem(id: number): Promise<void> {
-  await setFeedItemState(id, "dismissed");
-}
-
-/** Turns a feed match into a tracked application (source "Feed"), and marks the feed row as started. */
-export async function startApplicationFromFeed(item: FeedItem): Promise<number> {
-  const id = await saveApplication({
-    ...blankApplication(),
-    company: item.company,
-    role: item.title,
-    url: item.url,
-    location: item.location,
-    workMode: item.workMode,
-    visa: item.visa,
-    roleType: normalizeRoleType(item.title),
-    source: "Feed",
-    jdText: item.jdText,
-    fitScore: item.fitScore,
-    fitBreakdown: item.fitBreakdown,
-    tailorDraft: item.tailorDraft,
-  });
-  if (item.id !== undefined) await setFeedItemState(item.id, "started");
-  return id;
 }

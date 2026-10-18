@@ -8,7 +8,7 @@
 // Optional: ANTHROPIC_WORKSPACE_ID for keys that need the workspace header.
 
 import { createAnthropicProvider } from "../lib/ai/anthropic";
-import { formatUsd } from "../lib/resume/batch";
+import { formatUsd } from "../lib/ai/usage";
 import { estimateEvalCost, evalJobs, formatRow, HEADER_ROW, runBaseline, runOurs, type EvalResult } from "../lib/resume/eval/run";
 
 const args = process.argv.slice(2);
