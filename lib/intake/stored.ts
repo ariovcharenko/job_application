@@ -21,8 +21,8 @@ export function hasIncompletePosting(app: Pick<Application, "jdText" | "fitBreak
 }
 
 /**
- * Saved (not yet applied) jobs with an "Apply" verdict (every must-have passes, and not a weak
- * skills match), best skills match first: what to apply
+ * Saved (not yet applied) jobs with an "Apply" verdict (every must-have passes, and a known match
+ * that is not weak), best skills match first: what to apply
  * to next. Jobs analyzed before the must-have filters existed are left out rather than guessed.
  */
 export function readyToApply<T extends Application>(apps: T[]): { app: T; percent: number | null }[] {

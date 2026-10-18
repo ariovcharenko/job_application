@@ -105,6 +105,8 @@ describe("verdictFor", () => {
     expect(verdictFor({ canApply: false }, 95)).toBe("dont-apply");
     expect(verdictFor({ canApply: true }, 80)).toBe("apply");
     expect(verdictFor({ canApply: true }, 30)).toBe("low-match");
-    expect(verdictFor({ canApply: true }, null)).toBe("apply");
+    expect(verdictFor({ canApply: true }, null)).toBe("unknown-match");
+    expect(verdictFor({ canApply: false }, null)).toBe("dont-apply");
+    expect(verdictFor({ canApply: true }, 50)).toBe("apply");
   });
 });

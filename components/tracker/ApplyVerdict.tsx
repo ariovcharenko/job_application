@@ -7,6 +7,8 @@ import { outlinedClass } from "@/components/ui";
 
 const VERDICT_DOT: Record<Verdict, string> = {
   apply: "bg-accent",
+  // Neutral on purpose: purple means "good", and without a match there's nothing to recommend yet.
+  "unknown-match": "bg-black/30",
   "low-match": "bg-warn",
   "dont-apply": "bg-bad",
 };
@@ -122,8 +124,8 @@ export default function ApplyVerdict({
       ? decision.failed.map((f) => f.details.join(" ")).join(" ")
       : pct === null
         ? skills
-          ? "The posting is too short to compare with your profile."
-          : "Add your experience on the Resumes page to see how you match."
+          ? "Nothing rules you out, but the saved text lists no skills to compare. Paste the full job description to get a match."
+          : "Nothing rules you out. Add your experience on the Resumes page to see how well you match."
         : unclear > 0
           ? `Nothing rules you out, but ${unclear} of your must-haves ${unclear === 1 ? "is" : "are"} unclear.`
           : VERDICT_TEXT[verdict].detail;

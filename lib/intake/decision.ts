@@ -92,16 +92,22 @@ export function skillsMatchPercent(required: SkillMatch, preferred: SkillMatch):
 /** Below this match she's told the fit is weak, even when every must-have passes. */
 export const LOW_MATCH_BELOW = 50;
 
-export type Verdict = "apply" | "low-match" | "dont-apply";
+export type Verdict = "apply" | "unknown-match" | "low-match" | "dont-apply";
 
 export const VERDICT_TEXT: Record<Verdict, { label: string; detail: string }> = {
   apply: { label: "Apply", detail: "Nothing rules you out, and your skills fit." },
+  "unknown-match": { label: "Eligible, match unknown", detail: "Nothing rules you out, but there's no skills match to go on yet." },
   "low-match": { label: "Weak match", detail: "Nothing rules you out, but you have few of the skills it asks for." },
   "dont-apply": { label: "Don't apply", detail: "It fails one of your must-haves." },
 };
 
-/** One answer to "should I apply?": must-haves first, then the match percentage. */
+/**
+ * One answer to "should I apply?": must-haves first, then the match percentage. With no match
+ * number (no experience saved yet, or a posting too short to compare) the job is eligible but not
+ * a recommendation: "Apply" needs both.
+ */
 export function verdictFor(decision: Pick<ApplyDecision, "canApply">, percent: number | null): Verdict {
   if (!decision.canApply) return "dont-apply";
-  return percent !== null && percent < LOW_MATCH_BELOW ? "low-match" : "apply";
+  if (percent === null) return "unknown-match";
+  return percent < LOW_MATCH_BELOW ? "low-match" : "apply";
 }

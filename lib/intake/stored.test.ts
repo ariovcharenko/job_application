@@ -34,7 +34,8 @@ describe("readyToApply", () => {
       app({ company: "E", stage: "Saved" }),
       app({ company: "F", stage: "Saved" }, ok(null)),
     ]);
-    expect(list.map((x) => x.app.company)).toEqual(["B", "A", "F"]);
+    // F passes every must-have but has no match number: eligible, not a recommendation.
+    expect(list.map((x) => x.app.company)).toEqual(["B", "A"]);
     // A weak match isn't "ready", even when every must-have passes.
     expect(readyToApply([app({ company: "W", stage: "Saved" }, ok(10))])).toEqual([]);
     // A job scored from a page shell instead of the posting isn't "ready".
