@@ -117,7 +117,7 @@ function FilterReasons({ filters }: { filters: FilterResult[] }) {
   );
 }
 
-function SkillRow({ label, have, gap }: { label: string; have: string[]; gap: string[] }) {
+function SkillRow({ label, have, gap, evidence }: { label: string; have: string[]; gap: string[]; evidence?: Record<string, string> }) {
   const total = have.length + gap.length;
   if (total === 0) return null;
   return (
@@ -128,7 +128,9 @@ function SkillRow({ label, have, gap }: { label: string; have: string[]; gap: st
       <p className="text-[13px] leading-relaxed">
         {have.map((s, i) => (
           <span key={`h-${s}`}>
-            <span className="text-ink">{s}</span>
+            <span className="text-ink" title={evidence?.[s] ? `Found in: ${evidence[s]}` : undefined}>
+              {s}
+            </span>
             {i < have.length - 1 || gap.length ? <span className="text-black/25"> · </span> : null}
           </span>
         ))}
@@ -230,14 +232,14 @@ export default function ApplyVerdict({
 
       {skills && !mentioned && skills.basis !== "keywords" && skills.required.have.length + skills.required.gap.length + skills.preferred.have.length + skills.preferred.gap.length > 0 && (
         <div className="grid gap-2.5 border-t border-black/[0.06] px-6 py-4">
-          <SkillRow label="Required" have={skills.required.have} gap={skills.required.gap} />
-          <SkillRow label="Nice to have" have={skills.preferred.have} gap={skills.preferred.gap} />
+          <SkillRow label="Required" have={skills.required.have} gap={skills.required.gap} evidence={skills.required.evidence} />
+          <SkillRow label="Nice to have" have={skills.preferred.have} gap={skills.preferred.gap} evidence={skills.preferred.evidence} />
           {skills.required.gap.length + skills.preferred.gap.length > 0 && <MissingCaption />}
         </div>
       )}
       {mentioned && skills && (
         <div className="grid gap-2.5 border-t border-black/[0.06] px-6 py-4">
-          <SkillRow label="Mentioned" have={skills.required.have} gap={skills.required.gap} />
+          <SkillRow label="Mentioned" have={skills.required.have} gap={skills.required.gap} evidence={skills.required.evidence} />
           {skills.required.gap.length > 0 && <MissingCaption />}
           <p className="text-xs text-muted">Counts every technology the posting mentions.</p>
         </div>

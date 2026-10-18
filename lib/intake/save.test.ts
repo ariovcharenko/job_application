@@ -38,7 +38,7 @@ beforeEach(async () => {
 describe("assessJob", () => {
   it("checks required skills against the master profile and clears a job that meets every must-have", () => {
     const a = analysis();
-    expect(a.requiredSkills).toEqual({ have: ["React", "TypeScript", "Postgres"], gap: [] });
+    expect(a.requiredSkills).toMatchObject({ have: ["React", "TypeScript", "Postgres"], gap: [] });
     expect(a.skills?.percent).toBe(100);
     expect(a.decision.canApply).toBe(true);
   });

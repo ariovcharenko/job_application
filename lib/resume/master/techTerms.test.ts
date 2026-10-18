@@ -57,7 +57,9 @@ describe("mentionsTerm", () => {
 
   it("can require the term's own capitalization for any length", () => {
     expect(mentionsTerm("an express checkout", "Express", { exactCase: true })).toBe(false);
+    expect(mentionsTerm("an apache kafka", "Kafka", { exactCase: true })).toBe(false);
     expect(mentionsTerm("an API in Express", "Express", { exactCase: true })).toBe(true);
-    expect(mentionsTerm("an express checkout", "Express")).toBe(true);
+    expect(mentionsTerm("an express checkout", "Express")).toBe(false);
+    expect(mentionsTerm("an api in kafka", "Kafka")).toBe(true);
   });
 });

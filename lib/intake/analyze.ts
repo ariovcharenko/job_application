@@ -128,8 +128,8 @@ export function assessJob(signals: JobSignals, prefs: Preferences, masterProfile
     const inventory = parseSkillInventory(masterProfile);
     // Soft skills ("communication", "attention to detail") are dropped: they aren't skills a
     // resume can show or lack, and would move the percentage either way.
-    requiredSkills = dropSoftSkills(matchSkills(signals.mustHaveSkills, inventory, masterProfile));
-    skills = skillsMatchPercent(requiredSkills, dropSoftSkills(matchSkills(signals.niceToHaveSkills, inventory, masterProfile)));
+    requiredSkills = dropSoftSkills(matchSkills(signals.mustHaveSkills, inventory, masterProfile, { kind: "required" }));
+    skills = skillsMatchPercent(requiredSkills, dropSoftSkills(matchSkills(signals.niceToHaveSkills, inventory, masterProfile, { kind: "preferred" })));
     if (skills.percent === null && jdText.trim()) skills = mentionedSkillsMatch(jdText, masterProfile) ?? skills;
   }
   const score = scoreJob(signals, prefs, requiredSkills, candidate, geo);

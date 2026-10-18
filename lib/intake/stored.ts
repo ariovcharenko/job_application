@@ -2,7 +2,7 @@ import { candidateFacts } from "../eligibility/candidate";
 import { loadGeo, type GeoIndex } from "../geo/index";
 import type { Application, MustHaves, Preferences, Profile } from "../types";
 import { assessJob, looksLikeJobPosting, mentionedSkillsMatch, toStoredBreakdown, type StoredBreakdown } from "./analyze";
-import { dropSoftSkills } from "../resume/master/skills";
+import { dropSoftSkills, matchSkills, parseSkillInventory } from "../resume/master/skills";
 import { compareHeadlines, decideApply, headlineFor, normalizeLegacyCriteria, skillsMatchPercent, verdictFor, type Headline } from "./decision";
 import { postedAge, type PostedAge } from "../tracker/postedAge";
 
@@ -54,7 +54,19 @@ function refreshChecklistOnly<T extends Application>(app: T, b: StoredBreakdown,
   const next: StoredBreakdown = { ...b, criteria, decision: decideApply(criteria, mustHaves) };
   // Saved before soft skills were excluded: drop them and recompute the percentage.
   if (next.skills?.basis === "skills") {
-    next.skills = skillsMatchPercent(dropSoftSkills(next.skills.required), dropSoftSkills(next.skills.preferred));
+    // With her master profile: match the saved lists again under the current rules (splitting,
+    // synonyms, categories, evidence). Without it, only drop soft skills as before.
+    const inventory = masterProfile.trim() ? parseSkillInventory(masterProfile) : null;
+    next.skills = inventory
+      ? skillsMatchPercent(
+          dropSoftSkills(matchSkills([...next.skills.required.have, ...next.skills.required.gap], inventory, masterProfile, { kind: "required" })),
+          dropSoftSkills(matchSkills([...next.skills.preferred.have, ...next.skills.preferred.gap], inventory, masterProfile, { kind: "preferred" })),
+        )
+      : skillsMatchPercent(dropSoftSkills(next.skills.required), dropSoftSkills(next.skills.preferred));
+  }
+  // A match built from the technologies a posting mentions is rebuilt, so name-matching fixes apply to old rows.
+  if (next.skills?.basis === "mentioned" && app.jdText.trim() && masterProfile.trim()) {
+    next.skills = mentionedSkillsMatch(app.jdText, masterProfile) ?? next.skills;
   }
   const needsFallback = next.skills && (next.skills.percent === null || next.skills.basis === "keywords");
   if (next.skills && needsFallback && app.jdText.trim() && masterProfile.trim()) {
