@@ -13,9 +13,7 @@ export function appHandlerDeps(): HandlerDeps {
       if (typeof window !== "undefined" && window.location.pathname !== "/") window.location.assign("/");
     },
     showDraft: addDraftRequest,
-    async getResume() {
-      return null;
-    },
+    getResume: async (jobId) => (await import("./resumeFile")).resumeForJob(jobId),
     async saveAnswer() {
       throw new Error("Saving answers from the extension isn't available yet.");
     },

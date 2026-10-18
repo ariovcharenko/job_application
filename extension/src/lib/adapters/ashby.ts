@@ -1,5 +1,6 @@
 import type { AtsAdapter } from "./types";
 import { findResumeInputGeneric } from "./resumeInput";
+import { ashbyJobInfo } from "../pageJob";
 
 // Ashby's React app uses generated class names that change across deploys, so this leans almost
 // entirely on the generic, label-based detection rather than guessing CSS classes that would
@@ -10,6 +11,7 @@ export const ashbyAdapter: AtsAdapter = {
   findFormRoot(doc) {
     return doc.querySelector("form") ?? doc.body;
   },
+  pageJobInfo: ashbyJobInfo,
   findResumeInput(doc) {
     return findResumeInputGeneric(doc.body);
   },

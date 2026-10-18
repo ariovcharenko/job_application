@@ -1,5 +1,6 @@
 import type { AtsAdapter } from "./types";
 import { findResumeInputGeneric } from "./resumeInput";
+import { greenhouseJobInfo } from "../pageJob";
 
 // Greenhouse's exact markup has shifted between their older (boards.greenhouse.io) and newer
 // (job-boards.greenhouse.io) hosting, so this only relies on the hostname plus a couple of
@@ -11,6 +12,7 @@ export const greenhouseAdapter: AtsAdapter = {
   findFormRoot(doc) {
     return doc.querySelector("#application_form, form.application-form, form#application-form") ?? doc.querySelector("form") ?? doc.body;
   },
+  pageJobInfo: greenhouseJobInfo,
   findResumeInput(doc) {
     const byId = doc.querySelector<HTMLInputElement>('input#resume, input[name="resume"], input[name*="resume" i]');
     return byId ?? findResumeInputGeneric(doc.body);

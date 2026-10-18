@@ -9,7 +9,8 @@ import { fillForm } from "../lib/fillEngine";
 import { isBlockedHost } from "../lib/hosts";
 import { getFieldLabel } from "../lib/matching";
 import { extractVisibleText } from "../lib/pageText";
-import type { ContextReply, SimpleReply, TabMessage } from "../messages";
+import { uploadResumeForJob, type ResumeOutcome } from "../lib/resumeFlow";
+import type { ContextReply, ResumeReply, SimpleReply, TabMessage } from "../messages";
 import type { FillOutcome } from "../types";
 
 const HOST_ID = "job-copilot-host";
@@ -112,14 +113,24 @@ async function runFillApplication(): Promise<void> {
   const adapter = pickAdapter(location);
   const root = adapter.findFormRoot(document) ?? document.body;
   const outcomes = fillForm(root, ctx.data.profile);
-  renderChecklist(outcomes);
+  // The resume: this job's tailored one when the page matches a saved job. Asked for only now.
+  setStatus("Getting your resume from Job Copilot...");
+  const resume = await uploadResumeForJob(adapter.findResumeInput(document), ctx.match, {
+    requestResume: (jobId) => send<ResumeReply>({ type: "GET_RESUME", jobId }),
+  });
+  renderChecklist(outcomes, resume, ctx);
 }
 
-function renderChecklist(outcomes: FillOutcome[]): void {
+function renderChecklist(outcomes: FillOutcome[], resume: ResumeOutcome, ctx: ContextReply): void {
   const { panel } = ui;
   panel.innerHTML = "";
   const filled = outcomes.filter((o) => o.status === "filled").length;
   panel.appendChild(el("div", "jc-title", `Filled ${filled}, needs you ${outcomes.length - filled}`));
+  panel.appendChild(el("div", "jc-note", ctx.match ? `Saved job: ${ctx.match.job.company}, ${ctx.match.job.role}.` : "This page isn't one of your saved jobs, so nothing is tied to a job."));
+  const resumeRow = el("div", `jc-row ${resume.status === "uploaded" ? "jc-filled" : "jc-skipped"}`);
+  resumeRow.appendChild(el("span", "jc-row-label", "Resume"));
+  resumeRow.appendChild(el("span", "jc-row-reason", resume.note));
+  panel.appendChild(resumeRow);
 
   for (const o of outcomes) {
     const row = el("div", `jc-row jc-${o.status}`);
