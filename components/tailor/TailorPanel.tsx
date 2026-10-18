@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { canFallBackToClaude, providerFor, RESUME_WRITING_TASKS } from "@/lib/ai/route";
+import { canFallBackToClaude, providerFor, RESUME_WRITING_TASKS, type WriterFallback } from "@/lib/ai/route";
 import { formatRunCost, spendSince } from "@/lib/ai/usage";
 import type { ProviderId } from "@/lib/ai/provider";
 import { getMasterProfile, getProfile, saveMasterProfile } from "@/lib/db";
@@ -192,6 +192,9 @@ export default function TailorPanel({
   const [changes, setChanges] = useState<string[]>([]);
   // What the last generation or update cost, from the local spend meter ("This update: about 4¢").
   const [runCost, setRunCost] = useState<{ label: string; usd: number; estimated: boolean } | null>(null);
+  // "Written with Claude: OpenAI was out of credit." when the last call moved to Claude on its own.
+  const [fallbackNote, setFallbackNote] = useState<string | null>(null);
+  const writerOpts = (override: ProviderId | undefined) => ({ override, onFallback: (f: WriterFallback) => setFallbackNote(f.message) });
   const showRunCost = (label: string, from: number) =>
     void spendSince(from, RESUME_WRITING_TASKS).then((s) => setRunCost(s.calls ? { label, usd: s.usd, estimated: s.estimated } : null));
   const [history, setHistory] = useState<{ result: ValidationResult; approved: Set<string> }[]>([]);
@@ -293,6 +296,7 @@ export default function TailorPanel({
     setSaved(null);
     setProgress(null);
     setPhase("generating");
+    setFallbackNote(null);
     const signal = newSignal();
     setRunCost(null);
     const runStart = Date.now();
@@ -302,8 +306,8 @@ export default function TailorPanel({
       // Saved to the job inside the run itself, so closing the dialog now still keeps it.
       const { out, id, saveError } = await tailorAndSave(
         {
-          provider: await providerFor("write_resume", { override }),
-          polishProvider: await providerFor("polish_resume", { override }),
+          provider: await providerFor("write_resume", writerOpts(override)),
+          polishProvider: await providerFor("polish_resume", writerOpts(override)),
           master: m,
           company: application.company,
           jdText: application.jdText,
@@ -602,11 +606,12 @@ export default function TailorPanel({
     setSaved(null);
     setSelection(null);
     setPhase("revising");
+    setFallbackNote(null);
     const signal = newSignal();
     setRunCost(null);
     const runStart = Date.now();
     try {
-      const out = await reviseResume(await providerFor("revise_resume", { override }), m, application.company, application.jdText, result.doc, all, undefined, undefined, signal);
+      const out = await reviseResume(await providerFor("revise_resume", writerOpts(override)), m, application.company, application.jdText, result.doc, all, undefined, undefined, signal);
       const { changes: done, ...doc } = out;
       // A model answer: the job's skills she has go back on the Skills lines if it dropped any.
       const next = validateResume(doc, m, { ...checkOpts, addJobSkills: true });
@@ -722,10 +727,11 @@ export default function TailorPanel({
     if (!fitted || !readiness || phase !== "ready" || reviewing) return;
     setReviewing(true);
     setAiError(null);
+    setFallbackNote(null);
     const signal = newSignal();
     try {
       const review = await reviewResume(
-        await providerFor("review_resume", { override }),
+        await providerFor("review_resume", writerOpts(override)),
         masterRef.current,
         { company: application.company, role: application.role, jdText: application.jdText, doc: fitted.doc, readiness },
         undefined,
@@ -1198,6 +1204,7 @@ export default function TailorPanel({
         )}
       </section>
 
+      {fallbackNote && <p className="text-[13px] text-muted">{fallbackNote}</p>}
       {runCost && (
         <p className="text-[13px] text-muted">
           {runCost.label}: {formatRunCost(runCost.usd)}

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { db, getSettings, saveSettings } from "../db";
 import { DEFAULT_SETTINGS } from "../defaults";
 import { AIError } from "./provider";
-import { buildProvider, canFallBackToClaude, chooseProvider, providerFor, RESUME_WRITING_TASKS, resumeWriter, type AITask } from "./route";
+import { buildProvider, canFallBackToClaude, chooseProvider, providerFor, RESUME_WRITING_TASKS, resumeWriter, WRITER_TASKS, type AITask } from "./route";
 
 // Obviously fake keys.
 const ANTHROPIC = "test-anthropic-key";
@@ -30,19 +30,23 @@ describe("who writes resumes", () => {
 });
 
 describe("routing table", () => {
-  it("sends only resume writing to OpenAI; everything else stays on Claude", () => {
+  it("sends resume writing and outreach drafts to OpenAI; everything else stays on Claude", () => {
     const s = { ...both, resumeWriter: "openai" as const };
     const table = Object.fromEntries(ALL_TASKS.map((t) => [t, chooseProvider(t, s)]));
     expect(table).toEqual({
       check_job: "anthropic",
       read_link: "anthropic",
       import_resume: "anthropic",
-      draft_outreach: "anthropic",
+      draft_outreach: "openai",
       write_resume: "openai",
       revise_resume: "openai",
       polish_resume: "openai",
       review_resume: "openai",
     });
+  });
+
+  it("the writer group is the resume tasks plus outreach drafts", () => {
+    expect([...WRITER_TASKS].sort()).toEqual([...RESUME_WRITING_TASKS, "draft_outreach"].sort());
   });
 
   it("with Claude chosen, every task is Claude", () => {
@@ -51,7 +55,7 @@ describe("routing table", () => {
 
   it("'use Claude for this run' overrides OpenAI for writing tasks only", () => {
     const s = { ...both, resumeWriter: "openai" as const };
-    for (const t of RESUME_WRITING_TASKS) expect(chooseProvider(t, s, "anthropic")).toBe("anthropic");
+    for (const t of WRITER_TASKS) expect(chooseProvider(t, s, "anthropic")).toBe("anthropic");
     // An override can never send a capability task (PDF, web fetch) to OpenAI.
     expect(chooseProvider("import_resume", s, "openai")).toBe("anthropic");
     expect(chooseProvider("read_link", s, "openai")).toBe("anthropic");

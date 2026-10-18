@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { getProvider } from "@/lib/ai";
-import { AIError } from "@/lib/ai/provider";
+import { AIError, type ProviderId } from "@/lib/ai/provider";
+import { canFallBackToClaude, providerFor } from "@/lib/ai/route";
+import WriterFallbackNotice from "@/components/tailor/WriterFallbackNotice";
 import { deleteContact, getAnswerBank, getContactsForApplication, getProfile, saveContact } from "@/lib/db";
 import { buildOutreachSearches } from "@/lib/outreach/linkedin";
 import { draftOutreachMessage } from "@/lib/outreach/draft";
@@ -28,6 +29,10 @@ export default function OutreachDialog({ application, onClose }: { application: 
   const [contacts, setContacts] = useState<Contact[] | null>(null);
   const [school, setSchool] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // OpenAI (the chosen writer) can't be used: offer to fix the key or use Claude for this draft.
+  const [writerError, setWriterError] = useState<{ error: AIError; contact: Contact } | null>(null);
+  // "Written with Claude: OpenAI was out of credit." when a draft moved to Claude on its own.
+  const [fallbackNote, setFallbackNote] = useState<string | null>(null);
   const [draftingId, setDraftingId] = useState<number | null>(null);
   const [removing, setRemoving] = useState<Contact | null>(null);
   const [newContact, setNewContact] = useState({ name: "", role: "", linkedinUrl: "", type: "recruiter" as Contact["type"] });
@@ -92,11 +97,16 @@ export default function OutreachDialog({ application, onClose }: { application: 
     await refresh();
   };
 
-  const draftFor = async (contact: Contact) => {
+  const draftFor = async (contact: Contact, override?: ProviderId) => {
     setError(null);
+    setWriterError(null);
+    setFallbackNote(null);
     setDraftingId(contact.id ?? -1);
     try {
-      const [provider, answerBank] = await Promise.all([getProvider("draft_outreach"), getAnswerBank()]);
+      const [provider, answerBank] = await Promise.all([
+        providerFor("draft_outreach", { override, onFallback: (f) => setFallbackNote(f.message) }),
+        getAnswerBank(),
+      ]);
       const profile = await getProfile();
       const draft = await draftOutreachMessage(provider, contact, application, profile, answerBank);
       const text = `Connection note (${draft.note.length} chars):\n${draft.note}\n\nFollow-up after connecting:\n${draft.followUp}`;
@@ -104,6 +114,11 @@ export default function OutreachDialog({ application, onClose }: { application: 
       const now = latest.current?.find((c) => c.id === contact.id) ?? contact;
       await updateContact(now, { draft: text });
     } catch (e) {
+      if (e instanceof AIError && canFallBackToClaude(e)) {
+        setWriterError({ error: e, contact });
+        return;
+      }
+      if (e instanceof AIError && e.kind === "cancelled") return;
       const needsKey = e instanceof AIError && e.kind === "no_key";
       setError(needsKey ? "Add your Anthropic API key in Settings first." : e instanceof Error ? e.message : String(e));
     } finally {
@@ -224,7 +239,16 @@ export default function OutreachDialog({ application, onClose }: { application: 
         </div>
       </div>
 
+      {fallbackNote && <p className="mt-3 text-[13px] text-muted">{fallbackNote}</p>}
       {error && <Notice kind="error">{error}</Notice>}
+      {writerError && (
+        <WriterFallbackNotice
+          error={writerError.error}
+          disabled={draftingId !== null}
+          onRetry={() => void draftFor(writerError.contact)}
+          onUseClaude={() => void draftFor(writerError.contact, "anthropic")}
+        />
+      )}
       <div className="mt-5 flex justify-end">
         <Button variant="secondary" onClick={onClose}>
           Close

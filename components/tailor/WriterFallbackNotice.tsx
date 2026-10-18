@@ -7,7 +7,7 @@ import { AIError } from "@/lib/ai/provider";
 import { Button } from "@/components/ui";
 
 /**
- * OpenAI was chosen to write resumes but can't be used right now (no key, rejected key, no credit,
+ * OpenAI was chosen to write resumes and messages but can't be used right now (no key, rejected key, no credit,
  * a model it can't use). Never a dead end: add or fix the key right here and try again, or use
  * Claude for this run only (the saved choice stays OpenAI).
  */

@@ -18,7 +18,7 @@ const WRITERS: { id: ProviderId; label: string }[] = [
 ];
 
 /**
- * Optional OpenAI key, used only to write and revise resumes (lib/ai/route.ts). Autosaves its own
+ * Optional OpenAI key, used only to write and revise resumes and draft outreach messages (lib/ai/route.ts). Autosaves its own
  * fields only, so it never overwrites the Anthropic card's.
  */
 export default function OpenAIKeyCard({
@@ -98,7 +98,7 @@ export default function OpenAIKeyCard({
 
   const modelPicker = (
     <SelectField
-      label="OpenAI model (writing resumes)"
+      label="OpenAI model (writing resumes and messages)"
       value={model}
       onChange={(v) => setS({ ...s, openaiModel: v })}
       options={options.map((o) => ({ value: o.id, label: o.label }))}
@@ -108,12 +108,12 @@ export default function OpenAIKeyCard({
   return (
     <Card
       title="OpenAI API key"
-      hint="Optional. Used only to write and revise resumes. Stored in this browser and sent only to OpenAI. Checking jobs, reading links and importing resumes always use Claude."
+      hint="Optional. Used only to write and revise resumes and to draft outreach messages. Stored in this browser and sent only to OpenAI. Checking jobs, reading links and importing resumes always use Claude."
       saveStatus={saveStatus}
     >
       <div className="grid gap-4">
-        <div role="radiogroup" aria-label="Write and revise resumes with">
-          <span className={labelClass}>Write and revise resumes with</span>
+        <div role="radiogroup" aria-label="Write resumes and messages with">
+          <span className={labelClass}>Write resumes and messages with</span>
           <div className="inline-flex rounded-full bg-black/[0.05] p-1">
             {WRITERS.map((w) => (
               <button
@@ -131,7 +131,7 @@ export default function OpenAIKeyCard({
             ))}
           </div>
           {writer === "openai" && !key && (
-            <p className="mt-2 text-[13px] text-muted">Add an OpenAI key below. Until then, tailoring asks before using Claude instead.</p>
+            <p className="mt-2 text-[13px] text-muted">Add an OpenAI key below. Until then, tailoring and drafting ask before using Claude instead.</p>
           )}
         </div>
         <Field label="API key" type="password" placeholder="Paste your OpenAI key" value={s.openaiKey ?? ""} onChange={(v) => setS({ ...s, openaiKey: v })} />
