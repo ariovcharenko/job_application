@@ -18,6 +18,34 @@ export interface StoredEngineResume {
   doc: ResumeDoc;
   approved: string[];
   final: ResumeDoc;
+  /**
+   * Up to MAX_PREVIOUS_VERSIONS earlier versions, newest first, so a new version (a Start over, an
+   * update) never silently replaces the one she had. Optional: older rows have none.
+   */
+  previous?: PreviousVersion[];
+}
+
+/** An earlier saved version of a job's resume. */
+export interface PreviousVersion {
+  doc: ResumeDoc;
+  approved: string[];
+  final: ResumeDoc;
+  savedAt: number;
+}
+
+export const MAX_PREVIOUS_VERSIONS = 3;
+
+function parsePrevious(raw: unknown): PreviousVersion[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .flatMap((p) => {
+      const doc = ResumeDocSchema.safeParse(p?.doc);
+      const final = ResumeDocSchema.safeParse(p?.final);
+      if (!doc.success || !final.success) return [];
+      const approved = Array.isArray(p.approved) ? p.approved.filter((a: unknown): a is string => typeof a === "string") : [];
+      return [{ doc: doc.data, final: final.data, approved, savedAt: typeof p.savedAt === "number" ? p.savedAt : 0 }];
+    })
+    .slice(0, MAX_PREVIOUS_VERSIONS);
 }
 
 /** Reads appliedEdits back. Older rows stored just the final document; those reopen with no ticks. */
@@ -25,7 +53,14 @@ export function parseStoredResume(appliedEdits: string): StoredEngineResume | nu
   try {
     const raw = JSON.parse(appliedEdits);
     if (raw?.v === 2) {
-      return { v: 2, doc: ResumeDocSchema.parse(raw.doc), approved: Array.isArray(raw.approved) ? raw.approved : [], final: ResumeDocSchema.parse(raw.final) };
+      const previous = parsePrevious(raw.previous);
+      return {
+        v: 2,
+        doc: ResumeDocSchema.parse(raw.doc),
+        approved: Array.isArray(raw.approved) ? raw.approved : [],
+        final: ResumeDocSchema.parse(raw.final),
+        ...(previous.length ? { previous } : {}),
+      };
     }
     const doc = ResumeDocSchema.safeParse(raw);
     return doc.success ? { v: 2, doc: doc.data, approved: [], final: doc.data } : null;
@@ -45,10 +80,26 @@ export async function getJobResume(applicationId: number): Promise<(TailoredResu
   return newest ? { ...newest, stored: newest.stored! } : null;
 }
 
+const sameDoc = (a: ResumeDoc, b: ResumeDoc) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * The stored JSON for a new version: the version it replaces goes to the front of `previous`
+ * (at most MAX_PREVIOUS_VERSIONS kept), unless only her ticks changed (same page), which isn't a
+ * new version. Pure, tested.
+ */
+export function withPreviousVersion(existing: StoredEngineResume | null, next: StoredEngineResume, savedAt: number): StoredEngineResume {
+  const current: StoredEngineResume = { v: 2, doc: next.doc, approved: next.approved, final: next.final };
+  if (!existing) return current;
+  const kept = existing.previous ?? [];
+  if (sameDoc(existing.final, next.final) && sameDoc(existing.doc, next.doc)) return kept.length ? { ...current, previous: kept } : current;
+  const older: PreviousVersion = { doc: existing.doc, approved: existing.approved, final: existing.final, savedAt };
+  return { ...current, previous: [older, ...kept].slice(0, MAX_PREVIOUS_VERSIONS) };
+}
+
 /**
  * Saves the current version of a job's tailored resume in the app and links it from the tracker
- * row. One resume per job: a newer version replaces the older one, so the table always shows the
- * latest. No file is written here (that needs a click, see exportResume).
+ * row. One row per job, always the latest, with the last few versions it replaced kept inside it
+ * (withPreviousVersion). No file is written here (that needs a click, see exportResume).
  */
 export async function storeJobResume(
   applicationId: number,
@@ -66,7 +117,7 @@ export async function storeJobResume(
       savedPath: existing?.savedPath,
       keywordScoreBefore: keywordScores.before,
       keywordScoreAfter: keywordScores.after,
-      appliedEdits: JSON.stringify(stored),
+      appliedEdits: JSON.stringify(withPreviousVersion(existing?.stored ?? null, stored, existing?.createdAt ?? Date.now())),
       createdAt: Date.now(),
     };
     const id = await db.tailoredResumes.put(row);
