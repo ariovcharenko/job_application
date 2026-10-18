@@ -6,6 +6,7 @@ import { downloadBlob } from "@/lib/download";
 import { parseStoredResume } from "@/lib/resume/engine/save";
 import { getCurrentResume } from "@/lib/resume/ownResume";
 import { tailoredFileName } from "@/lib/resume/fileName";
+import { neutralizeRenderedDocument } from "@/lib/sanitizeDom";
 import type { Application } from "@/lib/types";
 import { Button, Modal, Notice, Spinner } from "@/components/ui";
 import ResumePreview from "./ResumePreview";
@@ -26,10 +27,17 @@ function DocxView({ bytes }: { bytes: ArrayBuffer }) {
     (async () => {
       try {
         const { renderAsync } = await import("docx-preview");
-        if (cancelled || !ref.current) return;
-        ref.current.innerHTML = "";
-        await renderAsync(bytes, ref.current, undefined, { inWrapper: true, ignoreLastRenderedPageBreak: true, experimental: false });
+        const box = ref.current;
+        if (cancelled || !box) return;
+        box.innerHTML = "";
+        // Inert (no clicks, no focus) until the rendered file is checked: a .docx can hold a
+        // javascript: link, which must never become clickable here (lib/sanitizeDom.ts).
+        box.setAttribute("inert", "");
+        await renderAsync(bytes, box, undefined, { inWrapper: true, ignoreLastRenderedPageBreak: true, experimental: false });
+        neutralizeRenderedDocument(box);
+        box.removeAttribute("inert");
       } catch {
+        if (ref.current) ref.current.innerHTML = "";
         if (!cancelled) setFailed(true);
       }
     })();
