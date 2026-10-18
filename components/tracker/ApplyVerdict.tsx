@@ -197,8 +197,9 @@ export default function ApplyVerdict({
         </div>
         <div className="sm:max-w-[45%] sm:text-right">
           <p className="inline-flex items-center gap-2 text-[17px] font-semibold tracking-display">
-            <span className={`h-2 w-2 rounded-full ${VERDICT_DOT[verdict]}`} aria-hidden="true" />
-            {VERDICT_TEXT[verdict].label}
+            {/* An Apply with an unclear must-have isn't confirmed yet, so it doesn't get the purple dot. */}
+            <span className={`h-2 w-2 rounded-full ${headline.kind === "check-first" ? "bg-black/30" : VERDICT_DOT[verdict]}`} aria-hidden="true" />
+            {headline.kind === "check-first" ? "Check first" : VERDICT_TEXT[verdict].label}
           </p>
           {reason && <p className="mt-1 text-[13px] leading-relaxed text-muted">{reason}</p>}
           {note && <p className="mt-1 text-xs leading-relaxed text-muted">{note}</p>}
