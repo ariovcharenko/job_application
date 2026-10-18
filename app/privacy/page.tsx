@@ -72,7 +72,7 @@ export default function PrivacyPage() {
             sends the job, the contact&apos;s name and role, your name, school and a few answer bank entries. Nothing else goes to OpenAI.
           </p>
           <p className="mt-2">
-            If OpenAI is out of credit or unavailable and an Anthropic key is saved, that same request is sent to Anthropic once instead,
+            If OpenAI is out of credit, busy or unavailable and an Anthropic key is saved, that same request is sent to Anthropic once instead,
             and the screen says it was written with Claude.
           </p>
           <p className="mt-2 text-muted">

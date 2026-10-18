@@ -4,7 +4,7 @@ import type { AppSettings } from "../types";
 import { createAnthropicProvider } from "./anthropic";
 import { createOpenAIProvider } from "./openai";
 import { recordUsage } from "./usage";
-import { AIError, type AIProvider, type JsonOptions, type ProviderCapabilities, type ProviderId, type UsageReport } from "./provider";
+import { AIError, type AIErrorKind, type AIProvider, type JsonOptions, type ProviderCapabilities, type ProviderId, type UsageReport } from "./provider";
 
 // The one place that decides which company's model does which job. Writing (resumes and outreach
 // messages) goes to OpenAI when she chose it; everything else stays on Claude: reading links needs
@@ -106,19 +106,22 @@ export interface WriterFallback {
 
 /**
  * Whether an OpenAI failure is one Claude should simply take over: out of credit, OpenAI down or
- * overloaded (5xx), or OpenAI unreachable. Never for a bad key, permission, an unknown model or a
+ * overloaded (5xx), rate-limited (429), or OpenAI unreachable. Never for a bad key, permission, an unknown model or a
  * rejected request (those need her to fix something, and keep the "fix key / use Claude" notice),
  * and never for her own Cancel.
  */
 export function autoFallbackReason(err: unknown): FallbackReason | null {
   if (!(err instanceof AIError) || err.provider !== "openai") return null;
   if (err.kind === "billing") return "billing";
-  if (err.kind === "overloaded" || err.kind === "network") return "unavailable";
+  // A plain rate limit (429 without the quota code) is fixed by switching providers too.
+  if (err.kind === "overloaded" || err.kind === "network" || err.kind === "rate_limit") return "unavailable";
   return null;
 }
 
-export function fallbackMessage(reason: FallbackReason): string {
-  return reason === "billing" ? "Written with Claude: OpenAI was out of credit." : "Written with Claude: OpenAI was unavailable.";
+/** The quiet notice. `kind` (the OpenAI error) picks "busy" for a rate limit. */
+export function fallbackMessage(reason: FallbackReason, kind?: AIErrorKind): string {
+  if (reason === "billing") return "Written with Claude: OpenAI was out of credit.";
+  return kind === "rate_limit" ? "Written with Claude: OpenAI was busy." : "Written with Claude: OpenAI was unavailable.";
 }
 
 /**
@@ -137,7 +140,7 @@ export function withWriterFallback(primary: AIProvider, fallback: () => AIProvid
       const claude = fallback();
       if (!claude) throw err;
       const out = await run(claude);
-      onFallback?.({ reason, message: fallbackMessage(reason) });
+      onFallback?.({ reason, message: fallbackMessage(reason, (err as AIError).kind) });
       return out;
     }
   }

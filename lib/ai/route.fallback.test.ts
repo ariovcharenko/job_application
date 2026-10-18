@@ -62,10 +62,11 @@ describe("which OpenAI failures move to Claude on their own", () => {
     expect(autoFallbackReason(new AIError("billing", "x", "openai"))).toBe("billing");
     expect(autoFallbackReason(new AIError("overloaded", "x", "openai"))).toBe("unavailable");
     expect(autoFallbackReason(new AIError("network", "x", "openai"))).toBe("unavailable");
+    expect(autoFallbackReason(new AIError("rate_limit", "x", "openai"))).toBe("unavailable");
   });
 
   it("key, permission, model and request problems don't (she has to fix those), nor her Cancel", () => {
-    for (const kind of ["no_key", "auth", "permission", "bad_request", "cancelled", "rate_limit", "refusal", "truncated", "invalid_output", "unknown"] as AIErrorKind[]) {
+    for (const kind of ["no_key", "auth", "permission", "bad_request", "cancelled", "refusal", "truncated", "invalid_output", "unknown"] as AIErrorKind[]) {
       expect(autoFallbackReason(new AIError(kind, "x", "openai"))).toBeNull();
     }
     // The manual "fix key / use Claude" notice still covers the ones that need her.
@@ -83,6 +84,7 @@ describe("which OpenAI failures move to Claude on their own", () => {
   it("has a quiet line for each reason, with no em dash", () => {
     expect(fallbackMessage("billing")).toBe("Written with Claude: OpenAI was out of credit.");
     expect(fallbackMessage("unavailable")).toBe("Written with Claude: OpenAI was unavailable.");
+    expect(fallbackMessage("unavailable", "rate_limit")).toBe("Written with Claude: OpenAI was busy.");
   });
 });
 
@@ -91,6 +93,7 @@ describe("withWriterFallback", () => {
     ["billing", "Written with Claude: OpenAI was out of credit."],
     ["overloaded", "Written with Claude: OpenAI was unavailable."],
     ["network", "Written with Claude: OpenAI was unavailable."],
+    ["rate_limit", "Written with Claude: OpenAI was busy."],
   ] as const)("retries once on Claude after %s and says so", async (kind, message) => {
     const openai = fake("openai", failing(kind));
     const claude = fake("anthropic", async () => '"claude"');
@@ -103,7 +106,7 @@ describe("withWriterFallback", () => {
     expect(onFallback).toHaveBeenCalledWith({ reason: kind === "billing" ? "billing" : "unavailable", message });
   });
 
-  it.each(["auth", "permission", "bad_request", "no_key", "cancelled", "rate_limit"] as const)("does not fall back on %s", async (kind) => {
+  it.each(["auth", "permission", "bad_request", "no_key", "cancelled"] as const)("does not fall back on %s", async (kind) => {
     const openai = fake("openai", failing(kind));
     const claude = fake("anthropic", async () => "claude");
     const onFallback = vi.fn();
@@ -185,6 +188,16 @@ describe("providerFor with the automatic fallback", () => {
     const p = await providerFor("review_resume", { onFallback });
     await p.complete({ prompt: "x" });
     expect(onFallback).toHaveBeenCalledWith(expect.objectContaining({ reason: "unavailable" }));
+  });
+
+  it("a plain OpenAI rate limit (429 without the quota code) moves the draft to Claude, noted as busy", async () => {
+    await saveSettings(both);
+    stubOpenAI(429, { error: { message: "Rate limit reached for requests", type: "requests", code: "rate_limit_exceeded" } });
+    const onFallback = vi.fn();
+    const p = await providerFor("draft_outreach", { onFallback });
+    await p.complete({ prompt: "x" });
+    expect(claudeCalls).toHaveLength(1);
+    expect(onFallback).toHaveBeenCalledWith({ reason: "unavailable", message: "Written with Claude: OpenAI was busy." });
   });
 
   it("a rejected OpenAI key is not hidden: the error comes back for the fix-key notice", async () => {
