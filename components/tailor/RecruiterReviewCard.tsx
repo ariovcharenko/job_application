@@ -3,18 +3,14 @@
 import { useState } from "react";
 import { Button, compactInputClass, inputClass, outlinedClass } from "@/components/ui";
 import type { ReviewItem, ReviewPriority } from "@/lib/resume/engine/review";
+import type { ReadinessCounts } from "@/lib/resume/engine/reviewState";
+
+export type { ReadinessCounts };
 
 /** A role or project on the page she can place a skill in. */
 export interface PlaceOption {
   key: string;
   label: string;
-}
-
-/** Counts by code (coverage.ts skillReadiness), never by the model. */
-export interface ReadinessCounts {
-  total: number;
-  shown: number;
-  proven: number;
 }
 
 const SKILLS_ONLY = "";
@@ -127,6 +123,7 @@ function ItemRow({
   item,
   queued,
   places,
+  factPlace,
   onQueue,
   onUnqueue,
   onIgnore,
@@ -137,15 +134,25 @@ function ItemRow({
   item: ReviewItem;
   queued: boolean;
   places: PlaceOption[];
+  /** The role a fact question is about (a place key), when the item points at one. */
+  factPlace?: string;
   onQueue: () => void;
   onUnqueue: () => void;
   onIgnore: () => void;
   onAddSkill: (skill: string, place: string, how: string) => void;
-  onAnswer: (answer: string) => void;
+  /** `saveTo`: the role to also save the answer to in Your experience, or null. */
+  onAnswer: (answer: string, saveTo: string | null) => void;
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [answer, setAnswer] = useState("");
+  // "Also save to my experience": on by default, so she isn't asked the same thing for the next job.
+  const [saveFact, setSaveFact] = useState(true);
+  const [factRole, setFactRole] = useState(factPlace ?? places[0]?.key ?? "");
+  const saveTo = saveFact && places.some((p) => p.key === factRole) ? factRole : null;
+  const submitAnswer = () => {
+    if (answer.trim()) onAnswer(answer, saveTo);
+  };
   const { action } = item;
   const isQuestion = action.type === "ask_skill" || action.type === "ask_fact" || action.type === "place_skill";
 
@@ -271,20 +278,46 @@ function ItemRow({
                     value={answer}
                     onChange={(e) => setAnswer(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter" && answer.trim()) onAnswer(answer);
+                      if (e.key === "Enter") submitAnswer();
                     }}
                     placeholder="Your answer, in your words"
                     aria-label="Your answer"
                     className={`${inputClass} min-w-0 flex-1 py-2 text-[13px] sm:text-[13px]`}
                   />
-                  <Button size="sm" variant="tinted" onClick={() => onAnswer(answer)} disabled={disabled || !answer.trim()}>
+                  <Button size="sm" variant="tinted" onClick={submitAnswer} disabled={disabled || !answer.trim()}>
                     Use my answer
                   </Button>
                   <Button size="sm" variant="secondary" onClick={onIgnore} disabled={disabled}>
                     Skip
                   </Button>
                 </div>
-                <p className="text-xs text-muted">Anything new in your answer is marked on the page for you to keep.</p>
+                {places.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 text-[13px]">
+                    <label className="inline-flex items-center gap-1.5">
+                      <input type="checkbox" checked={saveFact} onChange={(e) => setSaveFact(e.target.checked)} className="h-4 w-4 accent-accent" />
+                      Also save to my experience
+                    </label>
+                    {saveFact && (
+                      <>
+                        <label className="sr-only" htmlFor={`fact-role-${item.id}`}>
+                          Role to save your answer to
+                        </label>
+                        <select id={`fact-role-${item.id}`} value={factRole} onChange={(e) => setFactRole(e.target.value)} className={`${compactInputClass} min-w-0 max-w-full`}>
+                          {places.map((p) => (
+                            <option key={p.key} value={p.key}>
+                              {p.label}
+                            </option>
+                          ))}
+                        </select>
+                      </>
+                    )}
+                  </div>
+                )}
+                <p className="text-xs text-muted">
+                  {saveTo
+                    ? "Saved under that role in Your experience, so it can be used there for other jobs too. It's never used in another role."
+                    : "Anything new in your answer is marked on the page for you to keep."}
+                </p>
               </div>
             ))}
         </div>
@@ -308,6 +341,7 @@ export default function RecruiterReviewCard({
   queuedIds,
   ignoredCount,
   places,
+  placeForItem,
   pendingPlacements,
   onQueue,
   onUnqueue,
@@ -333,13 +367,15 @@ export default function RecruiterReviewCard({
   queuedIds: Set<string>;
   ignoredCount: number;
   places: PlaceOption[];
+  /** The role on the page a fact question is about, as a place key. */
+  placeForItem?: (item: ReviewItem) => string | undefined;
   pendingPlacements: { skill: string; placeLabel: string }[];
   onQueue: (item: ReviewItem) => void;
   onUnqueue: (id: string) => void;
   onIgnore: (id: string) => void;
   onShowIgnored: () => void;
   onAddSkill: (skill: string, place: string, how: string) => void;
-  onAnswer: (item: ReviewItem, answer: string) => void;
+  onAnswer: (item: ReviewItem, answer: string, saveTo: string | null) => void;
   onCancelPlacement: (index: number) => void;
   onApply: () => void;
   onReview: () => void;
@@ -384,11 +420,12 @@ export default function RecruiterReviewCard({
               item={item}
               queued={queuedIds.has(item.id)}
               places={places}
+              factPlace={item.action.type === "ask_fact" ? placeForItem?.(item) : undefined}
               onQueue={() => onQueue(item)}
               onUnqueue={() => onUnqueue(item.id)}
               onIgnore={() => onIgnore(item.id)}
               onAddSkill={onAddSkill}
-              onAnswer={(a) => onAnswer(item, a)}
+              onAnswer={(a, saveTo) => onAnswer(item, a, saveTo)}
               disabled={disabled}
             />
           ))}

@@ -1,5 +1,6 @@
 import { altTitle, cleanTitle, parseMasterExperiences, type MasterEntry } from "../master/experiences";
 import { hasSkill, normalizeSkill, parseSkillInventory, parseUsageNotes, type UsageNote } from "../master/skills";
+import { parseRoleFacts } from "../master/facts";
 import { mentionsTerm, TECH_TERMS } from "../master/techTerms";
 import type { JobFocus } from "./focus";
 import { polishResume } from "./polish";
@@ -335,8 +336,10 @@ export function validateResume(raw: ResumeDoc, masterProfile: string, opts: Vali
   const entries = parseMasterExperiences(master);
   // Her notes on where she used a skill she confirmed count as part of the role or project they name.
   const notes = parseUsageNotes(master);
+  // Facts she typed for a role while tailoring (master/facts.ts) count as that role's text only.
+  const facts = parseRoleFacts(master).map((f) => ({ skill: "", where: f.text, role: f.role }));
   const withNotes = (block: string, company: string, title?: string) => {
-    const extra = notesForRole(notes, company, title).map((n) => `${n.skill}: ${n.where}`);
+    const extra = [...notesForRole(notes, company, title).map((n) => `${n.skill}: ${n.where}`), ...notesForRole(facts, company, title).map((f) => f.where)];
     return extra.length ? `${block}\n${extra.join("\n")}` : block;
   };
 

@@ -11,7 +11,9 @@ import { linesShort } from "@/lib/resume/engine/budget";
 import { pageFill } from "@/lib/resume/engine/fit";
 import { PAGE_CSS, renderResumeHtml } from "@/lib/resume/engine/html";
 import { diffDocs } from "@/lib/resume/engine/changes";
-import { exportResume, getJobResume, storeJobResume, type ExportResult, type PreviousVersion } from "@/lib/resume/engine/save";
+import { exportResume, getJobResume, saveJobReview, storeJobResume, type ExportResult, type PreviousVersion } from "@/lib/resume/engine/save";
+import { docFingerprint, restoreReview, type StoredReview } from "@/lib/resume/engine/reviewState";
+import { saveRoleFact } from "@/lib/resume/master/saveFact";
 import { persistVersion, tailorAndSave } from "@/lib/resume/engine/persist";
 import { historyAfterStartOver } from "@/lib/resume/engine/history";
 import { AIError } from "@/lib/ai/provider";
@@ -174,6 +176,13 @@ export default function TailorPanel({
   const [ignored, setIgnored] = useState<Set<string>>(new Set());
   const [doneIds, setDoneIds] = useState<Set<string>>(new Set());
   const [baseline, setBaseline] = useState<ReadinessCounts | null>(null);
+  // Fingerprint of the page the last review was made for (stored with the review, reviewState.ts).
+  const [reviewedFor, setReviewedFor] = useState<string | null>(null);
+  // The review saved with this job, waiting for the page to be measured before it's shown again.
+  const pendingReview = useRef<StoredReview | null>(null);
+  // False until the saved review (if any) is back on screen, so an empty start never overwrites it.
+  const reviewHydrated = useRef(false);
+  const [reviewSaver] = useState(() => createDebouncedSave(600));
   const [selection, setSelection] = useState<{
     quote: string;
     x: number;
@@ -230,8 +239,10 @@ export default function TailorPanel({
         setStoredId(existing.id);
         setStoreState("saved");
         setPreviousVersions(existing.stored.previous ?? []);
+        pendingReview.current = existing.stored.review ?? null;
         setPhase("ready");
       }
+      if (!pendingReview.current) reviewHydrated.current = true;
       setMaster(m);
       setHeader(buildHeader(p));
       setFullName(p.fullName);
@@ -282,6 +293,7 @@ export default function TailorPanel({
     setIgnored(new Set());
     setDoneIds(new Set());
     setBaseline(null);
+    setReviewedFor(null);
   };
 
   /** One tailoring run. */
@@ -697,6 +709,53 @@ export default function TailorPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readiness, phase]);
 
+  // Reopened: the review saved with this job comes back with no AI call. On a page that changed
+  // since, every item is kept, and ones about a spot that's gone are marked done (restoreReview).
+  // The meters' current numbers are always counted from the page on screen.
+  useEffect(() => {
+    const stored = pendingReview.current;
+    if (!stored || !fitted) return;
+    pendingReview.current = null;
+    const { review } = restoreReview(stored, fitted.doc);
+    setReviewItems(review.items);
+    setReviewSummary(review.summary);
+    setQueued(new Map(review.queued.map((q) => [q.id, { comment: q.comment, quote: q.quote }])));
+    setIgnored(new Set(review.ignored));
+    setDoneIds(new Set(review.done));
+    if (review.baseline) setBaseline(review.baseline);
+    setReviewedFor(review.fingerprint);
+    reviewHydrated.current = true;
+  }, [fitted]);
+
+  // The review as it would be stored, or null when there is none.
+  const reviewToStore = useMemo((): Omit<StoredReview, "savedAt"> | null => {
+    if (reviewSummary === null && reviewItems.length === 0 && queued.size === 0 && ignored.size === 0) return null;
+    return {
+      summary: reviewSummary,
+      items: reviewItems,
+      queued: [...queued].map(([id, q]) => ({ id, comment: q.comment, ...(q.quote !== undefined ? { quote: q.quote } : {}) })),
+      ignored: [...ignored],
+      done: [...doneIds],
+      baseline,
+      fingerprint: reviewedFor ?? (fitted ? docFingerprint(fitted.doc) : ""),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviewSummary, reviewItems, queued, ignored, doneIds, baseline, reviewedFor]);
+
+  // Saved with the job's resume shortly after it changes (no new version, no AI call).
+  useEffect(() => {
+    if (!reviewHydrated.current) return;
+    reviewSaver.schedule(async () => {
+      try {
+        await saveJobReview(application.id, reviewToStore ? { ...reviewToStore, savedAt: Date.now() } : null);
+      } catch {
+        // Only the review's own save failed; the resume itself is saved separately.
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviewToStore]);
+  useEffect(() => () => void reviewSaver.flush(), [reviewSaver]);
+
   const planContext = (doc: ResumeDoc) => ({
     doc,
     master: masterRef.current,
@@ -733,6 +792,7 @@ export default function TailorPanel({
       );
       setReviewItems(planReviewItems(review, planContext(fitted.doc)));
       setReviewSummary(review.summary || null);
+      setReviewedFor(docFingerprint(fitted.doc));
       setQueued(new Map());
       setIgnored(new Set());
       setDoneIds(new Set());
@@ -747,6 +807,36 @@ export default function TailorPanel({
   };
 
   const queueComment = (id: string, comment: ResumeComment, quote?: string) => setQueued((q) => new Map(q).set(id, { comment, quote }));
+
+  /** The role on the page a fact question is about, as a place key, when it is about one. */
+  const placeForItem = (item: ReviewItem): string | undefined => {
+    if (!fitted) return undefined;
+    const t = item.action.type === "ask_fact" && item.action.target ? item.action.target : item.target;
+    const now = relocateTarget(fitted.doc, t, item.quote) ?? t;
+    if (!now || (now.section !== "experience" && now.section !== "projects")) return undefined;
+    const e = (fitted.doc[now.section] ?? [])[now.entry];
+    return e ? places.find((p) => p.section === now.section && norm(p.role.company) === norm(e.company))?.key : undefined;
+  };
+
+  /**
+   * Her typed answer to a fact question is queued for the next update. With "Also save to my
+   * experience", it's first saved to that role in Your experience (master/facts.ts, keeping the
+   * earlier text as a version). Her answer is her confirmation (decision #6): validate.ts then
+   * accepts it in that role's bullets only.
+   */
+  const answerFact = async (item: ReviewItem, answer: string, placeKey: string | null) => {
+    if (!answer.trim()) return;
+    const place = placeKey ? places.find((p) => p.key === placeKey) : undefined;
+    if (place) {
+      try {
+        setMaster(await saveRoleFact(place.role, answer));
+      } catch (e) {
+        setError(`Couldn't save your answer to Your experience: ${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
+    }
+    queueComment(item.id, answerComment(item, answer), item.quote);
+  };
 
   /** Every queued item in one update, each found again on the page as it is now. */
   const applyQueued = async () => {
@@ -1158,9 +1248,8 @@ export default function TailorPanel({
           onIgnore={(id) => setIgnored((s) => new Set([...s, id]))}
           onShowIgnored={() => setIgnored(new Set())}
           onAddSkill={(skill, place, how) => void addGap(skill, place, how)}
-          onAnswer={(item, answer) => {
-            if (answer.trim()) queueComment(item.id, answerComment(item, answer), item.quote);
-          }}
+          placeForItem={placeForItem}
+          onAnswer={(item, answer, placeKey) => void answerFact(item, answer, placeKey)}
           onCancelPlacement={(i) => setPlacements((ps) => ps.filter((_, k) => k !== i))}
           onApply={() => void applyQueued()}
           onReview={() => void runReview()}
