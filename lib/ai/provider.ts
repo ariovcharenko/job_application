@@ -31,6 +31,8 @@ export interface CompleteOptions {
    * still thinking), so a long call can show progress instead of a frozen spinner.
    */
   onProgress?: (charsWritten: number) => void;
+  /** Stops the request (her "Cancel"); the call then rejects with AIError("cancelled"). */
+  signal?: AbortSignal;
 }
 
 export interface JsonOptions<T> extends CompleteOptions {
@@ -58,6 +60,8 @@ export type AIErrorKind =
   | "invalid_output"
   | "network"
   | "fetch_failed"
+  /** She stopped it (AbortSignal). Nothing to show as an error. */
+  | "cancelled"
   | "unknown";
 
 export class AIError extends Error {

@@ -56,6 +56,15 @@ describe("anthropic provider", () => {
     expect((fast.create.mock.calls[0][0] as { output_config?: unknown }).output_config).toBeUndefined();
   });
 
+  it("passes her Cancel signal to the request and reports an abort as cancelled", async () => {
+    const ok = fakeClient({ text: "hi" });
+    const controller = new AbortController();
+    await createAnthropicProvider(cfg, ok.client).complete({ prompt: "x", signal: controller.signal });
+    expect((ok.create.mock.calls[0] as unknown[])[1]).toEqual({ signal: controller.signal });
+    const aborted = fakeClient(new Anthropic.APIUserAbortError());
+    await expect(createAnthropicProvider(cfg, aborted.client).complete({ prompt: "x" })).rejects.toMatchObject({ kind: "cancelled" });
+  });
+
   it("reports invalid JSON and failed validation as invalid_output", async () => {
     const bad = fakeClient({ text: "not json" });
     await expect(

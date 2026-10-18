@@ -9,11 +9,14 @@ import { linesShort } from "@/lib/resume/engine/budget";
 import { pageFill } from "@/lib/resume/engine/fit";
 import { PAGE_CSS, renderResumeHtml } from "@/lib/resume/engine/html";
 import { diffDocs } from "@/lib/resume/engine/changes";
-import { exportResume, getJobResume, storeJobResume, type ExportResult } from "@/lib/resume/engine/save";
+import { exportResume, getJobResume, storeJobResume, type ExportResult, type PreviousVersion } from "@/lib/resume/engine/save";
+import { persistVersion, tailorAndSave } from "@/lib/resume/engine/persist";
+import { historyAfterStartOver } from "@/lib/resume/engine/history";
+import { AIError } from "@/lib/ai/provider";
 import { createDebouncedSave } from "@/lib/resume/engine/autosave";
 import { fitResume, toPoolTarget, toVisibleSpot } from "@/lib/resume/engine/trim";
 import { verifyResume } from "@/lib/resume/engine/verify";
-import { tailorResume, type TailorProgress as Progress } from "@/lib/resume/engine/pipeline";
+import type { TailorProgress as Progress } from "@/lib/resume/engine/pipeline";
 import TailorProgress from "./TailorProgress";
 import { explainTailoring } from "@/lib/resume/engine/tailored";
 import { addSkill, describeTarget, removeSpot, removeTarget, spotOn, targetFromElement, type Target } from "@/lib/resume/engine/edit";
@@ -24,14 +27,14 @@ import { cleanTitle, entriesNotOnPage, parseMasterExperiences } from "@/lib/resu
 import { appendSkillToMaster, appendUsageNote, hasSkill, parseSkillInventory, type RoleKey } from "@/lib/resume/master/skills";
 import { carryApprovals, fillComment, placementComment, reviseResume, type ResumeComment } from "@/lib/resume/engine/revise";
 import { applyApprovals, normalizeFlagMessage, resumeText, validateResume, type Flag, type ValidationResult } from "@/lib/resume/engine/validate";
-import { jobFocusFor, jobSkills, skillCoverage, skillHits } from "@/lib/resume/coverage";
+import { jobFocusFor, jobSkills, skillCoverage, skillHits, skillReadiness } from "@/lib/resume/coverage";
 import { tailoredFileName } from "@/lib/resume/repo";
 import type { Application } from "@/lib/types";
-import { Button, inputClass, Notice, Spinner } from "@/components/ui";
+import { Button, ConfirmDialog, inputClass, Notice, Spinner } from "@/components/ui";
 import AIErrorNotice from "@/components/resumes/AIErrorNotice";
-import SkillGapsCard, { type PlaceOption } from "./SkillGapsCard";
-import PreTailorCard from "./PreTailorCard";
-import { applyConfirmations, confirmedForPrompt, placeChoices, preTailorGaps, type ConfirmedSkill } from "@/lib/resume/gaps";
+import RecruiterReviewCard, { type PlaceOption, type ReadinessCounts } from "./RecruiterReviewCard";
+import { answerComment, codeReviewItems, mergeReviewItems, planReviewItems, relocateTarget, reviewResume, type ReviewItem } from "@/lib/resume/engine/review";
+import { isSoftSkill, normalizeSkill } from "@/lib/resume/master/skills";
 import AskForChanges from "./AskForChanges";
 import QualityCard from "./QualityCard";
 import TailoredForCard from "./TailoredForCard";
@@ -48,6 +51,11 @@ import { TAILOR_COST_HINT } from "@/lib/resume/costHint";
 export { TAILOR_COST_HINT };
 /** A revision reuses the cached system prompt (rules + master profile), so it's a bit cheaper. */
 export const REVISE_COST_HINT = "about 4¢";
+/**
+ * One recruiter review: the same cached system prompt plus the page and the job (~6-8k input
+ * tokens, mostly a cache read) and a short JSON answer with thinking at medium effort.
+ */
+export const REVIEW_COST_HINT = "about 3¢";
 
 function PopoverAction({ label, hint, onClick, danger }: { label: string; hint: string; onClick: () => void; danger?: boolean }) {
   return (
@@ -108,6 +116,7 @@ export default function TailorPanel({
   autoStart,
   notStartedReason,
   onSaved,
+  onBusyChange,
 }: {
   application: Application & { id: number };
   /** Generate immediately on mount (a strong match); otherwise wait for a click. */
@@ -116,6 +125,8 @@ export default function TailorPanel({
   notStartedReason?: string;
   /** Called with the tailored resume's id each time the current version is saved to this job. */
   onSaved?: (tailoredResumeId: number) => void;
+  /** True while an AI call is running, so the dialog around it can ask before closing. */
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const [master, setMasterState] = useState<string | null>(null);
   // The latest experience text, also for calls that start in the same click that changed it.
@@ -144,9 +155,15 @@ export default function TailorPanel({
   const [saver] = useState(() => createDebouncedSave(600));
   const started = useRef(false);
   const [placements, setPlacements] = useState<Placement[]>([]);
-  // The before-tailoring question: skills she already answered (ticked or not) aren't asked again.
-  const [answered, setAnswered] = useState<Set<string>>(new Set());
-  const [preStep, setPreStep] = useState(false);
+  // Recruiter review: the model's items (code decided their actions), what she queued or ignored,
+  // and the code-counted readiness when this draft or the last review started.
+  const [reviewItems, setReviewItems] = useState<ReviewItem[]>([]);
+  const [reviewSummary, setReviewSummary] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const [queued, setQueued] = useState<Map<string, { comment: ResumeComment; quote?: string }>>(new Map());
+  const [ignored, setIgnored] = useState<Set<string>>(new Set());
+  const [doneIds, setDoneIds] = useState<Set<string>>(new Set());
+  const [baseline, setBaseline] = useState<ReadinessCounts | null>(null);
   const [selection, setSelection] = useState<{
     quote: string;
     x: number;
@@ -164,6 +181,11 @@ export default function TailorPanel({
   const [note, setNote] = useState("");
   const [changes, setChanges] = useState<string[]>([]);
   const [history, setHistory] = useState<{ result: ValidationResult; approved: Set<string> }[]>([]);
+  // The running AI call, so "Cancel" can stop it.
+  const abortRef = useRef<AbortController | null>(null);
+  const [confirmStart, setConfirmStart] = useState(false);
+  // Earlier saved versions of this job's resume (save.ts keeps the last 3), newest first.
+  const [previousVersions, setPreviousVersions] = useState<PreviousVersion[]>([]);
   const previewBox = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
 
@@ -193,6 +215,7 @@ export default function TailorPanel({
         setApproved(new Set(reopened.flags.filter((f) => ticked.has(f.message)).map((f) => f.id)));
         setStoredId(existing.id);
         setStoreState("saved");
+        setPreviousVersions(existing.stored.previous ?? []);
         setPhase("ready");
       }
       setMaster(m);
@@ -202,74 +225,110 @@ export default function TailorPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [application.id]);
 
-  // The job's skills her experience doesn't show and she hasn't answered yet: asked before tailoring.
-  const pendingGaps = useMemo(
-    () => (master ? preTailorGaps({ fitBreakdown, jdText }, master).filter((g) => !answered.has(g.skill.toLowerCase())) : []),
-    [fitBreakdown, jdText, master, answered],
-  );
-  const masterPlaces = useMemo(() => (master ? placeChoices(master) : []), [master]);
+  /** "Tailor resume". Missing skills are asked about afterwards, in the recruiter review. */
+  const start = () => void generate();
 
-  /** "Tailor resume" / "Start over": ask about the job's missing skills first, when there are any. */
-  const start = () => {
-    if (pendingGaps.length) setPreStep(true);
-    else void generate([]);
+  /** A new AbortController for the call about to run (her Cancel stops it). */
+  const newSignal = () => {
+    abortRef.current?.abort();
+    const c = new AbortController();
+    abortRef.current = c;
+    return c.signal;
   };
+  const cancelRun = () => abortRef.current?.abort();
+  const isCancel = (e: unknown) => e instanceof AIError && e.kind === "cancelled";
 
   /**
-   * One tailoring run. Her answers to the before-tailoring question are saved to her experience
-   * first (gaps.ts applyConfirmations), so the call and the checks both see them as hers.
+   * Saves a version to this job right where the AI call returns, not in an effect, so closing the
+   * dialog mid-run can't lose a result she paid for. The effect below saves her later edits.
    */
-  const generate = async (confirmed: ConfirmedSkill[]) => {
-    let m = masterRef.current;
+  const persistNow = async (r: ValidationResult, kept: Set<string>, m: string) => {
+    if (!header) return;
+    try {
+      const id = await persistVersion(application.id, { header, result: r, approved: kept, measure: (d) => pageFill(header, d), fitOpts, jobSkills: skillsForJob, master: m });
+      setStoredId(id);
+      setStoreState("saved");
+      onSaved?.(id);
+      void refreshVersions();
+    } catch (e) {
+      setError(`Couldn't save this resume to the job: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  const refreshVersions = async () => {
+    const row = await getJobResume(application.id);
+    setPreviousVersions(row?.stored.previous ?? []);
+  };
+
+  /** Forget the last review: a new draft gets a fresh one. */
+  const resetReview = () => {
+    setReviewItems([]);
+    setReviewSummary(null);
+    setQueued(new Map());
+    setIgnored(new Set());
+    setDoneIds(new Set());
+    setBaseline(null);
+  };
+
+  /** One tailoring run. */
+  const generate = async () => {
+    const m = masterRef.current;
     if (!m.trim() || !header) return;
     setError(null);
     setAiError(null);
     setSaved(null);
-    setPreStep(false);
-    setAnswered((a) => new Set([...a, ...pendingGaps.map((g) => g.skill.toLowerCase())]));
-    if (confirmed.length) {
-      const updated = applyConfirmations(m, confirmed);
-      if (updated !== m) {
-        try {
-          await saveMasterProfile(updated);
-        } catch (e) {
-          setError(`Couldn't save your skills to Your experience: ${e instanceof Error ? e.message : String(e)}`);
-          return;
-        }
-        setMaster(updated);
-        m = updated;
-      }
-    }
     setProgress(null);
     setPhase("generating");
+    const signal = newSignal();
     try {
       // One call writes the final page to a plan computed from the real layout; a second, short one
       // only when the measured page ends short or code found a writing fix (pipeline.ts).
-      const out = await tailorResume({
-        provider: await getProvider(),
-        master: m,
-        company: application.company,
-        jdText: application.jdText,
-        jobSkills: skillsForJob,
-        requiredSkills,
-        focus: focus ?? undefined,
-        measure: (d) => pageFill(header, d),
-        confirmed: confirmedForPrompt(confirmed),
-        onProgress: setProgress,
-      });
+      // Saved to the job inside the run itself, so closing the dialog now still keeps it.
+      const { out, id, saveError } = await tailorAndSave(
+        {
+          provider: await getProvider(),
+          master: m,
+          company: application.company,
+          jdText: application.jdText,
+          jobSkills: skillsForJob,
+          requiredSkills,
+          focus: focus ?? undefined,
+          measure: (d) => pageFill(header, d),
+          onProgress: setProgress,
+          signal,
+        },
+        { applicationId: application.id, header, fitOpts },
+      );
+      if (id !== null) {
+        setStoredId(id);
+        setStoreState("saved");
+        onSaved?.(id);
+        void refreshVersions();
+      } else if (saveError) setError(`Couldn't save this resume to the job: ${saveError}`);
+      // Start over keeps the version she had one Undo away.
+      setHistory((h) => historyAfterStartOver(h, result ? { result, approved } : null));
       setResult(out.result);
       setApproved(new Set());
       setChanges(out.notes);
-      setHistory([]);
       setPlacements([]);
       setChangedFrom(null);
+      resetReview();
       setPhase("ready");
     } catch (e) {
-      setAiError(e);
-      // A failed "Start over" keeps the resume she had, still editable.
+      if (!isCancel(e)) setAiError(e);
+      // A failed or cancelled "Start over" keeps the resume she had, still editable.
       setPhase(result ? "ready" : "idle");
+    } finally {
+      if (abortRef.current?.signal === signal) abortRef.current = null;
     }
   };
+
+  useEffect(() => {
+    onBusyChange?.(phase === "generating" || phase === "revising" || reviewing);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, reviewing]);
+  // Leaving the panel (the dialog closed) doesn't stop a running call: its result is saved by
+  // persistNow. Only her Cancel stops it.
 
   useEffect(() => {
     if (autoStart && master?.trim() && header && !started.current) {
@@ -338,6 +397,7 @@ export default function TailorPanel({
         setStoredId(id);
         setStoreState("saved");
         onSaved?.(id);
+        void refreshVersions();
       } catch (e) {
         setError(`Couldn't save this resume to the job: ${e instanceof Error ? e.message : String(e)}`);
         setStoreState("idle");
@@ -513,21 +573,23 @@ export default function TailorPanel({
    * One revision call with everything she asked for, plus any skills waiting to be placed. Runs
    * right away; the answer is checked like any generation (anything new still needs her OK).
    */
-  const runRevision = async (requests: ResumeComment[]) => {
-    if (!result || phase !== "ready") return;
+  const runRevision = async (requests: ResumeComment[]): Promise<boolean> => {
+    if (!result || phase !== "ready") return false;
     const all = [...requests, ...placementComments(result.doc)];
-    if (all.length === 0) return;
+    if (all.length === 0) return false;
     const m = masterRef.current;
     setError(null);
     setAiError(null);
     setSaved(null);
     setSelection(null);
     setPhase("revising");
+    const signal = newSignal();
     try {
-      const out = await reviseResume(await getProvider(), m, application.company, application.jdText, result.doc, all);
+      const out = await reviseResume(await getProvider(), m, application.company, application.jdText, result.doc, all, undefined, undefined, signal);
       const { changes: done, ...doc } = out;
       // A model answer: the job's skills she has go back on the Skills lines if it dropped any.
       const next = validateResume(doc, m, { ...checkOpts, addJobSkills: true });
+      await persistNow(next, carryApprovals(result.flags, approved, next.flags), m);
       setHistory((h) => [...h, { result, approved }]);
       setChangedFrom(fitted?.doc ?? result.doc);
       // Her current decisions, including any made while the update was running.
@@ -535,9 +597,12 @@ export default function TailorPanel({
       setResult(next);
       setChanges(done);
       setPlacements([]);
+      return true;
     } catch (e) {
-      setAiError(e);
+      if (!isCancel(e)) setAiError(e);
+      return false;
     } finally {
+      if (abortRef.current?.signal === signal) abortRef.current = null;
       setPhase("ready");
     }
   };
@@ -592,18 +657,88 @@ export default function TailorPanel({
     return { issues, ...qualityScore(issues) };
   }, [finalDoc, master, skillsForJob, requiredSkills]);
 
-  // The job's skills the page doesn't show, and whether her experience has each one.
-  const skillGaps = useMemo(() => {
-    if (!finalDoc || !master) return null;
-    const onPage = skillCoverage(skillsForJob, resumeText(finalDoc));
-    if (!onPage) return null;
-    const inventory = parseSkillInventory(master);
-    return {
-      total: skillsForJob.length,
-      onPage: onPage.found.length,
-      gaps: onPage.missing.map((s) => ({ skill: s, inProfile: hasSkill(s, inventory, master) })),
-    };
-  }, [finalDoc, master, skillsForJob]);
+  // The job's key skills (required ones, or every job skill when none is marked required), and how
+  // many the page shows and proves in a bullet. Counted by code, never by the model (decision #7).
+  const keySkills = useMemo(() => {
+    const req = requiredSkills.filter((s) => !isSoftSkill(s));
+    return req.length ? req : skillsForJob;
+  }, [requiredSkills, skillsForJob]);
+  const readiness = useMemo(
+    () => (finalDoc && master ? skillReadiness(finalDoc, keySkills, master, resumeText(finalDoc)) : null),
+    [finalDoc, master, keySkills],
+  );
+  const readinessNow: ReadinessCounts | null = readiness ? { total: readiness.skills.length, shown: readiness.shown.length, proven: readiness.proven.length } : null;
+  // The counts when this draft first showed (or the last review ran), for "before and now".
+  useEffect(() => {
+    if (!baseline && readinessNow && phase === "ready") setBaseline(readinessNow);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readiness, phase]);
+
+  const planContext = (doc: ResumeDoc) => ({
+    doc,
+    master: masterRef.current,
+    keySkills,
+    jobSkills: skillsForJob,
+    isRequired: (s: string) => requiredSkills.some((r) => r.toLowerCase() === s.toLowerCase()),
+  });
+  // Free items found by code on the page as it is now, merged with the model's items from the last
+  // review (one row per skill), minus what she ignored or already applied.
+  const reviewList = useMemo(() => {
+    if (!fitted || !master) return [];
+    const code = codeReviewItems(planContext(fitted.doc));
+    // A skill she already placed in a role waits in "Apply" below, so its question is answered.
+    const placed = new Set(placements.map((p) => normalizeSkill(p.skill)));
+    const placedHere = (i: ReviewItem) =>
+      ("skill" in i.action && placed.has(normalizeSkill(i.action.skill))) || (i.id.startsWith("code:prove:") && placed.has(i.id.slice("code:prove:".length)));
+    return mergeReviewItems(code, reviewItems).filter((i) => !ignored.has(i.id) && !doneIds.has(i.id) && !placedHere(i));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitted, master, reviewItems, ignored, doneIds, keySkills, skillsForJob, requiredSkills, placements]);
+
+  /** One review call on the page as she sees it. Code then decides what each item may do. */
+  const runReview = async () => {
+    if (!fitted || !readiness || phase !== "ready" || reviewing) return;
+    setReviewing(true);
+    setAiError(null);
+    const signal = newSignal();
+    try {
+      const review = await reviewResume(
+        await getProvider(),
+        masterRef.current,
+        { company: application.company, role: application.role, jdText: application.jdText, doc: fitted.doc, readiness },
+        undefined,
+        signal,
+      );
+      setReviewItems(planReviewItems(review, planContext(fitted.doc)));
+      setReviewSummary(review.summary || null);
+      setQueued(new Map());
+      setIgnored(new Set());
+      setDoneIds(new Set());
+      if (readinessNow) setBaseline(readinessNow);
+    } catch (e) {
+      if (!isCancel(e)) setAiError(e);
+    } finally {
+      if (abortRef.current?.signal === signal) abortRef.current = null;
+      setReviewing(false);
+    }
+  };
+
+  const queueComment = (id: string, comment: ResumeComment, quote?: string) => setQueued((q) => new Map(q).set(id, { comment, quote }));
+
+  /** Every queued item in one update, each found again on the page as it is now. */
+  const applyQueued = async () => {
+    if (!fitted) return;
+    const comments = [...queued.values()].map(({ comment, quote }) => {
+      const visible = relocateTarget(fitted.doc, comment.target, quote);
+      const target = visible ? toPoolTarget(fitted.map, visible) : null;
+      const rest: ResumeComment = { id: comment.id, quote: comment.quote, note: comment.note };
+      return target ? { ...rest, target } : rest;
+    });
+    const ids = [...queued.keys()];
+    if (await runRevision(comments)) {
+      setDoneIds((d) => new Set([...d, ...ids]));
+      setQueued(new Map());
+    }
+  };
 
   const undo = () => {
     const prev = history[history.length - 1];
@@ -613,6 +748,22 @@ export default function TailorPanel({
     setHistory((h) => h.slice(0, -1));
     setChanges([]);
     setChangedFrom(null);
+    // Review items applied in the update she undid can be applied again.
+    setDoneIds(new Set());
+  };
+
+  /** Brings back an earlier saved version (free). The one on screen stays one Undo away and is kept as a version too. */
+  const restoreVersion = (v: PreviousVersion) => {
+    if (!result || phase !== "ready") return;
+    const m = masterRef.current;
+    const restored = validateResume(v.doc, m, checkOpts);
+    const ticked = new Set(v.approved.map(normalizeFlagMessage));
+    setHistory((h) => [...h, { result, approved }]);
+    setResult(restored);
+    setApproved(new Set(restored.flags.filter((f) => ticked.has(f.message)).map((f) => f.id)));
+    setChanges([]);
+    setChangedFrom(null);
+    setSaved(null);
   };
 
   if (master === null || header === null) return <Spinner label="Loading your experience..." />;
@@ -630,36 +781,14 @@ export default function TailorPanel({
   }
 
   if (phase === "generating") {
-    return <TailorProgress progress={progress} />;
+    return <TailorProgress progress={progress} onCancel={cancelRun} />;
   }
 
-  const preTailor = (
-    <PreTailorCard
-      gaps={pendingGaps}
-      places={masterPlaces}
-      cost={TAILOR_COST_HINT}
-      onTailor={(confirmed) => void generate(confirmed)}
-      onSkip={() => void generate([])}
-      disabled={phase === "revising"}
-    />
-  );
-
   if (!result || !fitted || !finalDoc) {
-    // Before the first resume: the missing-skills question comes first, when the job has any.
-    if (pendingGaps.length) {
-      return (
-        <div className="grid gap-3">
-          {notStartedReason && <p className="text-sm text-muted">{notStartedReason}</p>}
-          {preTailor}
-          {error && <Notice kind="error">{error}</Notice>}
-          {aiError !== null && <AIErrorNotice error={aiError} />}
-        </div>
-      );
-    }
     return (
       <div className="rounded-2xl bg-paper p-4">
         {notStartedReason && <p className="mb-3 text-sm text-muted">{notStartedReason}</p>}
-        <Button onClick={() => void generate([])}>Tailor resume ({TAILOR_COST_HINT})</Button>
+        <Button onClick={() => void generate()}>Tailor resume ({TAILOR_COST_HINT})</Button>
         {error && <Notice kind="error">{error}</Notice>}
         {aiError !== null && <AIErrorNotice error={aiError} />}
       </div>
@@ -746,7 +875,6 @@ export default function TailorPanel({
 
   return (
     <div className="grid gap-4">
-      {preStep && pendingGaps.length > 0 && preTailor}
       <TailoredForCard lines={tailoredFor} />
 
       {openFlags.length > 0 && (
@@ -785,7 +913,12 @@ export default function TailorPanel({
         <div ref={previewBox} className="relative min-w-0 rounded-2xl bg-paper p-3" onMouseUp={onPreviewMouseUp} onKeyDown={onPreviewKeyDown}>
           {phase === "revising" && (
             <div className="absolute inset-x-3 top-3 z-10 rounded-xl bg-white/90 p-3 shadow-card">
-              <Spinner label="Updating your resume. This takes about 30 seconds..." />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Spinner label="Updating your resume. This takes about 30 seconds..." />
+                <Button size="sm" variant="secondary" onClick={cancelRun}>
+                  Cancel
+                </Button>
+              </div>
             </div>
           )}
           <div className="mx-auto shadow-lift" style={{ width: `${8.5 * scale}in`, height: `${11 * scale}in`, overflow: "hidden" }}>
@@ -956,6 +1089,44 @@ export default function TailorPanel({
         </div>
       </div>
 
+      {readinessNow && (
+        <RecruiterReviewCard
+          company={application.company}
+          now={readinessNow}
+          before={baseline}
+          summary={reviewSummary}
+          items={reviewList}
+          queuedIds={new Set(queued.keys())}
+          ignoredCount={ignored.size}
+          places={places}
+          pendingPlacements={placements.map((p) => ({ skill: p.skill, placeLabel: p.label }))}
+          onQueue={(item) => {
+            if (item.action.type === "revise") queueComment(item.id, item.action.comment, item.quote);
+          }}
+          onUnqueue={(id) =>
+            setQueued((q) => {
+              const next = new Map(q);
+              next.delete(id);
+              return next;
+            })
+          }
+          onIgnore={(id) => setIgnored((s) => new Set([...s, id]))}
+          onShowIgnored={() => setIgnored(new Set())}
+          onAddSkill={(skill, place, how) => void addGap(skill, place, how)}
+          onAnswer={(item, answer) => {
+            if (answer.trim()) queueComment(item.id, answerComment(item, answer), item.quote);
+          }}
+          onCancelPlacement={(i) => setPlacements((ps) => ps.filter((_, k) => k !== i))}
+          onApply={() => void applyQueued()}
+          onReview={() => void runReview()}
+          reviewing={reviewing}
+          reviewed={reviewSummary !== null || reviewItems.length > 0}
+          reviewCost={REVIEW_COST_HINT}
+          applyCost={REVISE_COST_HINT}
+          disabled={busy || reviewing}
+        />
+      )}
+
       <AskForChanges
         onSend={(text) => void runRevision([{ id: `ask-${Date.now()}`, quote: "", note: text }])}
         busy={phase === "revising"}
@@ -964,20 +1135,6 @@ export default function TailorPanel({
         changes={changes}
       />
 
-      {skillGaps && (
-        <SkillGapsCard
-          total={skillGaps.total}
-          onPage={skillGaps.onPage}
-          gaps={skillGaps.gaps}
-          places={places}
-          pending={placements.map((p) => ({ skill: p.skill, placeLabel: p.label }))}
-          onAdd={(skill, place, how) => void addGap(skill, place, how)}
-          onApply={() => void runRevision([])}
-          onCancel={(i) => setPlacements((ps) => ps.filter((_, k) => k !== i))}
-          applyCost={REVISE_COST_HINT}
-          disabled={busy}
-        />
-      )}
 
       <section className="rounded-2xl bg-paper p-5" aria-label="Checks">
         {failing === 0 ? (
@@ -1008,7 +1165,7 @@ export default function TailorPanel({
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={start} disabled={busy}>
+          <Button variant="secondary" onClick={() => setConfirmStart(true)} disabled={busy}>
             Start over ({TAILOR_COST_HINT})
           </Button>
           {history.length > 0 && (
@@ -1025,6 +1182,39 @@ export default function TailorPanel({
           {phase === "saving" ? "Saving..." : "Download .docx"}
         </Button>
       </div>
+
+      {previousVersions.length > 0 && (
+        <details className="rounded-2xl bg-paper px-4 py-3 text-[13px]">
+          <summary className="cursor-pointer font-medium">Earlier versions ({previousVersions.length})</summary>
+          <p className="mt-1 text-xs text-muted">{previousVersions.length === 1 ? "The version saved before this one." : `The last ${previousVersions.length} saved before this one.`} Restoring is free, and the version on screen is kept.</p>
+          <ul className="mt-2 grid gap-1.5">
+            {previousVersions.map((v) => (
+              <li key={v.savedAt} className="flex items-center justify-between gap-2">
+                <span>
+                  Saved {v.savedAt ? new Date(v.savedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "earlier"}
+                  <span className="text-muted"> · {v.final.experience.length} role{v.final.experience.length === 1 ? "" : "s"}</span>
+                </span>
+                <Button size="sm" variant="secondary" onClick={() => restoreVersion(v)} disabled={busy}>
+                  Restore
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {confirmStart && (
+        <ConfirmDialog
+          title="Start over?"
+          message={`This writes a new resume for this job from scratch (${TAILOR_COST_HINT}). The one you have now stays one Undo away and under Earlier versions.`}
+          confirmLabel="Start over"
+          onCancel={() => setConfirmStart(false)}
+          onConfirm={() => {
+            setConfirmStart(false);
+            start();
+          }}
+        />
+      )}
     </div>
   );
 }

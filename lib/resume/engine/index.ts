@@ -63,6 +63,7 @@ export async function generateResume(
   focus?: JobFocus,
   confirmed: ConfirmedForPrompt[] = [],
   onProgress?: (charsWritten: number) => void,
+  signal?: AbortSignal,
 ): Promise<ResumeDoc> {
   const brief = buildBrief(masterProfile, focus, jobSkills?.have);
   return provider.completeJson<ResumeDoc>({
@@ -75,5 +76,6 @@ export async function generateResume(
     schema: RESUME_DOC_JSON_SCHEMA,
     parse: (raw) => ResumeDocSchema.parse(raw),
     onProgress,
+    signal,
   });
 }

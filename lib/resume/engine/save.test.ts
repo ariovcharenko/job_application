@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "../../db";
 import { blankApplication } from "../../tracker/blank";
 import { deleteApplication } from "../../tracker/repo";
-import { deleteJobResume, getJobResume, listJobResumes, parseStoredResume, storeJobResume, type StoredEngineResume } from "./save";
+import { deleteJobResume, getJobResume, listJobResumes, parseStoredResume, storeJobResume, withPreviousVersion, type StoredEngineResume } from "./save";
 import type { ResumeDoc } from "./schema";
 
 const doc = (bullet: string): ResumeDoc => ({
@@ -52,6 +52,33 @@ describe("storeJobResume", () => {
     await deleteJobResume(id);
     expect(await listJobResumes()).toEqual([]);
     expect((await db.applications.get(appId))?.tailoredResumeId).toBeUndefined();
+  });
+});
+
+describe("earlier versions", () => {
+  it("keeps the last 3 versions a new one replaced, newest first, and none for a tick-only save", async () => {
+    const appId = await db.applications.add({ ...blankApplication(), company: "Acme" });
+    for (const v of ["v1", "v2", "v3", "v4", "v5"]) await storeJobResume(appId, bytes, stored(v), { before: 0, after: 0 });
+    await storeJobResume(appId, bytes, stored("v5", ["kept a flag"]), { before: 0, after: 0 });
+    const s = (await getJobResume(appId))!.stored;
+    expect(s.final.experience[0].bullets).toEqual(["v5"]);
+    expect(s.approved).toEqual(["kept a flag"]);
+    expect(s.previous?.map((p) => p.final.experience[0].bullets[0])).toEqual(["v4", "v3", "v2"]);
+  });
+
+  it("still reads rows saved before versions existed, and drops a broken earlier version", () => {
+    const old = { v: 2, doc: doc("Old"), approved: [], final: doc("Old") };
+    expect(parseStoredResume(JSON.stringify(old))?.previous).toBeUndefined();
+    const mixed = { ...old, previous: [{ doc: doc("A"), final: doc("A"), approved: ["x"], savedAt: 5 }, { doc: "broken" }] };
+    expect(parseStoredResume(JSON.stringify(mixed))?.previous).toEqual([{ doc: doc("A"), final: doc("A"), approved: ["x"], savedAt: 5 }]);
+  });
+
+  it("withPreviousVersion never nests earlier versions inside earlier versions", () => {
+    const a = withPreviousVersion(null, stored("a"), 1);
+    const b = withPreviousVersion(a, stored("b"), 2);
+    const c = withPreviousVersion(b, { ...stored("c"), previous: [{ ...stored("zzz"), savedAt: 0 }] }, 3);
+    expect(c.previous?.map((p) => p.final.experience[0].bullets[0])).toEqual(["b", "a"]);
+    expect(c.previous?.every((p) => !("previous" in p))).toBe(true);
   });
 });
 

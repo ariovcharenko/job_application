@@ -2,7 +2,8 @@ import { mentionedSkills } from "../intake/analyze";
 import { readBreakdown } from "../intake/stored";
 import type { Application } from "../types";
 import { buildJobFocus, type JobFocus } from "./engine/focus";
-import { hasSkill, isSoftSkill } from "./master/skills";
+import type { ResumeDoc } from "./engine/schema";
+import { hasSkill, isSoftSkill, parseSkillInventory } from "./master/skills";
 
 // "How much of what this job asks for is on the page": the job's skills (as analyzed), and the
 // share of them a piece of text shows. Replaces raw word overlap, which counted every word in the
@@ -43,4 +44,30 @@ export function skillCoverage(skills: string[], text: string): { percent: number
   const found = skills.filter((s) => hasSkill(s, [], text));
   const missing = skills.filter((s) => !found.includes(s));
   return { percent: Math.round((found.length / skills.length) * 100), found, missing };
+}
+
+/** How ready the page is for the job's key skills, counted by code (never by the model, decision #7). */
+export interface SkillReadiness {
+  /** The skills counted: the job's required ones, or every job skill when it lists none as required. */
+  skills: string[];
+  /** On the page anywhere (a bullet or the Skills section). */
+  shown: string[];
+  /** Named in an experience or project bullet, where a recruiter sees it was used. */
+  proven: string[];
+  /** In her experience at all (so they could be shown truthfully). */
+  inProfile: string[];
+}
+
+const bulletText = (doc: ResumeDoc) =>
+  [...doc.experience, ...(doc.projects ?? [])].flatMap((e) => e.bullets).map((b) => b.replace(/\*\*/g, "")).join("\n");
+
+export function skillReadiness(doc: ResumeDoc, skills: string[], master: string, pageText: string): SkillReadiness {
+  const inventory = parseSkillInventory(master);
+  const bullets = bulletText(doc);
+  return {
+    skills,
+    shown: skills.filter((s) => hasSkill(s, [], pageText)),
+    proven: skills.filter((s) => hasSkill(s, [], bullets)),
+    inProfile: skills.filter((s) => hasSkill(s, inventory, master)),
+  };
 }
