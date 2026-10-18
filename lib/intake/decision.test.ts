@@ -149,7 +149,8 @@ describe("reasons: one plain line, the posting's quote once", () => {
     const legacy = { key: "workAuth" as const, label: "x", status: "fail" as const, details: [`Rules out sponsorship. "${quote}"`, `Rules out OPT or future sponsorship. "${quote}"`] };
     const e = filterExplanation(legacy);
     expect(e.quotes).toEqual([quote]);
-    expect(e.summary).toBe("Rules out sponsorship. Rules out OPT or future sponsorship.");
+    expect(e.summary).toBe("Won't sponsor visas and excludes OPT.");
+    expect(filterExplanation({ ...legacy, key: "location", details: ["Hybrid. Somewhere isn't in your locations."] }).summary).toBe("Hybrid. Somewhere isn't in your locations.");
   });
 
   it("keeps distinct quotes and collapses near-identical ones", () => {

@@ -149,8 +149,19 @@ function summarizeChecks(checks: Criterion[]): string {
 /** What to show for a failed or unclear must-have: a plain line, then the posting's words once. */
 export function filterExplanation(f: FilterResult): { summary: string; quotes: string[] } {
   if (f.summary !== undefined) return { summary: f.summary, quotes: f.quotes ?? [] };
-  return { summary: uniqueSentences(f.details.map(withoutQuotes)).join(" "), quotes: uniqueQuotes(f.details.flatMap(quotesIn)) };
+  const sentences = uniqueSentences(f.details.map(withoutQuotes));
+  // Older saved work-auth failures: the same plain words a new check gets.
+  const keys = f.status === "fail" ? sentences.map((s) => LEGACY_FAIL_DETAIL[s]) : [];
+  const summary = keys.length && keys.every(Boolean) ? `${capitalize(joinAnd(keys.map((k) => FAIL_PHRASE[k!]!)))}.` : sentences.join(" ");
+  return { summary, quotes: uniqueQuotes(f.details.flatMap(quotesIn)) };
 }
+
+/** The fail details criteria.ts writes for work authorization, without their quotes. */
+const LEGACY_FAIL_DETAIL: Record<string, Criterion["key"]> = {
+  "Rules out sponsorship.": "sponsorship",
+  "Rules out OPT or future sponsorship.": "opt",
+  "Requires US citizenship.": "citizenship",
+};
 
 export interface SkillsMatch {
   /** 0-100, or null when there's nothing to compare. */
