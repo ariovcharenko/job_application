@@ -66,9 +66,14 @@ export default function PrivacyPage() {
 
         <Section title="What is sent to OpenAI (only if you add an OpenAI key)">
           <p>
-            OpenAI is optional. If you add an OpenAI key and choose OpenAI to write resumes, then writing and revising a tailored resume
-            call OpenAI&apos;s API directly from your browser, with your key. That sends the job description, your experience, the
-            current resume draft and any change you ask for. Nothing else goes to OpenAI.
+            OpenAI is optional. If you add an OpenAI key and choose OpenAI to write resumes and messages, then writing and revising a
+            tailored resume, and drafting an outreach message, call OpenAI&apos;s API directly from your browser, with your key. That
+            sends the job description, your experience, the current resume draft and any change you ask for. For an outreach draft it
+            sends the job, the contact&apos;s name and role, your name, school and a few answer bank entries. Nothing else goes to OpenAI.
+          </p>
+          <p className="mt-2">
+            If OpenAI is out of credit, busy or unavailable and an Anthropic key is saved, that same request is sent to Anthropic once instead,
+            and the screen says it was written with Claude.
           </p>
           <p className="mt-2 text-muted">
             Checking jobs, reading links and importing your resume always use Anthropic. Every resume OpenAI writes goes through the same

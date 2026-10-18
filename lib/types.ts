@@ -45,7 +45,7 @@ export interface AppSettings {
   workspaceId: string;
   fastModel: string; // cheap extraction / classification / scoring signals
   smartModel: string; // tailoring, cover letters, free-text answers
-  /** OpenAI key, optional. Used only to write and revise resumes (lib/ai/route.ts). Sent only to api.openai.com. */
+  /** OpenAI key, optional. Used only to write and revise resumes and draft outreach messages (lib/ai/route.ts). Sent only to api.openai.com. */
   openaiKey?: string;
   /** The OpenAI model that writes resumes. */
   openaiModel?: string;
