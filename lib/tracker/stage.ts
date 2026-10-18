@@ -20,8 +20,13 @@ export function addDays(date: string, days: number): string {
 
 /**
  * Move an application to a new stage and fill the matching date if it is empty:
- * Applied sets the apply date and a follow-up reminder a week later, and any reply stage sets
- * the respond date. Existing dates are never overwritten.
+ * Applied sets the apply date and a follow-up reminder a week later; an interview or offer
+ * means they replied, so it sets the respond date. Existing dates are never overwritten, and
+ * the apply date is never made up for a later stage.
+ *
+ * Rejected doesn't set the respond date: a rejection often arrives as silence or long after,
+ * so counting it as a reply today would inflate the response rate. She can enter the date under
+ * Details. "No response" and "Withdrawn" set no dates either.
  */
 export function applyStageChange(app: Application, stage: Stage, today: string = todayISO()): Application {
   const next: Application = { ...app, stage };
@@ -31,10 +36,7 @@ export function applyStageChange(app: Application, stage: Stage, today: string =
     if (!next.appliedDate) next.appliedDate = today;
     if (!next.followUpDate) next.followUpDate = addDays(next.appliedDate, FOLLOW_UP_DAYS) || addDays(today, FOLLOW_UP_DAYS);
   }
-  if ((stage === "Waiting for interview" || stage === "Offer" || stage === "Rejected") && !next.respondDate) {
-    next.respondDate = today;
-    if (!next.appliedDate) next.appliedDate = today;
-  }
+  if ((stage === "Waiting for interview" || stage === "Offer") && !next.respondDate) next.respondDate = today;
   return next;
 }
 

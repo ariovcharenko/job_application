@@ -39,6 +39,11 @@ describe("normalizeStage", () => {
   it.each([
     ["Applied", "Applied"],
     ["Rejected", "Rejected"],
+    ["No response", "No response"],
+    ["Ghosted", "No response"],
+    ["No reply after 3 weeks", "No response"],
+    ["Withdrawn", "Withdrawn"],
+    ["Withdrew application", "Withdrawn"],
     ["Waiting for the interview", "Waiting for interview"],
     ["Interview scheduled", "Waiting for interview"],
     ["Offer received", "Offer"],

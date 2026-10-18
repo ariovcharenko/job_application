@@ -42,4 +42,13 @@ describe("sortApplications: rejected", () => {
     ]);
     expect(out.map((a) => `${a.stage} ${a.appliedDate}`)).toEqual(["Saved ", "Applied 2026-09-01", "Rejected 2026-09-30", "Rejected 2026-09-29"]);
   });
+
+  it("puts No response and Withdrawn with the closed ones at the bottom", () => {
+    const out = sortApplications([
+      { stage: "No response" as const, appliedDate: "2026-09-30", createdAt: 1 },
+      { stage: "Applied" as const, appliedDate: "2026-09-01", createdAt: 2 },
+      { stage: "Withdrawn" as const, appliedDate: "2026-09-29", createdAt: 3 },
+    ]);
+    expect(out.map((a) => a.stage)).toEqual(["Applied", "No response", "Withdrawn"]);
+  });
 });

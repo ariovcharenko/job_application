@@ -2,8 +2,12 @@ import type { WorkMode } from "./options";
 
 // Shared data types. Stand-ins for the tracker fields until the user's real Notion fields are known.
 
-export const STAGES = ["Saved", "Applied", "Waiting for interview", "Offer", "Rejected"] as const;
+/** "No response" (ghosted) and "Withdrawn" were added later: older rows simply never use them. */
+export const STAGES = ["Saved", "Applied", "Waiting for interview", "Offer", "Rejected", "No response", "Withdrawn"] as const;
 export type Stage = (typeof STAGES)[number];
+
+/** Stages where the application is over. They sort to the bottom and read muted. */
+export const CLOSED_STAGES: ReadonlySet<Stage> = new Set<Stage>(["Rejected", "No response", "Withdrawn"]);
 
 /** Job families, for the tracker's "Role type" and "Roles I'm looking for" (lib/eligibility/roles.ts). */
 export const ROLE_TYPES = [

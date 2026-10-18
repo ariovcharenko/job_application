@@ -82,6 +82,8 @@ export const normalizeHeader = (h: string) => h.toLowerCase().replace(/[^a-z0-9]
 export function normalizeStage(raw: string): Stage {
   const s = raw.trim().toLowerCase();
   if (!s) return "Saved";
+  if (/withdr/.test(s)) return "Withdrawn";
+  if (/no (response|reply|answer)|ghost|never heard/.test(s)) return "No response";
   if (/reject|declin|denied|not selected|unsuccessful/.test(s)) return "Rejected";
   if (s.includes("offer")) return "Offer";
   if (s.includes("interview") || s.includes("wait")) return "Waiting for interview";

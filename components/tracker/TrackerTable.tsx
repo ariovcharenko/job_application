@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { safeHttpUrl } from "@/lib/safeUrl";
 import { changeStage } from "@/lib/tracker/repo";
 import { needsFollowUp } from "@/lib/tracker/stage";
-import { STAGES, type Application, type Stage } from "@/lib/types";
+import { CLOSED_STAGES, STAGES, type Application, type Stage } from "@/lib/types";
 import { panelClass, TrashIcon } from "@/components/ui";
 import { CompanyMark, STAGE_SELECT_CLASS, STAGE_STYLE } from "./StageBadge";
 
@@ -88,7 +88,7 @@ function MobileCards({ apps, onOpen, onDelete }: { apps: Application[]; onOpen: 
       {apps.map((a) => {
         const place = [a.location, a.workMode && a.workMode !== "Unknown" ? a.workMode : ""].filter(Boolean).join(" · ");
         return (
-          <li key={a.id} className={`${panelClass} p-4 ${a.stage === "Rejected" ? "text-muted" : ""}`}>
+          <li key={a.id} className={`${panelClass} p-4 ${CLOSED_STAGES.has(a.stage) ? "text-muted" : ""}`}>
             <div className="flex items-start gap-3">
               <CompanyMark name={a.company} />
               <button
@@ -97,7 +97,7 @@ function MobileCards({ apps, onOpen, onDelete }: { apps: Application[]; onOpen: 
                 className="min-w-0 flex-1 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
               >
                 <span className="block truncate font-medium">{a.company || "Company not set"}</span>
-                <span className={`block text-[13px] leading-snug ${a.stage === "Rejected" ? "" : "text-ink"}`}>{a.role || "Role not set"}</span>
+                <span className={`block text-[13px] leading-snug ${CLOSED_STAGES.has(a.stage) ? "" : "text-ink"}`}>{a.role || "Role not set"}</span>
                 {place && <span className="mt-0.5 block truncate text-xs text-muted">{place}</span>}
               </button>
             </div>
@@ -174,7 +174,7 @@ export default function TrackerTable({
               <tr
                 key={a.id}
                 onClick={() => onOpen(a)}
-                className={`group cursor-pointer border-b border-black/[0.05] transition-colors last:border-0 hover:bg-paper ${a.stage === "Rejected" ? "text-muted" : ""}`}
+                className={`group cursor-pointer border-b border-black/[0.05] transition-colors last:border-0 hover:bg-paper ${CLOSED_STAGES.has(a.stage) ? "text-muted" : ""}`}
               >
                 <td className="px-3 py-3">
                   <div className="flex min-w-0 items-center gap-2.5">
@@ -194,7 +194,7 @@ export default function TrackerTable({
                   </div>
                 </td>
                 <td className="px-3 py-3">
-                  <span className={`line-clamp-2 leading-snug ${a.stage === "Rejected" ? "" : "text-ink"}`} title={a.role || undefined}>
+                  <span className={`line-clamp-2 leading-snug ${CLOSED_STAGES.has(a.stage) ? "" : "text-ink"}`} title={a.role || undefined}>
                     {a.role || "—"}
                   </span>
                 </td>

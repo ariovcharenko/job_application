@@ -2,13 +2,16 @@ import { DEFAULT_PREFERENCES } from "@/lib/defaults";
 import { companyInitials } from "@/lib/tracker/initials";
 import type { Stage } from "@/lib/types";
 
-/** One color per stage, so the table reads at a glance: gray to do, purple applied, amber interview, green offer, red rejected. */
+/** One color per stage, so the table reads at a glance: gray to do, purple applied, amber interview, green offer, red rejected,
+ * and quiet gray for the ones that just ended (no response, withdrawn). */
 export const STAGE_STYLE: Record<Stage, string> = {
   Saved: "bg-black/[0.05] text-black/65",
   Applied: "bg-accent-soft text-accent-deep",
   "Waiting for interview": "bg-warn-soft text-warn",
   Offer: "bg-good-soft text-good",
   Rejected: "bg-bad-soft text-bad",
+  "No response": "bg-black/[0.05] text-muted",
+  Withdrawn: "bg-black/[0.05] text-muted",
 };
 
 /** A solid dot per stage (chips, legends), so the stage color still reads where the pill's soft tint would be too faint. */
@@ -18,6 +21,8 @@ export const STAGE_DOT: Record<Stage, string> = {
   "Waiting for interview": "bg-warn",
   Offer: "bg-good",
   Rejected: "bg-bad",
+  "No response": "bg-black/20",
+  Withdrawn: "bg-black/45",
 };
 
 /** The small pill-shaped stage menu used on table rows and board cards. */
