@@ -14,6 +14,7 @@ import { downloadBlob } from "@/lib/download";
 import { exportCsv } from "@/lib/tracker/csvMap";
 import { blankApplication } from "@/lib/tracker/blank";
 import { completeFollowUp, needsFollowUp, snoozeFollowUp, todayISO } from "@/lib/tracker/stage";
+import { responseRateTitle, responseStats } from "@/lib/tracker/responseRate";
 import { sortApplications } from "@/lib/tracker/sort";
 import { DEFAULT_VIEW_PREFS, filterApplications, hasActiveFilters, loadViewPrefs, saveViewPrefs, stageCounts, type TrackerView as View } from "@/lib/tracker/filter";
 import { isTracked } from "@/lib/tracker/triage";
@@ -360,15 +361,8 @@ export default function TrackerView() {
   };
 
   const stats = useMemo(() => {
-    const list = tracked;
-    const applied = list.filter((a) => a.stage !== "Saved");
-    const responded = applied.filter((a) => a.respondDate);
-    return {
-      total: list.length,
-      applied: applied.length,
-      responded: responded.length,
-      rate: applied.length ? Math.round((responded.length / applied.length) * 100) : 0,
-    };
+    // From stages, not reply dates (lib/tracker/responseRate.ts).
+    return { total: tracked.length, ...responseStats(tracked) };
   }, [tracked]);
 
   const upNext = useMemo(() => {
@@ -521,7 +515,7 @@ export default function TrackerView() {
             >
               <Stat label="Tracked" value={stats.total} />
               <Stat label="Applied" value={stats.applied} />
-              <Stat label="Response rate" value={`${stats.rate}%`} title={`${stats.responded} of ${stats.applied} applied heard back`} />
+              <Stat label="Response rate" value={`${stats.rate}%`} title={responseRateTitle(stats)} />
               {weeklyGoal && <WeeklyGoalStat done={appliedThisWeek(tracked, new Date())} goal={weeklyGoal} />}
             </dl>
           )}
