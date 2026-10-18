@@ -1,5 +1,5 @@
 import { ImageResponse } from "next/og";
-import { LOGO_ARROW, LOGO_DOT, LOGO_RING } from "@/lib/brand";
+import { logoDataUri } from "@/lib/brand";
 
 // The link preview image. Rendered once at build time (static), with next/og's bundled default
 // font: no external fonts, images or network requests. Brand gradient only on the logo mark and
@@ -28,23 +28,8 @@ export default function OpengraphImage() {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-          <div
-            style={{
-              width: 72,
-              height: 72,
-              borderRadius: 18,
-              background: "linear-gradient(135deg, #2997FF 0%, #7B61FF 50%, #C850C0 100%)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <svg width="56" height="56" viewBox="6 6 20 20">
-              <path d={LOGO_RING} fill="none" stroke="white" strokeWidth="2.6" strokeLinecap="round" />
-              <circle cx={LOGO_DOT.cx} cy={LOGO_DOT.cy} r={LOGO_DOT.r} fill="white" />
-              <path d={LOGO_ARROW} fill="none" stroke="white" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element -- next/og draws plain <img>, not next/image */}
+          <img src={logoDataUri("detailed", 72)} width={72} height={72} alt="" />
           <div style={{ fontSize: 40, fontWeight: 600 }}>Job Copilot</div>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", marginTop: 56, fontSize: 84, fontWeight: 700, letterSpacing: -2, lineHeight: 1.05 }}>
