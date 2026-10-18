@@ -299,6 +299,6 @@ export async function saveImport(masterProfile: string, contact: ImportedContact
     next[key] = value;
     changed = true;
   }
-  await saveMasterProfile(masterProfile.trim());
+  await saveMasterProfile(masterProfile.trim(), "import");
   if (changed) await saveProfile(next);
 }

@@ -39,6 +39,11 @@ describe("normalizeStage", () => {
   it.each([
     ["Applied", "Applied"],
     ["Rejected", "Rejected"],
+    ["No response", "No response"],
+    ["Ghosted", "No response"],
+    ["No reply after 3 weeks", "No response"],
+    ["Withdrawn", "Withdrawn"],
+    ["Withdrew application", "Withdrawn"],
     ["Waiting for the interview", "Waiting for interview"],
     ["Interview scheduled", "Waiting for interview"],
     ["Offer received", "Offer"],
@@ -120,8 +125,34 @@ describe("exportCsv", () => {
       notes: a.notes,
       roleType: "AI / ML",
       visa: "opt-friendly",
-      fitScore: 82,
     });
+    // The hidden weighted score isn't exported any more, and the computed columns don't land in Notes.
+    expect(back.fitScore).toBeUndefined();
+  });
+
+  it("exports the match % and verdict the app shows, not the hidden weighted score", () => {
+    const decision = { canApply: true, failed: [], unclear: [] };
+    const posting = `About the role. Responsibilities: build features. Qualifications: a bachelor's degree and experience with React skills. ${"word ".repeat(130)}`;
+    const checked = { ...blankApplication(1), company: "Brightloop", role: "SWE", jdText: posting, fitScore: 41, fitBreakdown: JSON.stringify({ decision, skills: { percent: 95 } }) };
+    const weak = { ...checked, company: "Taskwise", fitBreakdown: JSON.stringify({ decision, skills: { percent: 20 } }) };
+    const ruledOut = { ...checked, company: "DemoDeck", fitBreakdown: JSON.stringify({ decision: { ...decision, canApply: false }, skills: { percent: 90 } }) };
+    const shell = { ...checked, company: "Shell Co", jdText: "Sign in. Cookies." };
+    const manual = { ...blankApplication(1), company: "Lakeside", role: "Analyst" };
+    const rows = parseCsv(exportCsv([checked, weak, ruledOut, shell, manual]));
+    const header = rows[0];
+    expect(header).toContain("Match %");
+    expect(header).toContain("Verdict");
+    expect(header).not.toContain("Fit Score");
+    const col = (name: string) => rows.slice(1).map((r) => r[header.indexOf(name)]);
+    expect(col("Match %")).toEqual(["95", "20", "90", "", ""]);
+    expect(col("Verdict")).toEqual(["Apply", "Weak match", "Don't apply", "Incomplete", ""]);
+  });
+
+  it("still imports a Fit Score column from older exports, and skips the computed columns", () => {
+    const r = importCsv("Company,Job Position,Fit Score,Match %,Verdict\nAcme,SWE,77,95,Apply\n");
+    expect(r.applications[0].fitScore).toBe(77);
+    expect(r.applications[0].notes).toBe("");
+    expect(r.unmapped).toEqual([]);
   });
 });
 

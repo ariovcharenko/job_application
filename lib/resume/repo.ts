@@ -82,25 +82,5 @@ function mergeIntoStructure(
   return { ...structure, sections };
 }
 
-/** Longest role slug kept in a file name; longer titles are cut at a word boundary. */
-const ROLE_SLUG_MAX = 40;
-
-const fileSlug = (s: string) => s.trim().replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_+|_+$/g, "");
-
-/** "Alex Rivera" + "Stripe" -> "Alex_Rivera_Resume_Stripe.docx", matching the naming
- * she already used for her tailored resumes (Alex_Rivera_Resume_<Company>.docx). With a role,
- * a short slug of it is added ("..._Google_Software_Engineer.docx") so two roles at the same
- * company don't overwrite each other in her Tailored folder. */
-export function tailoredFileName(fullName: string, company: string, role?: string): string {
-  const nameSlug = fileSlug(fullName) || "Resume";
-  const parts = [`${nameSlug}_Resume`, fileSlug(company), shortRoleSlug(role ?? "")].filter(Boolean);
-  return `${parts.join("_")}.docx`;
-}
-
-function shortRoleSlug(role: string): string {
-  const full = fileSlug(role);
-  if (full.length <= ROLE_SLUG_MAX) return full;
-  const cut = full.slice(0, ROLE_SLUG_MAX + 1);
-  const atWord = cut.lastIndexOf("_");
-  return (atWord > 0 ? cut.slice(0, atWord) : full.slice(0, ROLE_SLUG_MAX)).replace(/_+$/, "");
-}
+// Moved to ./fileName (kept exported here for older imports).
+export { tailoredFileName } from "./fileName";

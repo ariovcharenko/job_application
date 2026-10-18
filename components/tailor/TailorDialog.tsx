@@ -4,7 +4,7 @@ import type { Application } from "@/lib/types";
 import { Modal } from "@/components/ui";
 import TailorPanel from "./TailorPanel";
 
-export { TAILOR_COST_HINT } from "./TailorPanel";
+export { TAILOR_COST_HINT } from "@/lib/resume/costHint";
 
 /** "Tailor resume" from a tracker row: the master-profile engine, started on click. */
 export default function TailorDialog({

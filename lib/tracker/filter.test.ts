@@ -44,7 +44,7 @@ describe("filterApplications", () => {
 
 describe("stageCounts", () => {
   it("counts every stage, including empty ones", () => {
-    expect(stageCounts(apps)).toEqual({ Saved: 1, Applied: 1, "Waiting for interview": 0, Offer: 0, Rejected: 1 });
+    expect(stageCounts(apps)).toEqual({ Saved: 1, Applied: 1, "Waiting for interview": 0, Offer: 0, Rejected: 1, "No response": 0, Withdrawn: 0 });
   });
 });
 

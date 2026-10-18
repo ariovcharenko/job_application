@@ -10,9 +10,23 @@ describe("applyStageChange", () => {
     expect(out).toMatchObject({ stage: "Applied", appliedDate: TODAY, respondDate: "" });
   });
 
-  it("sets the respond date (and a missing apply date) for reply stages", () => {
-    const out = applyStageChange(blankApplication(), "Rejected", TODAY);
-    expect(out).toMatchObject({ stage: "Rejected", respondDate: TODAY, appliedDate: TODAY });
+  it("sets the respond date for an interview or offer, but never makes up an apply date", () => {
+    expect(applyStageChange(blankApplication(), "Waiting for interview", TODAY)).toMatchObject({ respondDate: TODAY, appliedDate: "" });
+    expect(applyStageChange(blankApplication(), "Offer", TODAY)).toMatchObject({ respondDate: TODAY, appliedDate: "" });
+  });
+
+  it("doesn't count a rejection as a reply today (she can enter the date), nor invent an apply date", () => {
+    const out = applyStageChange({ ...blankApplication(), stage: "Applied", appliedDate: "2026-09-01" }, "Rejected", TODAY);
+    expect(out).toMatchObject({ stage: "Rejected", respondDate: "", appliedDate: "2026-09-01" });
+    expect(applyStageChange(blankApplication(), "Rejected", TODAY).appliedDate).toBe("");
+  });
+
+  it("No response and Withdrawn set no dates and move a checked job into the table", () => {
+    for (const stage of ["No response", "Withdrawn"] as const) {
+      const out = applyStageChange({ ...blankApplication(), triage: "checked" }, stage, TODAY);
+      expect(out).toMatchObject({ stage, respondDate: "", appliedDate: "", followUpDate: "" });
+      expect(out.triage).toBeUndefined();
+    }
   });
 
   it("never overwrites dates that are already set", () => {

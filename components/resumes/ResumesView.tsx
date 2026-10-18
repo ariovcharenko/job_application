@@ -1,17 +1,19 @@
 "use client";
 
 import { useLiveQuery } from "dexie-react-hooks";
+import dynamic from "next/dynamic";
 import { useState } from "react";
 import { db, getProfile } from "@/lib/db";
 import { deleteJobResume, exportResume, listJobResumes } from "@/lib/resume/engine/save";
-import { tailoredFileName } from "@/lib/resume/repo";
+import { tailoredFileName } from "@/lib/resume/fileName";
 import type { Application } from "@/lib/types";
 import BaseResumesCard from "@/components/settings/BaseResumesCard";
 import FolderCard from "@/components/settings/FolderCard";
 import MasterProfileCard from "@/components/settings/MasterProfileCard";
-import ApplicationForm from "@/components/tracker/ApplicationForm";
 import { Button, ConfirmDialog, EmptyState, IconButton, insetClass, PageHeader, panelClass, SectionHeading, Spinner, TrashIcon } from "@/components/ui";
 import ResumePreview from "./ResumePreview";
+
+const ApplicationForm = dynamic(() => import("@/components/tracker/ApplicationForm"), { ssr: false });
 
 type Row = Awaited<ReturnType<typeof listJobResumes>>[number];
 

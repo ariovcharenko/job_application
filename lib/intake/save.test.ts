@@ -123,6 +123,30 @@ describe("saveAnalyzedJob", () => {
     expect(edited.id).toBe(first.id);
     expect(await db.applications.count()).toBe(1);
   });
+
+  it("a repeat check keeps her work mode, sponsorship, role type and job description", async () => {
+    const first = await saveAnalyzedJob(analysis());
+    const jdText = `About the role (her edited copy). Responsibilities: ship code. Qualifications: a bachelor's degree and experience with React. ${"word ".repeat(130)}`;
+    const hers = { workMode: "Hybrid" as const, visa: "no-sponsorship" as const, roleType: "Data & Analytics" as const, jdText };
+    await db.applications.update(first.id, hers);
+    const again = await saveAnalyzedJob(analysis());
+    expect(again.id).toBe(first.id);
+    expect(await db.applications.get(first.id)).toMatchObject(hers);
+  });
+
+  it("a repeat check fills fields still at their 'not set' defaults, and replaces an empty description", async () => {
+    const first = await saveAnalyzedJob(analysis());
+    await db.applications.update(first.id, { workMode: "Unknown", visa: "unknown", jdText: "" });
+    await saveAnalyzedJob(analysis());
+    expect(await db.applications.get(first.id)).toMatchObject({ workMode: "Remote", visa: "sponsors", jdText: "Build things with React." });
+  });
+
+  it("a re-check of that row (Paste and re-check) replaces the description", async () => {
+    const first = await saveAnalyzedJob(analysis());
+    await db.applications.update(first.id, { jdText: "Something she typed" });
+    await saveAnalyzedJob(analysis(), first.id);
+    expect((await db.applications.get(first.id))!.jdText).toBe("Build things with React.");
+  });
 });
 
 describe("looksLikeUrl", () => {

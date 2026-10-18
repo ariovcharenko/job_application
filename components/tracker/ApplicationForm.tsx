@@ -1,6 +1,7 @@
 "use client";
 
 import { useLiveQuery } from "dexie-react-hooks";
+import dynamic from "next/dynamic";
 import { useRef, useState } from "react";
 import { db, getProfile } from "@/lib/db";
 import { hasIncompletePosting, postedAgeOf, readBreakdown } from "@/lib/intake/stored";
@@ -8,23 +9,27 @@ import { postedLabel } from "@/lib/tracker/postedAge";
 import { JOB_SOURCES, WORK_MODES } from "@/lib/options";
 import { REGION_NAMES, looksRemote } from "@/lib/regions";
 import { exportResume, getJobResume } from "@/lib/resume/engine/save";
-import { tailoredFileName } from "@/lib/resume/repo";
+import { tailoredFileName } from "@/lib/resume/fileName";
 import { attachOwnResume, getCurrentResume, removeOwnResume } from "@/lib/resume/ownResume";
 import { safeHttpUrl } from "@/lib/safeUrl";
 import { blankApplication } from "@/lib/tracker/blank";
 import { hasUnsavedChanges } from "@/lib/tracker/dirty";
-import { deleteApplication, saveApplication } from "@/lib/tracker/repo";
+import { mergeReloaded } from "@/lib/tracker/merge";
+import { deleteApplication, saveApplicationChanges, setTriage } from "@/lib/tracker/repo";
 import { applyStageChange } from "@/lib/tracker/stage";
 import { ROLE_TYPES, STAGES, VISA_SIGNALS, type Application, type RoleType, type Stage, type VisaSignal } from "@/lib/types";
 import { Button, ConfirmDialog, ExternalLinkIcon, Field, Modal, Notice, outlinedClass, SelectField, TextArea, textButtonClass } from "@/components/ui";
-import OutreachDialog from "../outreach/OutreachDialog";
-import JobResumeDialog from "../resumes/JobResumeDialog";
 import ResumePreview from "../resumes/ResumePreview";
-import TailorDialog, { TAILOR_COST_HINT } from "../tailor/TailorDialog";
-import NewJobDialog from "./NewJobDialog";
+import { TAILOR_COST_HINT } from "@/lib/resume/costHint";
 import ScoreCard from "./ScoreCard";
 import DeleteJobMessage from "./DeleteJobMessage";
 import { CompanyMark, STAGE_STYLE } from "./StageBadge";
+
+// Opened from buttons, so their code (tailoring, .docx, AI calls) loads only when used.
+const OutreachDialog = dynamic(() => import("../outreach/OutreachDialog"), { ssr: false });
+const JobResumeDialog = dynamic(() => import("../resumes/JobResumeDialog"), { ssr: false });
+const TailorDialog = dynamic(() => import("../tailor/TailorDialog"), { ssr: false });
+const NewJobDialog = dynamic(() => import("./NewJobDialog"), { ssr: false });
 
 const opts = (values: readonly string[]) => values.map((v) => ({ value: v, label: v }));
 
@@ -83,7 +88,9 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
     setSaving(true);
     setError(null);
     try {
-      await saveApplication({ ...app, company: app.company.trim(), role: app.role.trim() });
+      // Only her edits are written, so anything stored meanwhile (a re-check, a stage change in
+      // the table, the background must-have refresh) is kept.
+      await saveApplicationChanges({ ...app, company: app.company.trim(), role: app.role.trim() }, savedApp);
       onClose();
     } catch (e) {
       setError(`Couldn't save: ${e instanceof Error ? e.message : String(e)}`);
@@ -98,7 +105,7 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
     if (app.id === undefined) return;
     const stored = applyStageChange(savedApp, stage);
     setSavedApp(stored);
-    await saveApplication(stored);
+    await saveApplicationChanges(stored, savedApp);
   };
 
   // Where the job sits (table, Checked jobs, or Not applying) also saves right away.
@@ -110,9 +117,8 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
     };
     setApp(apply);
     if (app.id === undefined) return;
-    const stored = apply(savedApp);
-    setSavedApp(stored);
-    await saveApplication(stored);
+    setSavedApp(apply);
+    await setTriage(app.id, triage);
   };
 
   const downloadResume = async () => {
@@ -120,7 +126,7 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
     const profile = await getProfile();
     const fileName = resume.savedPath ?? tailoredFileName(profile.fullName, app.company, app.role);
     const out = await exportResume(resume.bytes, fileName, resume.id);
-    setDownloadNote(`Downloaded ${fileName}${out.toFolder ? " and saved a copy to your Tailored folder" : ""}.${out.folderWarning ? ` ${out.folderWarning}` : ""}`);
+    setDownloadNote(`Downloaded ${out.fileName}${out.toFolder ? " and saved a copy to your Tailored folder" : ""}.${out.folderWarning ? ` ${out.folderWarning}` : ""}`);
   };
 
   // Her own file becomes the job's resume right away (like stage changes, no Save needed).
@@ -439,10 +445,11 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
           onClose={async () => {
             setRechecking(false);
             // The re-check updates this same row; show the new result.
+            // Unsaved Details edits are kept (except the analysis, which the re-check replaces).
             const fresh = app.id !== undefined ? await db.applications.get(app.id) : undefined;
             if (fresh) {
               const loaded = { ...blankApplication(), ...fresh };
-              setApp(loaded);
+              setApp((mine) => mergeReloaded(mine, savedApp, loaded));
               setSavedApp(loaded);
             }
           }}

@@ -3,6 +3,8 @@ import { looksRemote } from "../regions";
 import { WORK_MODES, type WorkMode } from "../options";
 import { normalizeRoleType } from "../eligibility/roles";
 import { STAGES, VISA_SIGNALS, type Application, type Stage, type VisaSignal } from "../types";
+import { verdictFor, VERDICT_TEXT } from "../intake/decision";
+import { hasIncompletePosting, readBreakdown } from "../intake/stored";
 import { blankApplication } from "./blank";
 
 // Role types moved to lib/eligibility/roles.ts; re-exported for existing importers.
@@ -54,8 +56,23 @@ const ALIASES: Record<Field, string[]> = {
   fitScore: ["fit score", "score"],
 };
 
+// Columns computed on export ("Match %", "Verdict": what the app shows for a checked job). On
+// import they are recognized and skipped, so a re-imported export doesn't copy them into Notes.
+// "Fit Score" (the older hidden weighted score) is no longer exported but still imported.
+type Computed = "matchPercent" | "verdict";
+const COMPUTED_HEADERS: ReadonlySet<string> = new Set(["match", "match percent", "verdict"]);
+
+/** "95" and "Apply" for a checked job; empty when it wasn't checked; "Incomplete" for a page-shell check. */
+export function exportedMatch(app: Application): Record<Computed, string> {
+  const b = readBreakdown(app);
+  if (!b?.decision) return { matchPercent: "", verdict: "" };
+  if (hasIncompletePosting(app)) return { matchPercent: "", verdict: "Incomplete" };
+  const pct = b.skills?.percent ?? null;
+  return { matchPercent: pct === null ? "" : String(pct), verdict: VERDICT_TEXT[verdictFor(b.decision, pct)].label };
+}
+
 // Export order and header text (the original tracker's fields first, then the added ones).
-const EXPORT_COLUMNS: [Field, string][] = [
+const EXPORT_COLUMNS: [Field | Computed, string][] = [
   ["company", "Company"],
   ["stage", "Stage"],
   ["role", "Job Position"],
@@ -73,7 +90,8 @@ const EXPORT_COLUMNS: [Field, string][] = [
   ["source", "Source"],
   ["visa", "Visa Signal"],
   ["followUpDate", "Follow-up Date"],
-  ["fitScore", "Fit Score"],
+  ["matchPercent", "Match %"],
+  ["verdict", "Verdict"],
   ["notes", "Notes"],
 ];
 
@@ -82,6 +100,8 @@ export const normalizeHeader = (h: string) => h.toLowerCase().replace(/[^a-z0-9]
 export function normalizeStage(raw: string): Stage {
   const s = raw.trim().toLowerCase();
   if (!s) return "Saved";
+  if (/withdr/.test(s)) return "Withdrawn";
+  if (/no (response|reply|answer)|ghost|never heard/.test(s)) return "No response";
   if (/reject|declin|denied|not selected|unsuccessful/.test(s)) return "Rejected";
   if (s.includes("offer")) return "Offer";
   if (s.includes("interview") || s.includes("wait")) return "Waiting for interview";
@@ -147,6 +167,11 @@ export function importCsv(text: string, now: number = Date.now()): ImportResult 
     }
   }
 
+  // Columns this app computes on export: skipped, not mapped and not copied into Notes.
+  norm.forEach((h, i) => {
+    if (!used.has(i) && COMPUTED_HEADERS.has(h)) used.add(i);
+  });
+
   const mapped: Record<string, string> = {};
   for (const [field, idx] of colFor) mapped[headers[idx]] = field;
   const unmapped = headers.filter((_, i) => !used.has(i) && headers[i] !== "");
@@ -185,12 +210,14 @@ export function importCsv(text: string, now: number = Date.now()): ImportResult 
 
 export function exportCsv(apps: Application[]): string {
   const header = EXPORT_COLUMNS.map(([, label]) => label);
-  const body = apps.map((a) =>
-    EXPORT_COLUMNS.map(([field]) => {
+  const body = apps.map((a) => {
+    const computed = exportedMatch(a);
+    return EXPORT_COLUMNS.map(([field]) => {
+      if (field === "matchPercent" || field === "verdict") return computed[field];
       const v = a[field as keyof Application];
       return v === undefined || v === null ? "" : String(v);
-    }),
-  );
+    });
+  });
   return toCsv([header, ...body]);
 }
 

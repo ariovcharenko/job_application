@@ -85,6 +85,21 @@ export async function readResumeFile(handle: FileSystemDirectoryHandle, name: st
   }
 }
 
+/** True if the folder already has an entry with this name (never creates anything). */
+export async function fileExists(handle: FileSystemDirectoryHandle, name: string): Promise<boolean> {
+  try {
+    await handle.getFileHandle(name);
+    return true;
+  } catch (err) {
+    const n = (err as { name?: string })?.name;
+    if (n === "NotFoundError") return false;
+    if (n === "TypeMismatchError") return true; // a folder with that name
+    throw err;
+  }
+}
+
+/** Writes (creating or replacing) a file. Callers pick a name that isn't another job's first
+ * (lib/resume/fileName.ts chooseTailoredFileName). */
 export async function writeResumeFile(handle: FileSystemDirectoryHandle, name: string, bytes: ArrayBuffer): Promise<void> {
   try {
     const fileHandle = await handle.getFileHandle(name, { create: true });
