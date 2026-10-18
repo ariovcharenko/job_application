@@ -1,6 +1,6 @@
 // Writes the static logo files from lib/brand.ts:
 //   app/icon.svg        favicon (small, pixel-snapped drawing; browsers use it at 16 and 32px)
-//   app/apple-icon.png  180x180 Apple touch icon (detailed drawing, full-bleed: iOS rounds it)
+//   app/apple-icon.png  180x180 Apple touch icon (detailed drawing, full-bleed solid: iOS rounds it)
 //
 //   npx vite-node scripts/build-icons.ts
 //
@@ -37,15 +37,15 @@ function renderPng(svg: string, px: number, out: string) {
   );
 }
 
-writeFileSync(join(root, "app/icon.svg"), `${logoSvg("small", { standalone: true, px: 32, id: "i" })}\n`);
-renderPng(logoSvg("detailed", { standalone: true, px: 180, fullBleed: true, id: "a" }), 180, join(root, "app/apple-icon.png"));
+writeFileSync(join(root, "app/icon.svg"), `${logoSvg("small", { standalone: true, px: 32 })}\n`);
+renderPng(logoSvg("detailed", { standalone: true, px: 180, fullBleed: true }), 180, join(root, "app/apple-icon.png"));
 
 const extra = process.argv.indexOf("--preview");
 if (extra >= 0) {
   // Extra renders for checking by eye, never committed.
   const dir = process.argv[extra + 1];
   for (const px of [16, 24, 32, 72, 180, 512]) {
-    renderPng(logoSvg(px <= 32 ? "small" : "detailed", { standalone: true, px, id: `p${px}` }), px, join(dir, `logo-${px}.png`));
+    renderPng(logoSvg(px <= 32 ? "small" : "detailed", { standalone: true, px }), px, join(dir, `logo-${px}.png`));
   }
 }
 console.log("Wrote app/icon.svg and app/apple-icon.png");

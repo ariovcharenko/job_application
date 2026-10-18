@@ -1,21 +1,38 @@
-// The logo: a target with an arrow leaving its bullseye ("apply to the jobs worth it"), white on
-// the brand gradient tile. Everything is computed here from a few numbers, so the nav mark, the
-// favicon files, the Apple touch icon and the link preview are always the same drawing:
+// The logo: two open radar arcs around a solid center ("finds the jobs worth it"). Flat, solid
+// colors only (no gradients), two tones: the outer arc is the soft tone, the inner arc and the dot
+// are the strong tone. The outer arc is long and opens to the lower right; the inner one is shorter
+// and opens to the upper right, so the two read as deliberate shapes rather than a spinner.
+// Everything is computed here from a few numbers, so the nav mark, the favicon files, the Apple
+// touch icon and the link preview are always the same drawing:
 //
-//   - "detailed": a 100-unit grid for 48px and up (nav on retina, 180px Apple icon, 512px, OG).
-//     Squircle tile, a faint top highlight and bottom shade, a soft shadow under the white glyph.
-//   - "small": a 32-unit grid for 16 and 32px favicons. Heavier strokes, no depth effects, the
-//     arrowhead's straight legs on whole pixels at both 16 and 32px.
+//   - "detailed": a 100-unit grid for 48px and up (Apple icon, 512px, link preview), nudged a
+//     little toward the openings so it looks centered (optical centering).
+//   - "small": a 32-unit grid for 16, 24 and 32px (favicon, nav). Same parts, heavier, with every
+//     straight edge on whole pixels at 16 and 32px.
 //
-// The static files in app/ (icon.svg, apple-icon.png, icon-512.png) are generated from this by
+// The static files in app/ (icon.svg, apple-icon.png) are generated from this by
 // `npx vite-node scripts/build-icons.ts`; run it again after changing anything here.
 
-export const LOGO_GRADIENT = ["#2997FF", "#7B61FF", "#C850C0"] as const;
+/** Solid color treatments. `soft` is a flattened color (no opacity), so it looks the same anywhere. */
+export const LOGO_THEMES = {
+  /** Default: accent purple tile, white glyph. Reads on light and dark browser tabs alike. */
+  purple: { tile: "#7B3FE4", edge: null, strong: "#FFFFFF", soft: "#CAB2F4" },
+  /** White tile with a hairline edge, purple glyph. */
+  light: { tile: "#FFFFFF", edge: "#E3E3E8", strong: "#7B3FE4", soft: "#CAB2F4" },
+  /** Near-black tile, white center, purple outer arc. */
+  dark: { tile: "#1D1D1F", edge: null, strong: "#FFFFFF", soft: "#9B6BF0" },
+  /** No tile: purple glyph straight on the page. */
+  plain: { tile: null, edge: null, strong: "#7B3FE4", soft: "#CAB2F4" },
+} as const;
+export type LogoTheme = keyof typeof LOGO_THEMES;
+export const DEFAULT_THEME: LogoTheme = "purple";
 
 type Pt = { x: number; y: number };
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const pt = (p: Pt) => `${r2(p.x)} ${r2(p.y)}`;
+const rad = (deg: number) => (deg * Math.PI) / 180;
+const at = (c: Pt, radius: number, deg: number): Pt => ({ x: c.x + radius * Math.cos(rad(deg)), y: c.y + radius * Math.sin(rad(deg)) });
 
 /**
  * Apple-style continuous-corner tile ("squircle"): a superellipse |x|^n + |y|^n = 1, sampled and
@@ -44,176 +61,149 @@ export function squirclePath(size: number, n = 4.4, samples = 96): string {
   return `${d}Z`;
 }
 
+/** An open arc with round caps. Angles in degrees, screen coordinates (0 = right, 90 = down). */
+export type ArcSpec = {
+  /** Radius to the middle of the stroke. */
+  r: number;
+  /** Stroke width. */
+  w: number;
+  /** Direction the opening faces. */
+  gapAt: number;
+  /** Visible opening, in degrees at radius r, measured between the round caps' outer edges. */
+  gap: number;
+};
+
 /** The numbers that define the glyph, in tile units. */
 export type GlyphSpec = {
   /** Tile size (the grid). */
   size: number;
-  /** Stroke width shared by the ring, the shaft and the arrowhead. */
-  stroke: number;
-  /** Outer ring radius, to the middle of its stroke. */
-  ring: number;
-  /** Optional inner ring radius (detailed version only). */
-  inner?: number;
-  /** Bullseye radius. */
+  /** Soft-tone outer arc. */
+  outer: ArcSpec;
+  /** Strong-tone inner arc. */
+  inner: ArcSpec;
+  /** Strong-tone center dot radius. */
   dot: number;
-  /** Distance from the bullseye's center to the arrow's tip. */
-  reach: number;
-  /** Length of each arrowhead leg. */
-  head: number;
-  /** Space kept between the ring's cut ends and the arrow, edge to edge. */
-  clearance: number;
-  /** Nudge from the geometric center, for optical balance (the heavy ring pulls down-left). */
-  nudge?: Pt;
-  /** Round the arrow tip so the head's legs land on whole pixels at this many pixels per unit. */
-  snapTip?: number;
+  /**
+   * Optical centering: move the glyph this share of the way toward cancelling its ink's off-center
+   * pull (both openings are on the right, so the ink leans left). 0 = geometric center.
+   */
+  optical?: number;
 };
+
+export type ArcShape = { d: string; w: number; r: number; ends: [Pt, Pt]; gap: number };
 
 export type Glyph = {
   center: Pt;
-  tip: Pt;
-  /** Ring with a cut where the arrow leaves it. */
-  ring: string;
-  /** Shaft from the bullseye to the tip, plus the two arrowhead legs. */
-  arrow: string;
+  outer: ArcShape;
+  inner: ArcShape;
   dot: { cx: number; cy: number; r: number };
-  stroke: number;
-  /** Ring ends, at the middle of the stroke (for tests). */
-  ringEnds: Pt[];
 };
 
-/** Arrow direction: up and to the right, 45 degrees (screen coordinates, y down). */
-const AXIS = -Math.PI / 4;
-const at = (c: Pt, radius: number, angle: number): Pt => ({ x: c.x + radius * Math.cos(angle), y: c.y + radius * Math.sin(angle) });
+function buildArc(c: Pt, a: ArcSpec): ArcShape {
+  // Each round cap reaches w/2 past its end point, so pull the ends back by that much (as an angle).
+  const half = a.gap / 2 + ((a.w / 2 / a.r) * 180) / Math.PI;
+  const start = at(c, a.r, a.gapAt + half);
+  const end = at(c, a.r, a.gapAt - half);
+  return { d: `M${pt(start)}A${a.r} ${a.r} 0 1 1 ${pt(end)}`, w: a.w, r: a.r, ends: [start, end], gap: a.gap };
+}
 
-/** Distance from point p to the segment ab. */
-export function distToSegment(p: Pt, a: Pt, b: Pt): number {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const len2 = dx * dx + dy * dy;
-  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
-  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+/**
+ * Where the glyph's ink balances, relative to the circles' center (round caps ignored). An arc of
+ * half-span h radians has its centroid r * sin(h) / h from the center, opposite its opening.
+ */
+export function inkOffset(spec: Pick<GlyphSpec, "outer" | "inner" | "dot">): Pt {
+  let mx = 0;
+  let my = 0;
+  let total = 0;
+  for (const a of [spec.outer, spec.inner]) {
+    const h = rad((360 - a.gap) / 2);
+    const mass = a.w * a.r * 2 * h;
+    const dist = (a.r * Math.sin(h)) / h;
+    mx += mass * dist * Math.cos(rad(a.gapAt + 180));
+    my += mass * dist * Math.sin(rad(a.gapAt + 180));
+    total += mass;
+  }
+  total += Math.PI * spec.dot * spec.dot;
+  return { x: mx / total, y: my / total };
 }
 
 export function buildGlyph(spec: GlyphSpec): Glyph {
-  const { size, stroke, ring, dot, reach, head, clearance } = spec;
-  const k = Math.SQRT1_2;
-  // Center the glyph's outer bounds in the tile: ring on the left and bottom, arrow tip on the top
-  // and right. Both directions extend by the same amounts, so one offset centers both axes.
-  const offset = (reach * k - ring) / 2;
-  let center: Pt = { x: size / 2 - offset + (spec.nudge?.x ?? 0), y: size / 2 + offset + (spec.nudge?.y ?? 0) };
-  let tip = at(center, reach, AXIS);
-  if (spec.snapTip) {
-    // Put the tip where the head's horizontal and vertical legs have whole-pixel edges.
-    const q = 1 / spec.snapTip;
-    const half = stroke / 2;
-    const snapped = { x: Math.round((tip.x + half) / q) * q - half, y: Math.round((tip.y - half) / q) * q + half };
-    center = { x: center.x + snapped.x - tip.x, y: center.y + snapped.y - tip.y };
-    tip = snapped;
-  }
-  const legA = { x: tip.x - head, y: tip.y };
-  const legB = { x: tip.x, y: tip.y + head };
-
-  // Cut each ring just enough that its round ends keep `clearance` from the shaft and the head.
-  const needed = stroke + clearance;
-  const cut = (radius: number) => {
-    const clear = (angle: number) => {
-      const p = at(center, radius, angle);
-      return Math.min(distToSegment(p, center, tip), distToSegment(p, legA, tip), distToSegment(p, legB, tip)) >= needed;
-    };
-    let gap = 0;
-    while (gap < Math.PI / 2 && !(clear(AXIS + gap) && clear(AXIS - gap))) gap += Math.PI / 720;
-    const start = at(center, radius, AXIS + gap);
-    const end = at(center, radius, AXIS - gap);
-    return { d: `M${pt(start)}A${r2(radius)} ${r2(radius)} 0 1 1 ${pt(end)}`, ends: [start, end] as [Pt, Pt] };
-  };
-
-  const outer = cut(ring);
-  const inner = spec.inner ? cut(spec.inner) : null;
+  const pull = inkOffset(spec);
+  const k = spec.optical ?? 0;
+  const center = { x: r2(spec.size / 2 - pull.x * k), y: r2(spec.size / 2 - pull.y * k) };
   return {
     center,
-    tip,
-    ring: inner ? `${outer.d}${inner.d}` : outer.d,
-    arrow: `M${pt(center)}L${pt(tip)}M${pt(legA)}L${pt(tip)}L${pt(legB)}`,
-    dot: { cx: r2(center.x), cy: r2(center.y), r: dot },
-    stroke,
-    ringEnds: inner ? [...outer.ends, ...inner.ends] : outer.ends,
+    outer: buildArc(center, spec.outer),
+    inner: buildArc(center, spec.inner),
+    dot: { cx: center.x, cy: center.y, r: spec.dot },
   };
 }
 
-// Detailed: two rings and a bullseye, so it reads as a target (a single ring plus an up-right arrow
-// is the "male" sign). One stroke weight for both rings, the shaft and the head; the gaps between
-// rings and bullseye are equal.
+// Detailed: dot, inner arc and outer arc separated by equal 5-unit rings of space. The outer arc is
+// a long 300-degree sweep, the inner one a shorter 250 degrees, so they don't look like a pair of
+// equal chasing arcs. Glyph spans 66% of the tile.
 export const DETAILED_SPEC: GlyphSpec = {
   size: 100,
-  stroke: 6,
-  ring: 25,
-  inner: 14,
-  dot: 6,
-  reach: 43,
-  head: 15,
-  clearance: 4.5,
-  nudge: { x: 0.3, y: -0.3 },
+  outer: { r: 29, w: 8, gapAt: 45, gap: 60 },
+  inner: { r: 16, w: 8, gapAt: -45, gap: 110 },
+  dot: 7,
+  optical: 0.5,
 };
-// Small: the inner ring is dropped (it would blur into the bullseye at 16px) and strokes are heavier.
-export const SMALL_SPEC: GlyphSpec = { size: 32, stroke: 4, ring: 9, dot: 3, reach: 16, head: 6, clearance: 2, snapTip: 0.5 };
+// Small: dot edges at 2 units, inner arc 4..8, outer arc 10..14 from the center, all even, so every
+// straight edge lands on a whole pixel at 16px (0.5 px per unit) and 32px. No optical nudge: half
+// a pixel off at 16px would blur everything.
+export const SMALL_SPEC: GlyphSpec = {
+  size: 32,
+  outer: { r: 12, w: 4, gapAt: 45, gap: 64 },
+  inner: { r: 6, w: 4, gapAt: -45, gap: 120 },
+  dot: 2,
+};
 
 export const DETAILED = buildGlyph(DETAILED_SPEC);
 export const SMALL = buildGlyph(SMALL_SPEC);
-export const DETAILED_TILE = squirclePath(100);
-export const SMALL_TILE = squirclePath(32);
 
-/**
- * The full logo as SVG markup. `id` keeps gradient and filter ids unique when several logos are on
- * one page. `standalone` adds the xmlns and pixel size for files. `fullBleed` fills the whole
- * square (for the Apple touch icon: iOS rounds the corners itself, and a pre-rounded tile would
- * show dark corners).
- */
-export function logoSvg(
-  variant: "detailed" | "small",
-  opts: { id?: string; px?: number; standalone?: boolean; fullBleed?: boolean } = {},
+/** SVG markup for any glyph on any theme (the scratch previews use this with other specs). */
+export function renderLogo(
+  g: Glyph,
+  size: number,
+  opts: { theme?: LogoTheme; px?: number; standalone?: boolean; fullBleed?: boolean } = {},
 ): string {
-  const id = opts.id ?? "logo";
-  const small = variant === "small";
-  const g = small ? SMALL : DETAILED;
-  const size = small ? 32 : 100;
-  const tile = opts.fullBleed ? `M0 0H${size}V${size}H0Z` : small ? SMALL_TILE : DETAILED_TILE;
+  const t = LOGO_THEMES[opts.theme ?? DEFAULT_THEME];
   const head = opts.standalone
     ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}"${opts.px ? ` width="${opts.px}" height="${opts.px}"` : ""}>`
     : `<svg viewBox="0 0 ${size} ${size}">`;
-  const gradient =
-    `<linearGradient id="${id}-bg" x1="0" y1="0" x2="1" y2="1">` +
-    `<stop offset="0" stop-color="${LOGO_GRADIENT[0]}"/><stop offset="0.5" stop-color="${LOGO_GRADIENT[1]}"/><stop offset="1" stop-color="${LOGO_GRADIENT[2]}"/>` +
-    `</linearGradient>`;
-  const glyph =
-    `<path d="${g.ring}" fill="none" stroke="#fff" stroke-width="${g.stroke}" stroke-linecap="round"/>` +
-    `<path d="${g.arrow}" fill="none" stroke="#fff" stroke-width="${g.stroke}" stroke-linecap="round" stroke-linejoin="round"/>` +
-    `<circle cx="${g.dot.cx}" cy="${g.dot.cy}" r="${g.dot.r}" fill="#fff"/>`;
-  if (small) {
-    return `${head}<defs>${gradient}</defs><path d="${tile}" fill="url(#${id}-bg)"/>${glyph}</svg>`;
+  const arc = (a: ArcShape, color: string) => `<path d="${a.d}" fill="none" stroke="${color}" stroke-width="${a.w}" stroke-linecap="round"/>`;
+  let tile = "";
+  if (t.tile) {
+    const shape = opts.fullBleed ? `M0 0H${size}V${size}H0Z` : squirclePath(size);
+    tile = `<path d="${shape}" fill="${t.tile}"/>`;
+    // Hairline edge: the same squircle inset by half the line width, so the line sits fully inside
+    // the tile and is even all the way around.
+    if (t.edge && !opts.fullBleed) {
+      const e = size <= 32 ? 1 : 0.8;
+      tile += `<path d="${squirclePath(size - e)}" transform="translate(${e / 2} ${e / 2})" fill="none" stroke="${t.edge}" stroke-width="${e}"/>`;
+    }
   }
-  // Depth, kept quiet: light from above (a soft white wash on the top half and a hairline highlight
-  // on the top edge), a faint shade toward the bottom, and a soft shadow under the glyph.
-  const defs =
-    gradient +
-    `<linearGradient id="${id}-light" x1="0" y1="0" x2="0" y2="1">` +
-    `<stop offset="0" stop-color="#fff" stop-opacity="0.12"/><stop offset="0.5" stop-color="#fff" stop-opacity="0"/>` +
-    `<stop offset="0.75" stop-color="#1B0B4A" stop-opacity="0"/><stop offset="1" stop-color="#1B0B4A" stop-opacity="0.1"/>` +
-    `</linearGradient>` +
-    `<linearGradient id="${id}-edge" x1="0" y1="0" x2="0" y2="1">` +
-    `<stop offset="0" stop-color="#fff" stop-opacity="0.2"/><stop offset="0.3" stop-color="#fff" stop-opacity="0"/>` +
-    `</linearGradient>` +
-    `<clipPath id="${id}-clip"><path d="${tile}"/></clipPath>` +
-    `<filter id="${id}-shadow" x="-20%" y="-20%" width="140%" height="140%">` +
-    `<feDropShadow dx="0" dy="1.6" stdDeviation="1.8" flood-color="#2A0F6B" flood-opacity="0.3"/>` +
-    `</filter>`;
   return (
-    `${head}<defs>${defs}</defs>` +
-    `<path d="${tile}" fill="url(#${id}-bg)"/>` +
-    `<path d="${tile}" fill="url(#${id}-light)"/>` +
-    (opts.fullBleed ? "" : `<path d="${tile}" fill="none" stroke="url(#${id}-edge)" stroke-width="1.2" clip-path="url(#${id}-clip)"/>`) +
-    `<g filter="url(#${id}-shadow)">${glyph}</g>` +
+    head +
+    tile +
+    arc(g.outer, t.soft) +
+    arc(g.inner, t.strong) +
+    `<circle cx="${g.dot.cx}" cy="${g.dot.cy}" r="${g.dot.r}" fill="${t.strong}"/>` +
     `</svg>`
   );
+}
+
+/**
+ * The full logo as SVG markup. `standalone` adds the xmlns and pixel size for files. `fullBleed`
+ * fills the whole square (for the Apple touch icon: iOS rounds the corners itself, and a
+ * pre-rounded tile would show dark corners).
+ */
+export function logoSvg(
+  variant: "detailed" | "small",
+  opts: { px?: number; standalone?: boolean; fullBleed?: boolean; theme?: LogoTheme } = {},
+): string {
+  return variant === "small" ? renderLogo(SMALL, 32, opts) : renderLogo(DETAILED, 100, opts);
 }
 
 /** The logo as a data: URI (for next/og, which draws images rather than inline SVG markup). */
