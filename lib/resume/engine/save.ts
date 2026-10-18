@@ -1,6 +1,7 @@
 import { downloadBlob } from "../../download";
 import { db, getSettings } from "../../db";
-import { ensurePermission, getOrCreateTailoredDir, writeResumeFile } from "../../fsAccess";
+import { ensurePermission, fileExists, getOrCreateTailoredDir, writeResumeFile } from "../../fsAccess";
+import { chooseTailoredFileName } from "../fileName";
 import type { Application, TailoredResume } from "../../types";
 import { ResumeDocSchema, type ResumeDoc } from "./schema";
 
@@ -77,6 +78,9 @@ export async function storeJobResume(
 }
 
 export interface ExportResult {
+  /** The name it was saved and downloaded under: a short tag is added when the folder already
+   * has another job's file with the plain name. */
+  fileName: string;
   toFolder: boolean;
   folderWarning: string | null;
 }
@@ -85,8 +89,9 @@ export interface ExportResult {
  * Downloads the .docx and writes a copy into her Tailored folder (next to Base, never inside it;
  * see getOrCreateTailoredDir). Must be called from a click: the permission prompt needs a user gesture.
  */
-export async function exportResume(bytes: ArrayBuffer, fileName: string, tailoredResumeId?: number): Promise<ExportResult> {
+export async function exportResume(bytes: ArrayBuffer, requestedName: string, tailoredResumeId?: number): Promise<ExportResult> {
   const settings = await getSettings();
+  let fileName = requestedName;
   let toFolder = false;
   let folderWarning: string | null = null;
   const chosen = settings.tailoredFolder;
@@ -96,6 +101,7 @@ export async function exportResume(bytes: ArrayBuffer, fileName: string, tailore
       if (await ensurePermission(access, "readwrite")) {
         const dir = await getOrCreateTailoredDir(settings.resumeFolder ?? access, chosen);
         if (dir) {
+          fileName = await chooseTailoredFileName(requestedName, { exists: (n) => fileExists(dir, n), ...(await ownFileNames(tailoredResumeId)) });
           await writeResumeFile(dir, fileName, bytes);
           toFolder = true;
           if (tailoredResumeId !== undefined) await db.tailoredResumes.update(tailoredResumeId, { savedPath: fileName });
@@ -110,7 +116,15 @@ export async function exportResume(bytes: ArrayBuffer, fileName: string, tailore
     }
   }
   downloadBytes(bytes, fileName);
-  return { toFolder, folderWarning };
+  return { fileName, toFolder, folderWarning };
+}
+
+/** The job a tailored resume belongs to, and the names that job's resumes were saved under. */
+export async function ownFileNames(tailoredResumeId?: number): Promise<{ applicationId?: number; ownNames: Set<string> }> {
+  const row = tailoredResumeId !== undefined ? await db.tailoredResumes.get(tailoredResumeId) : undefined;
+  if (!row) return { ownNames: new Set() };
+  const rows = await db.tailoredResumes.where("applicationId").equals(row.applicationId).toArray();
+  return { applicationId: row.applicationId, ownNames: new Set(rows.map((r) => r.savedPath).filter((p): p is string => !!p)) };
 }
 
 /** Every job that has a master-profile resume, newest first, for the Resumes page. */

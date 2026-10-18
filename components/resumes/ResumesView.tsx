@@ -4,7 +4,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { useState } from "react";
 import { db, getProfile } from "@/lib/db";
 import { deleteJobResume, exportResume, listJobResumes } from "@/lib/resume/engine/save";
-import { tailoredFileName } from "@/lib/resume/repo";
+import { tailoredFileName } from "@/lib/resume/fileName";
 import type { Application } from "@/lib/types";
 import BaseResumesCard from "@/components/settings/BaseResumesCard";
 import FolderCard from "@/components/settings/FolderCard";

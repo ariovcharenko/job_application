@@ -354,7 +354,7 @@ export default function TailorPanel({
     try {
       const bytes = await renderResumeDocx(header, finalDoc);
       const fileName = tailoredFileName(fullName, application.company, application.role);
-      setSaved({ fileName, ...(await exportResume(bytes, fileName, storedId ?? undefined)) });
+      setSaved(await exportResume(bytes, fileName, storedId ?? undefined));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

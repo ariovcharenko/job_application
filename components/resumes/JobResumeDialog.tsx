@@ -5,7 +5,7 @@ import { getProfile } from "@/lib/db";
 import { downloadBlob } from "@/lib/download";
 import { parseStoredResume } from "@/lib/resume/engine/save";
 import { getCurrentResume } from "@/lib/resume/ownResume";
-import { tailoredFileName } from "@/lib/resume/repo";
+import { tailoredFileName } from "@/lib/resume/fileName";
 import type { Application } from "@/lib/types";
 import { Button, Modal, Notice, Spinner } from "@/components/ui";
 import ResumePreview from "./ResumePreview";

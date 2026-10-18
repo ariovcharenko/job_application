@@ -7,7 +7,7 @@ import { hasIncompletePosting, readBreakdown } from "@/lib/intake/stored";
 import { JOB_SOURCES, WORK_MODES } from "@/lib/options";
 import { REGION_NAMES, looksRemote } from "@/lib/regions";
 import { exportResume, getJobResume } from "@/lib/resume/engine/save";
-import { tailoredFileName } from "@/lib/resume/repo";
+import { tailoredFileName } from "@/lib/resume/fileName";
 import { attachOwnResume, getCurrentResume, removeOwnResume } from "@/lib/resume/ownResume";
 import { safeHttpUrl } from "@/lib/safeUrl";
 import { blankApplication } from "@/lib/tracker/blank";
@@ -119,7 +119,7 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
     const profile = await getProfile();
     const fileName = resume.savedPath ?? tailoredFileName(profile.fullName, app.company, app.role);
     const out = await exportResume(resume.bytes, fileName, resume.id);
-    setDownloadNote(`Downloaded ${fileName}${out.toFolder ? " and saved a copy to your Tailored folder" : ""}.${out.folderWarning ? ` ${out.folderWarning}` : ""}`);
+    setDownloadNote(`Downloaded ${out.fileName}${out.toFolder ? " and saved a copy to your Tailored folder" : ""}.${out.folderWarning ? ` ${out.folderWarning}` : ""}`);
   };
 
   // Her own file becomes the job's resume right away (like stage changes, no Save needed).
