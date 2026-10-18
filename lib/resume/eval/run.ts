@@ -1,6 +1,6 @@
 import type { AIProvider } from "../../ai/provider";
 import { DEMO_EXPERIENCE, DEMO_JOBS } from "../../demo/data";
-import { MODEL_PRICES } from "../batch";
+import { MODEL_PRICES, UNKNOWN_MODEL_PRICE } from "../../ai/prices";
 import { estimatePageFill } from "../engine/budget";
 import { buildJobFocus } from "../engine/focus";
 import { ENGINE_MAX_TOKENS } from "../engine/index";
@@ -79,7 +79,7 @@ const tokens = (chars: number, perToken: number) => Math.ceil(chars / perToken);
  */
 export function estimateEvalCost(model: string, jobs = evalJobs(), master = EVAL_MASTER): { lowUsd: number; highUsd: number; known: boolean } {
   const price = MODEL_PRICES[model];
-  const [inP, outP] = price ?? [10, 50];
+  const [inP, outP] = price ?? UNKNOWN_MODEL_PRICE;
   const usd = (inTok: number, outTok: number) => (inTok * inP + outTok * outP) / 1_000_000;
   let low = 0;
   let high = 0;

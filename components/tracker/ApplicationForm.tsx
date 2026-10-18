@@ -19,7 +19,8 @@ import { Button, ConfirmDialog, ExternalLinkIcon, Field, Modal, Notice, outlined
 import OutreachDialog from "../outreach/OutreachDialog";
 import JobResumeDialog from "../resumes/JobResumeDialog";
 import ResumePreview from "../resumes/ResumePreview";
-import TailorDialog, { TAILOR_COST_HINT } from "../tailor/TailorDialog";
+import TailorDialog, { tailorCostHint } from "../tailor/TailorDialog";
+import { useResumeWriter } from "../tailor/useResumeWriter";
 import NewJobDialog from "./NewJobDialog";
 import ScoreCard from "./ScoreCard";
 import DeleteJobMessage from "./DeleteJobMessage";
@@ -48,6 +49,7 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tailoring, setTailoring] = useState(false);
+  const writer = useResumeWriter();
   const [outreach, setOutreach] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [downloadNote, setDownloadNote] = useState<string | null>(null);
@@ -274,7 +276,7 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
                       </Button>
                     </>
                   ) : (
-                    app.jdText.trim() && <Button onClick={() => setTailoring(true)}>Tailor resume ({TAILOR_COST_HINT})</Button>
+                    app.jdText.trim() && <Button onClick={() => setTailoring(true)}>Tailor resume ({tailorCostHint(writer)})</Button>
                   )}
                   {/* The alternative path is a quiet text action, so the row reads primary, secondary, link
                       instead of three equal pills. */}

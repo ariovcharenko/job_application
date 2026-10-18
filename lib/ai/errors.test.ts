@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { API_KEY_SETTINGS_HREF, CONSOLE_LINKS, describeAIError } from "./errors";
+import { API_KEY_SETTINGS_HREF, CONSOLE_LINKS, describeAIError, OPENAI_KEY_SETTINGS_HREF, OPENAI_LINKS } from "./errors";
 import { AIError } from "./provider";
 
 describe("describeAIError", () => {
@@ -20,7 +20,16 @@ describe("describeAIError", () => {
   });
 
   it("keeps the message and has no fix for plain errors", () => {
-    expect(describeAIError(new Error("boom"))).toEqual({ kind: "unknown", message: "boom", retryable: true });
+    expect(describeAIError(new Error("boom"))).toEqual({ kind: "unknown", provider: "anthropic", message: "boom", retryable: true });
     expect(describeAIError("text")).toMatchObject({ kind: "unknown", message: "text" });
+  });
+
+  it("sends OpenAI errors to OpenAI's pages, not Anthropic's", () => {
+    const billing = describeAIError(new AIError("billing", "out", "openai"));
+    expect(billing.provider).toBe("openai");
+    expect(billing.fix?.href).toBe(OPENAI_LINKS.billing);
+    expect(describeAIError(new AIError("auth", "bad", "openai")).fix?.href).toBe(OPENAI_LINKS.keys);
+    expect(describeAIError(new AIError("no_key", "add", "openai")).fix?.href).toBe(OPENAI_KEY_SETTINGS_HREF);
+    expect(describeAIError(new AIError("workspace", "x", "openai")).fix).toBeUndefined();
   });
 });

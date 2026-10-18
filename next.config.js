@@ -2,7 +2,8 @@ const { PHASE_DEVELOPMENT_SERVER } = require("next/constants");
 
 /**
  * Security headers for every route. The app has no backend: the browser talks to this site (static
- * files) and to api.anthropic.com with the user's own key, and nothing else. Verified against a
+ * files), to api.anthropic.com with the user's own key, and (only if she adds an OpenAI key for
+ * resume writing) to api.openai.com, and nothing else. Verified against a
  * production build (`next build && next start`).
  *
  * Why 'unsafe-inline' for scripts: Next.js 14's App Router writes the page's React Server Component
@@ -12,7 +13,7 @@ const { PHASE_DEVELOPMENT_SERVER } = require("next/constants");
  * every page). The risk 'unsafe-inline' leaves is injected markup, and this app never renders
  * untrusted HTML: posting text is shown as text, and the resume preview HTML is fully escaped
  * (lib/resume/engine/html.ts). Everything else stays locked down: no eval, no third-party scripts,
- * no plugins, no framing, and connections only to this site and Anthropic.
+ * no plugins, no framing, and connections only to this site, Anthropic and OpenAI.
  *
  * If the job Feed (FEATURES.jobFeed) is turned back on, add https://jsearch.p.rapidapi.com to
  * connect-src or its searches will be blocked.
@@ -27,7 +28,7 @@ function buildCsp(dev) {
     "img-src": ["'self'", "data:", "blob:"],
     "font-src": ["'self'", "data:"],
     // Dev only: hot reload uses a websocket back to the dev server.
-    "connect-src": ["'self'", "https://api.anthropic.com", ...(dev ? ["ws:", "wss:"] : [])],
+    "connect-src": ["'self'", "https://api.anthropic.com", "https://api.openai.com", ...(dev ? ["ws:", "wss:"] : [])],
     // Resume PDFs are previewed from a blob: URL in an iframe.
     "frame-src": ["'self'", "blob:"],
     "worker-src": ["'self'", "blob:"],

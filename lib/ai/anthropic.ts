@@ -48,14 +48,14 @@ export function createAnthropicProvider(
         // Streaming: progress as the answer arrives, and no SDK cap on max_tokens for long calls.
         const onProgress = opts.onProgress;
         let written = 0;
-        const stream = client.messages.stream(params);
+        const stream = client.messages.stream(params, opts.signal ? { signal: opts.signal } : undefined);
         stream.on("text", (delta) => {
           written += delta.length;
           onProgress(written);
         });
         res = await stream.finalMessage();
       } else {
-        res = await client.messages.create(params);
+        res = await client.messages.create(params, opts.signal ? { signal: opts.signal } : undefined);
       }
     } catch (err) {
       throw toAIError(err);
@@ -92,6 +92,7 @@ export function createAnthropicProvider(
 
   return {
     id: "anthropic",
+    capabilities: { attachments: true, webFetch: true },
 
     complete: (opts) => run(opts),
 

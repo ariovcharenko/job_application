@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getProvider } from "@/lib/ai";
+import { canFallBackToClaude, providerFor } from "@/lib/ai/route";
+import type { ProviderId } from "@/lib/ai/provider";
 import { getMasterProfile, getProfile, saveMasterProfile } from "@/lib/db";
 import { buildHeader, type ResumeHeader } from "@/lib/resume/engine";
 import { linesShort } from "@/lib/resume/engine/budget";
@@ -30,6 +31,8 @@ import { tailoredFileName } from "@/lib/resume/repo";
 import type { Application } from "@/lib/types";
 import { Button, inputClass, Notice, Spinner } from "@/components/ui";
 import AIErrorNotice from "@/components/resumes/AIErrorNotice";
+import WriterFallbackNotice from "./WriterFallbackNotice";
+import { useResumeWriter } from "./useResumeWriter";
 import SkillGapsCard, { type PlaceOption } from "./SkillGapsCard";
 import PreTailorCard from "./PreTailorCard";
 import { applyConfirmations, confirmedForPrompt, placeChoices, preTailorGaps, type ConfirmedSkill } from "@/lib/resume/gaps";
@@ -46,6 +49,11 @@ import { readBreakdown } from "@/lib/intake/stored";
  * a key skill out of the bullets.
  */
 export const TAILOR_COST_HINT = "about 5 to 10¢";
+
+/** The cost note on the Tailor buttons: Claude's measured cost, or OpenAI's (not measured yet). */
+export function tailorCostHint(writer: ProviderId): string {
+  return writer === "openai" ? "with OpenAI" : TAILOR_COST_HINT;
+}
 /** A revision reuses the cached system prompt (rules + master profile), so it's a bit cheaper. */
 export const REVISE_COST_HINT = "about 4¢";
 
@@ -133,6 +141,12 @@ export default function TailorPanel({
   const [error, setError] = useState<string | null>(null);
   // An AI call that failed, shown with the link that fixes it (credit, key, rate limit...).
   const [aiError, setAiError] = useState<unknown>(null);
+  // "Use Claude for this run": set when OpenAI is the resume writer but can't be used right now.
+  // Lasts while this panel is open; the saved choice in Settings is unchanged.
+  const [writerOverride, setWriterOverride] = useState<ProviderId | undefined>(undefined);
+  // The AI action that last failed, so the OpenAI fallback can run it again.
+  const retryRef = useRef<((override?: ProviderId) => void) | null>(null);
+  const writer = useResumeWriter();
   const [result, setResult] = useState<ValidationResult | null>(null);
   // Flags she decided to keep: a blocked line she confirmed, or a note she looked at.
   const [approved, setApproved] = useState<Set<string>>(new Set());
@@ -219,7 +233,7 @@ export default function TailorPanel({
    * One tailoring run. Her answers to the before-tailoring question are saved to her experience
    * first (gaps.ts applyConfirmations), so the call and the checks both see them as hers.
    */
-  const generate = async (confirmed: ConfirmedSkill[]) => {
+  const generate = async (confirmed: ConfirmedSkill[], override: ProviderId | undefined = writerOverride) => {
     let m = masterRef.current;
     if (!m.trim() || !header) return;
     setError(null);
@@ -246,7 +260,7 @@ export default function TailorPanel({
       // One call writes the final page to a plan computed from the real layout; a second, short one
       // only when the measured page ends short or code found a writing fix (pipeline.ts).
       const out = await tailorResume({
-        provider: await getProvider(),
+        provider: await providerFor("write_resume", { override }),
         master: m,
         company: application.company,
         jdText: application.jdText,
@@ -265,6 +279,7 @@ export default function TailorPanel({
       setChangedFrom(null);
       setPhase("ready");
     } catch (e) {
+      retryRef.current = (o) => void generate(confirmed, o);
       setAiError(e);
       // A failed "Start over" keeps the resume she had, still editable.
       setPhase(result ? "ready" : "idle");
@@ -511,7 +526,7 @@ export default function TailorPanel({
    * One revision call with everything she asked for, plus any skills waiting to be placed. Runs
    * right away; the answer is checked like any generation (anything new still needs her OK).
    */
-  const runRevision = async (requests: ResumeComment[]) => {
+  const runRevision = async (requests: ResumeComment[], override: ProviderId | undefined = writerOverride) => {
     if (!result || phase !== "ready") return;
     const all = [...requests, ...placementComments(result.doc)];
     if (all.length === 0) return;
@@ -522,7 +537,7 @@ export default function TailorPanel({
     setSelection(null);
     setPhase("revising");
     try {
-      const out = await reviseResume(await getProvider(), m, application.company, application.jdText, result.doc, all);
+      const out = await reviseResume(await providerFor("revise_resume", { override }), m, application.company, application.jdText, result.doc, all);
       const { changes: done, ...doc } = out;
       // A model answer: the job's skills she has go back on the Skills lines if it dropped any.
       const next = validateResume(doc, m, { ...checkOpts, addJobSkills: true });
@@ -534,6 +549,7 @@ export default function TailorPanel({
       setChanges(done);
       setPlacements([]);
     } catch (e) {
+      retryRef.current = (o) => void runRevision(requests, o);
       setAiError(e);
     } finally {
       setPhase("ready");
@@ -631,11 +647,32 @@ export default function TailorPanel({
     return <TailorProgress progress={progress} />;
   }
 
+  const costHint = tailorCostHint(writerOverride ?? writer);
+
+  // OpenAI can't write right now (no key, rejected, no credit, model): offer to fix it or use Claude.
+  const aiNotice = canFallBackToClaude(aiError) ? (
+    <WriterFallbackNotice
+      error={aiError}
+      disabled={phase === "revising" || phase === "saving"}
+      onRetry={() => {
+        setAiError(null);
+        retryRef.current?.(undefined);
+      }}
+      onUseClaude={() => {
+        setWriterOverride("anthropic");
+        setAiError(null);
+        retryRef.current?.("anthropic");
+      }}
+    />
+  ) : (
+    <AIErrorNotice error={aiError} />
+  );
+
   const preTailor = (
     <PreTailorCard
       gaps={pendingGaps}
       places={masterPlaces}
-      cost={TAILOR_COST_HINT}
+      cost={costHint}
       onTailor={(confirmed) => void generate(confirmed)}
       onSkip={() => void generate([])}
       disabled={phase === "revising"}
@@ -650,16 +687,16 @@ export default function TailorPanel({
           {notStartedReason && <p className="text-sm text-muted">{notStartedReason}</p>}
           {preTailor}
           {error && <Notice kind="error">{error}</Notice>}
-          {aiError !== null && <AIErrorNotice error={aiError} />}
+          {aiError !== null && aiNotice}
         </div>
       );
     }
     return (
       <div className="rounded-2xl bg-paper p-4">
         {notStartedReason && <p className="mb-3 text-sm text-muted">{notStartedReason}</p>}
-        <Button onClick={() => void generate([])}>Tailor resume ({TAILOR_COST_HINT})</Button>
+        <Button onClick={() => void generate([])}>Tailor resume ({costHint})</Button>
         {error && <Notice kind="error">{error}</Notice>}
-        {aiError !== null && <AIErrorNotice error={aiError} />}
+        {aiError !== null && aiNotice}
       </div>
     );
   }
@@ -1002,12 +1039,12 @@ export default function TailorPanel({
         </Notice>
       )}
       {error && <Notice kind="error">{error}</Notice>}
-      {aiError !== null && <AIErrorNotice error={aiError} />}
+      {aiError !== null && aiNotice}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={start} disabled={busy}>
-            Start over ({TAILOR_COST_HINT})
+            Start over ({costHint})
           </Button>
           {history.length > 0 && (
             <Button variant="secondary" onClick={undo} disabled={busy}>

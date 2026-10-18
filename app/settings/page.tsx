@@ -3,6 +3,7 @@ import AnswerBankCard from "@/components/settings/AnswerBankCard";
 import BackupCard from "@/components/settings/BackupCard";
 import JSearchKeyCard from "@/components/settings/JSearchKeyCard";
 import ApiKeyCard from "@/components/settings/ApiKeyCard";
+import OpenAIKeyCard from "@/components/settings/OpenAIKeyCard";
 import PreferencesCard from "@/components/settings/PreferencesCard";
 import ProfileCard from "@/components/settings/ProfileCard";
 import SettingsNav from "@/components/settings/SettingsNav";
@@ -14,6 +15,7 @@ export const metadata: Metadata = { title: "Settings" };
 // Titles must match each card's <Card title>, since the anchors are derived from them.
 const SECTIONS = [
   "Anthropic API key",
+  "OpenAI API key",
   "Profile",
   "Job preferences",
   "Answer bank",
@@ -29,6 +31,7 @@ export default function SettingsPage() {
         <SettingsNav sections={SECTIONS} />
         <div className="min-w-0 max-w-4xl">
           <ApiKeyCard />
+          <OpenAIKeyCard />
           <ProfileCard />
           <PreferencesCard />
           <AnswerBankCard />

@@ -1,3 +1,4 @@
+import { DEFAULT_OPENAI_MODEL } from "./options";
 import type { AppSettings, Preferences, Profile } from "./types";
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -7,6 +8,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   workspaceId: "",
   fastModel: "claude-haiku-4-5",
   smartModel: "claude-sonnet-5",
+  openaiKey: "",
+  openaiModel: DEFAULT_OPENAI_MODEL,
+  resumeWriter: "auto",
   jsearchApiKey: "",
 };
 

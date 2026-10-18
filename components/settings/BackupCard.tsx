@@ -5,7 +5,7 @@ import { downloadBlob } from "@/lib/download";
 import { useEffect, useState } from "react";
 import { exportBackup, parseBackup, restoreBackup, type ParsedBackup } from "@/lib/backup";
 import { todayISO } from "@/lib/tracker/stage";
-import { forgetApiKeys, hasApiKey, isDeleteConfirmed, wipeAllData, DELETE_CONFIRM_WORD } from "@/lib/wipe";
+import { forgetApiKeys, hasAnyApiKey, isDeleteConfirmed, wipeAllData, DELETE_CONFIRM_WORD } from "@/lib/wipe";
 import { Button, Card, ConfirmDialog, inputClass, Modal, Notice } from "@/components/ui";
 import AutoBackupSection from "./AutoBackupSection";
 
@@ -53,7 +53,7 @@ export default function BackupCard() {
   const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
-    void hasApiKey().then(setKeySaved);
+    void hasAnyApiKey().then(setKeySaved);
   }, []);
 
   const download = async () => {
@@ -111,7 +111,7 @@ export default function BackupCard() {
   const forget = async () => {
     await forgetApiKeys();
     setKeySaved(false);
-    setStatus({ kind: "ok", text: "Your API key was removed from this browser. Paste it again under Anthropic API key to keep checking jobs." });
+    setStatus({ kind: "ok", text: "Your API keys were removed from this browser. Paste them again under Anthropic API key (and OpenAI API key) to keep using AI features." });
   };
 
   const closeDelete = () => {
@@ -144,7 +144,7 @@ export default function BackupCard() {
         <label className="flex items-start gap-2 text-sm">
           <input type="checkbox" checked={includeKey} onChange={(e) => setIncludeKey(e.target.checked)} className="mt-0.5 h-4 w-4" />
           <span>
-            Include my API key in the file
+            Include my API keys in the file
             <span className="block text-xs text-muted">Keep that file private.</span>
           </span>
         </label>
@@ -173,7 +173,7 @@ export default function BackupCard() {
       <h3 className="mt-8 border-t border-black/[0.06] pt-6 text-[15px] font-semibold">Remove data from this browser</h3>
       <div className="mt-3 flex flex-wrap gap-3">
         <Button variant="secondary" onClick={() => void forget()} disabled={!keySaved}>
-          Forget my API key
+          Forget my API keys
         </Button>
         <Button variant="danger-quiet" onClick={() => setDeleting(true)}>
           Delete all my data

@@ -31,6 +31,8 @@ export type ExperienceLevel = (typeof EXPERIENCE_LEVELS)[number] | "";
 export const VISA_SIGNALS = ["unknown", "sponsors", "opt-friendly", "no-sponsorship"] as const;
 export type VisaSignal = (typeof VISA_SIGNALS)[number];
 
+export type ResumeWriterChoice = "auto" | "anthropic" | "openai";
+
 export interface AppSettings {
   id: "app";
   provider: "anthropic";
@@ -39,6 +41,12 @@ export interface AppSettings {
   workspaceId: string;
   fastModel: string; // cheap extraction / classification / scoring signals
   smartModel: string; // tailoring, cover letters, free-text answers
+  /** OpenAI key, optional. Used only to write and revise resumes (lib/ai/route.ts). Sent only to api.openai.com. */
+  openaiKey?: string;
+  /** The OpenAI model that writes resumes. */
+  openaiModel?: string;
+  /** Who writes and revises resumes. "auto" = OpenAI when an OpenAI key is saved, else Claude. */
+  resumeWriter?: ResumeWriterChoice;
   resumeFolder?: FileSystemDirectoryHandle;
   /** Folder tailored resumes are saved to, when she chose it herself (lib/fsAccess.ts getOrCreateTailoredDir). */
   tailoredFolder?: FileSystemDirectoryHandle;

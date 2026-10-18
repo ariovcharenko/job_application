@@ -36,6 +36,26 @@ describe("backup file", () => {
     expect(parsed.includesKey).toBe(true);
   });
 
+  it("treats the OpenAI key like the Anthropic key: out by default, in only when asked", () => {
+    const withOpenAI = { ...settings, openaiKey: "test-openai-key", openaiModel: "test-openai-model", resumeWriter: "openai" as const };
+    const without = buildBackup(withOpenAI, profile, prefs, { includeKey: false });
+    expect(without).not.toContain("test-openai-key");
+    const parsedWithout = parseBackup(without);
+    expect(parsedWithout.includesKey).toBe(false);
+    // The model and the writer choice are settings, not secrets: always kept.
+    expect(parsedWithout.settings).toMatchObject({ openaiModel: "test-openai-model", resumeWriter: "openai" });
+    const parsedWith = parseBackup(buildBackup({ ...withOpenAI, anthropicKey: "", jsearchApiKey: "" }, profile, prefs, { includeKey: true }));
+    expect(parsedWith.settings.openaiKey).toBe("test-openai-key");
+    expect(parsedWith.includesKey).toBe(true);
+  });
+
+  it("restores the OpenAI settings, keeping a key already here when the file has none", async () => {
+    await saveSettings({ openaiKey: "test-openai-key-here" });
+    const text = buildBackup({ ...settings, openaiModel: "test-openai-model", resumeWriter: "anthropic" }, profile, prefs, { includeKey: false });
+    await restoreBackup(text);
+    expect(await getSettings()).toMatchObject({ openaiKey: "test-openai-key-here", openaiModel: "test-openai-model", resumeWriter: "anthropic" });
+  });
+
   it("round-trips profile, preferences and model choices", () => {
     const parsed = parseBackup(buildBackup(settings, profile, prefs, { includeKey: false }));
     expect(parsed.profile.fullName).toBe("Sam Rivera");

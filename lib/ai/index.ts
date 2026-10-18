@@ -1,20 +1,14 @@
 import { getSettings } from "../db";
-import { createAnthropicProvider } from "./anthropic";
-import { AIError, type AIProvider } from "./provider";
+import { buildProvider } from "./route";
+import type { AIProvider } from "./provider";
 
 export * from "./provider";
 
-/** Build the provider from saved settings. Throws AIError("no_key") when no key is set. */
+/**
+ * Claude, built from saved settings. Throws AIError("no_key") when no key is set. Tasks that may
+ * go to OpenAI (resume writing) use `providerFor(task)` from ./route instead.
+ */
 export async function getProvider(): Promise<AIProvider> {
-  const s = await getSettings();
-  if (!s.anthropicKey.trim()) {
-    throw new AIError("no_key", "Add your Anthropic API key in Settings first.");
-  }
-  return createAnthropicProvider({
-    apiKey: s.anthropicKey.trim(),
-    workspaceId: s.workspaceId,
-    fastModel: s.fastModel,
-    smartModel: s.smartModel,
-  });
+  return buildProvider("anthropic", await getSettings());
 }
 export * from "./errors";
