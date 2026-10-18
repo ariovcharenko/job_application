@@ -1,59 +1,76 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildGlyph, DETAILED, DETAILED_SPEC, distToSegment, logoSvg, SMALL, SMALL_SPEC, squirclePath } from "./brand";
+import { type ArcShape, buildGlyph, DETAILED, DETAILED_SPEC, type Glyph, type GlyphSpec, logoSvg, SMALL, SMALL_SPEC, squirclePath } from "./brand";
 
-const legs = (g: typeof DETAILED, head: number) => [
-  [g.center, g.tip],
-  [{ x: g.tip.x - head, y: g.tip.y }, g.tip],
-  [{ x: g.tip.x, y: g.tip.y + head }, g.tip],
-] as const;
+/** Visible opening between an arc's round caps, edge to edge, in tile units. */
+const opening = (a: ArcShape) => Math.hypot(a.ends[0].x - a.ends[1].x, a.ends[0].y - a.ends[1].y) - a.w;
+
+const cases: [string, Glyph, GlyphSpec, number][] = [
+  // name, glyph, spec, smallest pixel size it's drawn at
+  ["detailed", DETAILED, DETAILED_SPEC, 48],
+  ["small", SMALL, SMALL_SPEC, 16],
+];
 
 describe("logo geometry", () => {
-  for (const [name, g, spec] of [
-    ["detailed", DETAILED, DETAILED_SPEC],
-    ["small", SMALL, SMALL_SPEC],
-  ] as const) {
-    it(`${name}: ring cuts keep the clearance from the arrow`, () => {
-      for (const end of g.ringEnds) {
-        const d = Math.min(...legs(g, spec.head).map(([a, b]) => distToSegment(end, a, b)));
-        expect(d).toBeGreaterThanOrEqual(spec.stroke + spec.clearance - 1e-9);
+  for (const [name, g, spec, minPx] of cases) {
+    const pxPerUnit = minPx / spec.size;
+
+    it(`${name}: arc openings stay at least 2px wide at ${minPx}px`, () => {
+      for (const a of [g.outer, g.inner].filter(Boolean) as ArcShape[]) {
+        expect(opening(a) * pxPerUnit).toBeGreaterThanOrEqual(2);
       }
     });
 
-    it(`${name}: glyph stays well inside the tile and close to centered`, () => {
-      const half = spec.stroke / 2;
-      const left = g.center.x - spec.ring - half;
-      const bottom = g.center.y + spec.ring + half;
-      const right = g.tip.x + half;
-      const top = g.tip.y - half;
-      expect(Math.min(left, top, spec.size - right, spec.size - bottom)).toBeGreaterThan(spec.size * 0.1);
-      expect(Math.abs(left - (spec.size - right))).toBeLessThan(spec.size * 0.04);
-      expect(Math.abs(top - (spec.size - bottom))).toBeLessThan(spec.size * 0.04);
+    it(`${name}: the pin keeps at least 1px of clear space from the arcs at ${minPx}px`, () => {
+      const nearest = g.inner ?? g.outer;
+      const ringInside = nearest.r - nearest.w / 2;
+      const headReach = Math.hypot(g.pinHead.cx - g.center.x, g.pinHead.cy - g.center.y) + g.pinHead.r;
+      const tipReach = Math.hypot(g.pinTip.x - g.center.x, g.pinTip.y - g.center.y);
+      expect((ringInside - Math.max(headReach, tipReach)) * pxPerUnit).toBeGreaterThanOrEqual(1);
+    });
+
+    it(`${name}: rings don't touch each other`, () => {
+      if (!g.inner) return;
+      expect(g.outer.r - g.outer.w / 2 - (g.inner.r + g.inner.w / 2)).toBeGreaterThan(0);
+    });
+
+    it(`${name}: glyph is centered in the tile with a margin`, () => {
+      expect(g.center).toEqual({ x: spec.size / 2, y: spec.size / 2 });
+      const extent = g.outer.r + g.outer.w / 2;
+      expect(spec.size / 2 - extent).toBeGreaterThanOrEqual(spec.size * 0.1);
+      // The pin's visual middle (head top to tip) sits on the center within 5% of the tile.
+      const top = g.pinHead.cy - g.pinHead.r;
+      expect(Math.abs((top + g.pinTip.y) / 2 - g.center.y)).toBeLessThan(spec.size * 0.05);
+    });
+
+    it(`${name}: the openings face lower right (outer) and upper right (inner), never straight up`, () => {
+      // Straight up with a line into the center would read as a power button.
+      expect(spec.outer.gapAt).toBe(45);
+      if (spec.inner) expect(spec.inner.gapAt).toBe(-45);
     });
   }
 
-  it("detailed: equal space between bullseye, inner ring and outer ring", () => {
-    const s = DETAILED_SPEC;
-    const inner = s.inner!;
-    const gap1 = inner - s.stroke / 2 - s.dot;
-    const gap2 = s.ring - s.stroke / 2 - (inner + s.stroke / 2);
-    expect(gap1).toBeCloseTo(gap2, 5);
-  });
-
-  it("small: the arrowhead's straight edges land on whole pixels at 16 and 32px", () => {
-    const half = SMALL_SPEC.stroke / 2;
+  it("small: the arc's and pin head's straight edges land on whole pixels at 16 and 32px", () => {
+    const g = SMALL;
+    const edges = [
+      g.center.y - g.outer.r - g.outer.w / 2,
+      g.center.y - g.outer.r + g.outer.w / 2,
+      g.center.x + g.outer.r - g.outer.w / 2,
+      g.center.x + g.outer.r + g.outer.w / 2,
+      g.pinHead.cx - g.pinHead.r,
+      g.pinHead.cx + g.pinHead.r,
+      g.pinHead.cy - g.pinHead.r,
+    ];
     for (const pxPerUnit of [0.5, 1]) {
-      for (const edge of [SMALL.tip.x + half, SMALL.tip.y - half, SMALL.tip.y + half]) {
-        const px = edge * pxPerUnit;
-        expect(Math.abs(px - Math.round(px))).toBeLessThan(1e-6);
-      }
+      for (const e of edges) expect(Math.abs(e * pxPerUnit - Math.round(e * pxPerUnit))).toBeLessThan(1e-9);
     }
   });
 
-  it("builds without the inner ring when none is given", () => {
-    expect(buildGlyph({ ...DETAILED_SPEC, inner: undefined }).ringEnds).toHaveLength(2);
-    expect(DETAILED.ringEnds).toHaveLength(4);
+  it("builds without the inner arc when none is given", () => {
+    expect(buildGlyph({ ...DETAILED_SPEC, inner: undefined }).inner).toBeUndefined();
+    expect(SMALL.inner).toBeUndefined();
+    expect(DETAILED.inner).toBeDefined();
   });
 });
 
@@ -76,6 +93,23 @@ describe("logoSvg", () => {
 
   it("full bleed fills the square (iOS rounds the Apple icon itself)", () => {
     expect(logoSvg("detailed", { fullBleed: true })).toContain('d="M0 0H100V100H0Z"');
+  });
+
+  it("is flat: no filters, shadows or extra gradients", () => {
+    for (const v of ["detailed", "small"] as const) {
+      const svg = logoSvg(v);
+      expect(svg).not.toMatch(/filter|feDropShadow|clipPath/);
+      expect(svg.match(/linearGradient id=/g)).toHaveLength(1);
+    }
+  });
+
+  it("two tones: soft outer arc, strong inner arc and pin", () => {
+    const tile = logoSvg("detailed");
+    expect(tile).toContain('stroke-opacity="0.6"');
+    const plain = logoSvg("detailed", { look: "plain" });
+    expect(plain).not.toContain("linearGradient");
+    expect(plain).toContain("#7B3FE4");
+    expect(plain).toContain('stroke-opacity="0.4"');
   });
 
   it("app/icon.svg is the current small drawing (run scripts/build-icons.ts after changes)", () => {
