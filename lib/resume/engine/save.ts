@@ -3,6 +3,7 @@ import { db, getSettings } from "../../db";
 import { ensurePermission, fileExists, getOrCreateTailoredDir, writeResumeFile } from "../../fsAccess";
 import { chooseTailoredFileName } from "../fileName";
 import type { Application, TailoredResume } from "../../types";
+import { parseStoredReview, type StoredReview } from "./reviewState";
 import { ResumeDocSchema, type ResumeDoc } from "./schema";
 
 export function downloadBytes(bytes: ArrayBuffer, fileName: string) {
@@ -24,7 +25,18 @@ export interface StoredEngineResume {
    * update) never silently replaces the one she had. Optional: older rows have none.
    */
   previous?: PreviousVersion[];
+  /**
+   * The last recruiter review for this page (reviewState.ts), so reopening the job shows it with no
+   * AI call. Optional: older rows and pages never reviewed have none.
+   */
+  review?: StoredReview;
 }
+
+/**
+ * A version about to be stored. `review`: a review to store with it, null to clear it (a new draft
+ * from Start over), or left out to keep the one already stored.
+ */
+export type NextVersion = Omit<StoredEngineResume, "review"> & { review?: StoredReview | null };
 
 /** An earlier saved version of a job's resume. */
 export interface PreviousVersion {
@@ -55,12 +67,14 @@ export function parseStoredResume(appliedEdits: string): StoredEngineResume | nu
     const raw = JSON.parse(appliedEdits);
     if (raw?.v === 2) {
       const previous = parsePrevious(raw.previous);
+      const review = parseStoredReview(raw.review);
       return {
         v: 2,
         doc: ResumeDocSchema.parse(raw.doc),
         approved: Array.isArray(raw.approved) ? raw.approved : [],
         final: ResumeDocSchema.parse(raw.final),
         ...(previous.length ? { previous } : {}),
+        ...(review ? { review } : {}),
       };
     }
     const doc = ResumeDocSchema.safeParse(raw);
@@ -88,8 +102,9 @@ const sameDoc = (a: ResumeDoc, b: ResumeDoc) => JSON.stringify(a) === JSON.strin
  * (at most MAX_PREVIOUS_VERSIONS kept), unless only her ticks changed (same page), which isn't a
  * new version. Pure, tested.
  */
-export function withPreviousVersion(existing: StoredEngineResume | null, next: StoredEngineResume, savedAt: number): StoredEngineResume {
-  const current: StoredEngineResume = { v: 2, doc: next.doc, approved: next.approved, final: next.final };
+export function withPreviousVersion(existing: StoredEngineResume | null, next: NextVersion, savedAt: number): StoredEngineResume {
+  const review = next.review === null ? undefined : (next.review ?? existing?.review);
+  const current: StoredEngineResume = { v: 2, doc: next.doc, approved: next.approved, final: next.final, ...(review ? { review } : {}) };
   if (!existing) return current;
   const kept = existing.previous ?? [];
   if (sameDoc(existing.final, next.final) && sameDoc(existing.doc, next.doc)) return kept.length ? { ...current, previous: kept } : current;
@@ -105,7 +120,7 @@ export function withPreviousVersion(existing: StoredEngineResume | null, next: S
 export async function storeJobResume(
   applicationId: number,
   bytes: ArrayBuffer,
-  stored: StoredEngineResume,
+  stored: NextVersion,
   keywordScores: { before: number; after: number },
 ): Promise<number> {
   return db.transaction("rw", db.tailoredResumes, db.applications, async () => {
@@ -125,6 +140,22 @@ export async function storeJobResume(
     // Tailoring a resume for a job means she's applying: a checked job joins the table.
     await db.applications.update(applicationId, { tailoredResumeId: id, tailorDraft: undefined, triage: undefined, updatedAt: Date.now() });
     return id;
+  });
+}
+
+/**
+ * Saves (or, with null, clears) the recruiter review stored with this job's resume, without making
+ * a new version or touching the file. Returns false when the job has no resume yet.
+ */
+export async function saveJobReview(applicationId: number, review: StoredReview | null): Promise<boolean> {
+  return db.transaction("rw", db.tailoredResumes, async () => {
+    const existing = await getJobResume(applicationId);
+    if (!existing) return false;
+    const next: StoredEngineResume = { ...existing.stored };
+    if (review) next.review = review;
+    else delete next.review;
+    await db.tailoredResumes.update(existing.id, { appliedEdits: JSON.stringify(next) });
+    return true;
   });
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MASTER } from "./__fixtures__/master";
 import type { ResumeDoc } from "./schema";
+import { appendRoleFact } from "../master/facts";
 import { applyApprovals, fixBoldMarkers, fixDashes, numbersIn, validateResume, normalizeFlagMessage } from "./validate";
 
 function doc(overrides: Partial<ResumeDoc> = {}): ResumeDoc {
@@ -259,6 +260,36 @@ describe("validateResume: numbers per role", () => {
 
   it("allows tool names with digits from anywhere in the master profile", () => {
     expect(nums("Tracked **p95** latency for **S3** uploads")).toEqual([]);
+  });
+});
+
+describe("validateResume: facts she typed for a role", () => {
+  const taskwise = {
+    title: "Founding Software Engineer",
+    company: "Taskwise",
+    location: "Remote",
+    dates: "Oct 2025 - Present",
+    bullets: ["Grew the habit tracker to about **900 daily users**"],
+  };
+  const flagsFor = (master: string) => {
+    const d = doc();
+    d.experience = [{ ...d.experience[0], bullets: ["Shipped checkout features used by about **900 daily users**"] }, taskwise];
+    // Roles are put newest first, so flags are named by the company they land on.
+    const r = validateResume(d, master);
+    return r.flags.filter((f) => f.kind === "number").map((f) => ("entry" in f.target ? r.doc.experience[f.target.entry].company : ""));
+  };
+
+  it("accepts a number she typed for one role in that role's bullets only", () => {
+    // Before her answer: 900 is new in both roles.
+    expect(flagsFor(MASTER).sort()).toEqual(["Brightloop", "Taskwise"]);
+    // She typed it for Brightloop: allowed there, still flagged under Taskwise.
+    const withFact = appendRoleFact(MASTER, { company: "Brightloop", title: "Software Engineer Intern" }, "the checkout reached about 900 daily users");
+    expect(flagsFor(withFact)).toEqual(["Taskwise"]);
+  });
+
+  it("doesn't accept a fact saved for another title at the same company", () => {
+    const other = appendRoleFact(MASTER, { company: "Brightloop", title: "Data Analyst" }, "about 900 daily users");
+    expect(flagsFor(other)).toHaveLength(2);
   });
 });
 

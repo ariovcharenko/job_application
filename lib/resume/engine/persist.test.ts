@@ -4,7 +4,7 @@ import { db } from "../../db";
 import { blankApplication } from "../../tracker/blank";
 import { MASTER } from "./__fixtures__/master";
 import { buildVersion, tailorAndSave } from "./persist";
-import { getJobResume } from "./save";
+import { getJobResume, saveJobReview, storeJobResume } from "./save";
 import type { ResumeDoc } from "./schema";
 import { validateResume } from "./validate";
 
@@ -72,6 +72,18 @@ describe("tailorAndSave", () => {
     expect(row?.id).toBe(id);
     expect(row?.stored.final.experience[0].company).toBe("Brightloop");
     expect((await db.applications.get(appId))?.tailoredResumeId).toBe(id);
+  });
+
+  it("a new draft (Start over) clears the review saved for the page it replaces", async () => {
+    const appId = await db.applications.add({ ...blankApplication(), company: "Northwind" });
+    await storeJobResume(appId, new Uint8Array([1]).buffer, { v: 2, doc: page, approved: [], final: page }, { before: 0, after: 0 });
+    await saveJobReview(appId, { summary: "Old review", items: [], queued: [], ignored: [], done: [], baseline: null, fingerprint: "x", savedAt: 1 });
+    expect((await getJobResume(appId))?.stored.review?.summary).toBe("Old review");
+    const { provider, release } = slowProvider();
+    const run = tailorAndSave(input(provider), { applicationId: appId, header, fitOpts: {} });
+    release();
+    await run;
+    expect((await getJobResume(appId))?.stored.review).toBeUndefined();
   });
 
   it("stores nothing when she cancels", async () => {

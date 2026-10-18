@@ -2,7 +2,8 @@ import { skillCoverage } from "../coverage";
 import type { ResumeHeader } from "./index";
 import { tailorResume, type TailorInput, type TailorOutput } from "./pipeline";
 import { renderResumeDocx } from "./render";
-import { storeJobResume, type StoredEngineResume } from "./save";
+import type { StoredReview } from "./reviewState";
+import { storeJobResume, type NextVersion } from "./save";
 import type { ResumeDoc } from "./schema";
 import {
   fitResume,
@@ -27,12 +28,14 @@ export interface VersionInput {
   /** The job's skills and her experience, for the before/after coverage shown in the tracker. */
   jobSkills: string[];
   master: string;
+  /** The recruiter review to store with it; null clears it (a new draft); left out keeps it. */
+  review?: StoredReview | null;
 }
 
 /** The final page and what's stored for it. Pure apart from `measure`, so it's testable. */
 export function buildVersion(input: VersionInput): {
   final: ResumeDoc;
-  stored: StoredEngineResume;
+  stored: NextVersion;
   coverage: { before: number; after: number };
 } {
   const { result, approved } = input;
@@ -53,6 +56,7 @@ export function buildVersion(input: VersionInput): {
         .filter((f) => approved.has(f.id))
         .map((f) => f.message),
       final,
+      ...(input.review !== undefined ? { review: input.review } : {}),
     },
     coverage:
       onPage && inProfile
@@ -84,6 +88,8 @@ export async function tailorAndSave(
       fitOpts: save.fitOpts,
       jobSkills: input.jobSkills,
       master: input.master,
+      // A new draft: the last review was about the page it replaces.
+      review: null,
     });
     return { out, id };
   } catch (e) {
