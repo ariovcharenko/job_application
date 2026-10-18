@@ -1,19 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { verdictFor, VERDICT_TEXT } from "@/lib/intake/decision";
-import { readBreakdown } from "@/lib/intake/stored";
+import { headlineOf } from "@/lib/intake/stored";
 import type { Application } from "@/lib/types";
 import { Button, panelClass, SectionHeading } from "@/components/ui";
 import { CompanyMark } from "./StageBadge";
 
-/** "95% · Apply", "0% · Weak match", "Don't apply", from the job's saved check. */
+/** "95% · Apply", "90% · Check first", "Not a fit", from the job's saved check (one rule: headlineFor). */
 function verdictLine(app: Application): { text: string; strong: boolean } | null {
-  const b = readBreakdown(app);
-  if (!b?.decision) return null;
-  const pct = b.skills?.percent ?? null;
-  const v = verdictFor(b.decision, pct);
-  return { text: `${pct === null ? "" : `${pct}% · `}${VERDICT_TEXT[v].label}`, strong: v === "apply" };
+  const h = headlineOf(app);
+  return h ? { text: h.pill, strong: h.strong } : null;
 }
 
 const checkedOn = (app: Application) => new Date(app.updatedAt || app.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" });

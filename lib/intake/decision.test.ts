@@ -2,7 +2,17 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_PREFERENCES } from "../defaults";
 import type { Criterion } from "../scoring/criteria";
 import type { MustHaves } from "../types";
-import { decideApply, MUST_HAVE_FILTERS, normalizeLegacyCriteria, skillsMatchPercent, verdictFor } from "./decision";
+import {
+  compareHeadlines,
+  decideApply,
+  filterExplanation,
+  headlineFor,
+  MUST_HAVE_FILTERS,
+  normalizeLegacyCriteria,
+  skillsMatchPercent,
+  uniqueQuotes,
+  verdictFor,
+} from "./decision";
 
 const c = (key: Criterion["key"], status: Criterion["status"], detail = `${key} ${status}`): Criterion => ({ key, label: key, status, detail });
 
@@ -108,5 +118,84 @@ describe("verdictFor", () => {
     expect(verdictFor({ canApply: true }, null)).toBe("unknown-match");
     expect(verdictFor({ canApply: false }, null)).toBe("dont-apply");
     expect(verdictFor({ canApply: true }, 50)).toBe("apply");
+  });
+});
+
+describe("reasons: one plain line, the posting's quote once", () => {
+  const quote = "We are unable to sponsor F-1, H-1B or OPT candidates now or in the future";
+  // A made-up posting where sponsorship and OPT both cite the same sentence.
+  const roboticsJob: Criterion[] = allPass.map((x) =>
+    x.key === "sponsorship"
+      ? { ...c("sponsorship", "fail", `Rules out sponsorship. "${quote}"`), quote }
+      : x.key === "opt"
+        ? { ...c("opt", "fail", `Rules out OPT or future sponsorship. "${quote}."`), quote: `${quote}.` }
+        : x.key === "location"
+          ? c("location", "fail", "Hybrid. San Mateo, CA isn't in your locations.")
+          : x,
+  );
+
+  it("shows a shared sponsorship/OPT quote once, with a plain summary", () => {
+    const d = decideApply(roboticsJob, all);
+    const work = d.failed.find((f) => f.key === "workAuth")!;
+    expect(work.summary).toBe("Won't sponsor visas and excludes OPT.");
+    expect(work.quotes).toHaveLength(1);
+    expect(work.quotes![0]).toContain("unable to sponsor");
+    const loc = d.failed.find((f) => f.key === "location")!;
+    expect(loc.summary).toBe("Hybrid. San Mateo, CA isn't in your locations.");
+    expect(loc.quotes).toEqual([]);
+  });
+
+  it("derives the same from older saved results that only have details", () => {
+    const legacy = { key: "workAuth" as const, label: "x", status: "fail" as const, details: [`Rules out sponsorship. "${quote}"`, `Rules out OPT or future sponsorship. "${quote}"`] };
+    const e = filterExplanation(legacy);
+    expect(e.quotes).toEqual([quote]);
+    expect(e.summary).toBe("Rules out sponsorship. Rules out OPT or future sponsorship.");
+  });
+
+  it("keeps distinct quotes and collapses near-identical ones", () => {
+    expect(uniqueQuotes(["No visas.", "no visas", "Must be a US citizen"])).toEqual(["No visas.", "Must be a US citizen"]);
+    expect(uniqueQuotes(["Cannot sponsor", "We cannot sponsor visas"])).toEqual(["We cannot sponsor visas"]);
+  });
+
+  it("lists only the unclear checks for an unclear must-have", () => {
+    const d = decideApply(withStatus("opt", "unknown"), all);
+    expect(d.unclear[0].summary).toBe("opt unknown");
+  });
+});
+
+describe("headlineFor", () => {
+  it("shows no big percent when a must-have fails, only a muted aside", () => {
+    const failing = allPass.map((x) => (x.key === "location" || x.key === "sponsorship" ? c(x.key, "fail") : x));
+    const h = headlineFor(decideApply(failing, all), { percent: 100 });
+    expect(h.kind).toBe("not-a-fit");
+    expect(h.label).toBe("Not a fit");
+    expect(h.summary).toBe("Location and Work auth rule this out.");
+    expect(h.aside).toBe("Skills overlap 100%. Doesn't count while a must-have fails.");
+    expect(h.pill).toBe("Not a fit");
+    expect(h.strong).toBe(false);
+    expect(headlineFor(decideApply(withStatus("degree", "fail"), all), { percent: null }).summary).toBe("Degree rules this out.");
+  });
+
+  it("shows the percent but not as confirmed when a must-have is unclear", () => {
+    const h = headlineFor(decideApply(withStatus("sponsorship", "unknown"), all), { percent: 90 });
+    expect(h).toMatchObject({ kind: "check-first", percent: 90, label: "Match", summary: "Check first: Work auth.", strong: false, pill: "90% · Check first" });
+  });
+
+  it("is purple only when everything passes and the match is good", () => {
+    expect(headlineFor(decideApply(allPass, all), { percent: 80 })).toMatchObject({ kind: "match", strong: true, label: "Match", pill: "80% · Apply" });
+    expect(headlineFor(decideApply(allPass, all), { percent: 20 })).toMatchObject({ kind: "weak", strong: false });
+  });
+
+  it("has no number when there's no skills match", () => {
+    expect(headlineFor(decideApply(allPass, all), null)).toMatchObject({ kind: "unknown", percent: null, strong: false });
+    expect(headlineFor(decideApply(allPass, all), { percent: null }).kind).toBe("unknown");
+  });
+
+  it("sorts jobs that fail a must-have last, whatever their skills overlap", () => {
+    const fail = headlineFor(decideApply(withStatus("location", "fail"), all), { percent: 100 });
+    const good = headlineFor(decideApply(allPass, all), { percent: 60 });
+    const unclear = headlineFor(decideApply(withStatus("degree", "unknown"), all), { percent: 70 });
+    const none = headlineFor(decideApply(allPass, all), null);
+    expect([fail, good, none, unclear].sort(compareHeadlines).map((h) => h.kind)).toEqual(["check-first", "match", "unknown", "not-a-fit"]);
   });
 });

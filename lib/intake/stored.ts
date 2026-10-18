@@ -3,7 +3,7 @@ import { loadGeo, type GeoIndex } from "../geo/index";
 import type { Application, MustHaves, Preferences, Profile } from "../types";
 import { assessJob, looksLikeJobPosting, mentionedSkillsMatch, toStoredBreakdown, type StoredBreakdown } from "./analyze";
 import { dropSoftSkills } from "../resume/master/skills";
-import { decideApply, normalizeLegacyCriteria, skillsMatchPercent, verdictFor } from "./decision";
+import { compareHeadlines, decideApply, headlineFor, normalizeLegacyCriteria, skillsMatchPercent, verdictFor, type Headline } from "./decision";
 import { postedAge, type PostedAge } from "../tracker/postedAge";
 
 /** The saved analysis on a tracker row, or null for rows added by hand or before scoring existed. */
@@ -21,20 +21,31 @@ export function hasIncompletePosting(app: Pick<Application, "jdText" | "fitBreak
   return !!app.fitBreakdown && !!app.jdText.trim() && !looksLikeJobPosting(app.jdText);
 }
 
+/** The headline (lib/intake/decision.ts headlineFor) for a checked job, or null when it wasn't checked against must-haves. */
+export function headlineOf(app: Pick<Application, "fitBreakdown">): Headline | null {
+  const b = readBreakdown(app);
+  return b?.decision ? headlineFor(b.decision, b.skills) : null;
+}
+
 /**
  * Saved (not yet applied) jobs with an "Apply" verdict (every must-have passes, and a known match
  * that is not weak), best skills match first: what to apply
  * to next. Jobs analyzed before the must-have filters existed are left out rather than guessed.
  */
-export function readyToApply<T extends Application>(apps: T[], now = Date.now()): { app: T; percent: number | null }[] {
+export function readyToApply<T extends Application>(apps: T[], now = Date.now()): { app: T; percent: number | null; headline: Headline }[] {
   return apps
     .filter((a) => a.stage === "Saved" && a.triage !== "skipped" && !hasIncompletePosting(a))
     .map((app) => ({ app, b: readBreakdown(app) }))
     .filter((x) => x.b?.decision && verdictFor(x.b.decision, x.b.skills?.percent ?? null) === "apply")
-    .map(({ app, b }) => ({ app, percent: b?.skills?.percent ?? null, age: postedAge(b?.signals, app.createdAt, now)?.days ?? Infinity }))
+    .map(({ app, b }) => ({
+      app,
+      percent: b?.skills?.percent ?? null,
+      headline: headlineFor(b!.decision!, b?.skills),
+      age: postedAge(b?.signals, app.createdAt, now)?.days ?? Infinity,
+    }))
     // Equal matches: the fresher posting first (fewer applicants yet); unknown age last.
-    .sort((x, y) => (y.percent ?? -1) - (x.percent ?? -1) || (x.age === y.age ? 0 : x.age - y.age))
-    .map(({ app, percent }) => ({ app, percent }));
+    .sort((x, y) => compareHeadlines(x.headline, y.headline) || (x.age === y.age ? 0 : x.age - y.age))
+    .map(({ app, percent, headline }) => ({ app, percent, headline }));
 }
 
 /** A stored breakdown without signals: re-map her must-haves over the saved checklist and fix old skill data. */

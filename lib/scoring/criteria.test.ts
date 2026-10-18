@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { DEFAULT_PREFERENCES, DEFAULT_PROFILE } from "../defaults";
 import { candidateFacts, UNKNOWN_CANDIDATE, type CandidateFacts } from "../eligibility/candidate";
 import { loadGeo } from "../geo/index";
+import { decideApply } from "../intake/decision";
 import type { Preferences, Profile } from "../types";
 import { evaluateCriteria, type Criterion } from "./criteria";
 import type { JobSignals } from "./signals";
@@ -62,6 +63,16 @@ describe("work authorization rows", () => {
     const c = run({ optSignal: "excludes-opt", optEvidence: "Must be authorized to work without sponsorship now or in the future" });
     expect(status(c, "opt")).toBe("fail");
     expect(find(c, "opt")!.detail).toContain("now or in the future");
+  });
+
+  it("keeps the posting's words apart, and a must-have shows a shared quote once", () => {
+    const words = "We will not sponsor F-1, H-1B or OPT candidates for this role";
+    const c = run({ visaSignal: "no-sponsorship", visaEvidence: words, optSignal: "excludes-opt", optEvidence: words });
+    expect(find(c, "sponsorship")!.quote).toBe(words);
+    expect(find(c, "opt")!.quote).toBe(words);
+    const work = decideApply(c, DEFAULT_PREFERENCES.mustHaves).failed.find((f) => f.key === "workAuth")!;
+    expect(work.summary).toBe("Won't sponsor visas and excludes OPT.");
+    expect(work.quotes).toEqual([words]);
   });
 
   it("omits sponsorship and OPT rows entirely for someone who doesn't need sponsorship", () => {
