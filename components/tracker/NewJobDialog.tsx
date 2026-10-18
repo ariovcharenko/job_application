@@ -19,8 +19,11 @@ import { Button, Field, Modal, Notice, Spinner, TextArea } from "@/components/ui
 import TailorPanel from "../tailor/TailorPanel";
 import MustHavesPanel from "./MustHavesPanel";
 import ScoreCard from "./ScoreCard";
+import BulkLinksPanel from "./BulkLinksPanel";
 
-type Mode = "link" | "paste";
+type Mode = "link" | "bulk" | "paste";
+
+const MODE_LABELS: Record<Mode, string> = { link: "Link", bulk: "Several links", paste: "Paste text" };
 
 /** Shown when she enters a link she already checked, before anything is spent on it again. */
 function AlreadyChecked({
@@ -96,6 +99,8 @@ export default function NewJobDialog({
   const [profile, setProfile] = useState<Profile | null>(null);
   const [geo, setGeo] = useState<GeoIndex | null>(null);
   const [moving, setMoving] = useState(false);
+  // A link from "Several links" that needs its text pasted, opened in its own dialog on top.
+  const [pasteFor, setPasteFor] = useState<string | null>(null);
 
   // Her Profile (work authorization, degree) and the place names, for the free re-check below.
   useEffect(() => {
@@ -260,7 +265,7 @@ export default function NewJobDialog({
   return (
     <Modal title={initialMode === "paste" && initialUrl ? "Paste the job description" : "Add a job"} onClose={onClose}>
       <div className="mb-5 inline-flex rounded-full bg-black/[0.05] p-1 text-sm" role="group" aria-label="How to add the job">
-        {(["link", "paste"] as Mode[]).map((m) => (
+        {((updateId === undefined ? ["link", "bulk", "paste"] : ["link", "paste"]) as Mode[]).map((m) => (
           <button
             key={m}
             type="button"
@@ -268,50 +273,59 @@ export default function NewJobDialog({
             aria-pressed={mode === m}
             className={`rounded-full px-4 py-1.5 font-medium transition ${mode === m ? "bg-white text-ink shadow-soft" : "text-muted hover:text-ink"}`}
           >
-            {m === "link" ? "Link" : "Paste text"}
+            {MODE_LABELS[m]}
           </button>
         ))}
       </div>
 
-      <div className="grid gap-4">
-        <Field label={mode === "link" ? "Job posting link" : "Job posting link (optional)"} value={url} onChange={setUrl} placeholder="https://..." />
-        {mode === "paste" && <TextArea label="Job description" value={jdText} onChange={setJdText} rows={10} />}
-        {mode === "link" && (
-          <p className="text-xs leading-relaxed text-muted">Workday, Ashby and LinkedIn pages can&apos;t be read from a link. Paste their text instead.</p>
-        )}
-      </div>
+      {mode === "bulk" ? (
+        <>
+          <BulkLinksPanel onClose={onClose} onPaste={setPasteFor} />
+          {pasteFor && <NewJobDialog initialMode="paste" initialUrl={pasteFor} onClose={() => setPasteFor(null)} />}
+        </>
+      ) : (
+        <>
+          <div className="grid gap-4">
+            <Field label={mode === "link" ? "Job posting link" : "Job posting link (optional)"} value={url} onChange={setUrl} placeholder="https://..." />
+            {mode === "paste" && <TextArea label="Job description" value={jdText} onChange={setJdText} rows={10} />}
+            {mode === "link" && (
+              <p className="text-xs leading-relaxed text-muted">Workday, Ashby and LinkedIn pages can&apos;t be read from a link. Paste their text instead.</p>
+            )}
+          </div>
 
-      <div className="mt-4">
-        <MustHavesPanel onChange={setPrefs} />
-      </div>
+          <div className="mt-4">
+            <MustHavesPanel onChange={setPrefs} />
+          </div>
 
-      {previous && <AlreadyChecked app={previous} onOpen={onOpenExisting} onCheckAgain={() => analyze(true)} />}
+          {previous && <AlreadyChecked app={previous} onOpen={onOpenExisting} onCheckAgain={() => analyze(true)} />}
 
-      <div aria-live="polite">{step && <Spinner label={step} />}</div>
-      {error && (
-        <Notice kind="error">
-          {error.message}
-          {error.needsKey && (
-            <>
-              {" "}
-              <Link href="/settings" className="underline">
-                Go to Settings
-              </Link>
-              .
-            </>
+          <div aria-live="polite">{step && <Spinner label={step} />}</div>
+          {error && (
+            <Notice kind="error">
+              {error.message}
+              {error.needsKey && (
+                <>
+                  {" "}
+                  <Link href="/settings" className="underline">
+                    Go to Settings
+                  </Link>
+                  .
+                </>
+              )}
+            </Notice>
           )}
-        </Notice>
-      )}
 
-      <div className="mt-5 flex flex-wrap items-center justify-end gap-3 border-t border-black/[0.06] pt-5">
-        <span className="mr-auto text-[13px] text-muted">About 1 to 2¢</span>
-        <Button variant="secondary" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button onClick={() => analyze()} disabled={step !== null}>
-          {step ? "Working..." : "Analyze"}
-        </Button>
-      </div>
+          <div className="mt-5 flex flex-wrap items-center justify-end gap-3 border-t border-black/[0.06] pt-5">
+            <span className="mr-auto text-[13px] text-muted">About 1 to 2¢</span>
+            <Button variant="secondary" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button onClick={() => analyze()} disabled={step !== null}>
+              {step ? "Working..." : "Analyze"}
+            </Button>
+          </div>
+        </>
+      )}
     </Modal>
   );
 }
