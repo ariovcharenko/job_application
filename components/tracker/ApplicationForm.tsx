@@ -235,6 +235,12 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
             </p>
           )}
 
+          {app.fillSeconds !== undefined && (
+            <p className="-mt-2 text-[13px] text-muted">
+              Form filled with the Chrome extension in <span className="font-medium text-ink">{formatFillTime(app.fillSeconds)}</span>.
+            </p>
+          )}
+
           {incomplete && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-warn-soft px-5 py-4 text-sm">
               <p className="max-w-md leading-relaxed text-warn">The saved text isn&apos;t the full job description, so this check isn&apos;t reliable.</p>
@@ -483,4 +489,12 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
       )}
     </Modal>
   );
+}
+
+/** 214 -> "3 min 34 s", 40 -> "40 s". */
+export function formatFillTime(seconds: number): string {
+  if (seconds < 60) return `${seconds} s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return s ? `${m} min ${s} s` : `${m} min`;
 }

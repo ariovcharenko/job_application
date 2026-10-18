@@ -214,3 +214,40 @@ describe("saveAnswerFromExtension", () => {
     expect(await db.answerBank.count()).toBe(1);
   });
 });
+
+describe("markAppliedFromExtension", () => {
+  it("moves a saved job to Applied with a follow-up a week later and keeps the fill time", async () => {
+    const { markAppliedFromExtension } = await import("./applied");
+    const id = (await db.applications.add({ ...blankApplication(), company: "Taskwise", role: "SWE", url: "https://boards.greenhouse.io/taskwise/jobs/4012345", triage: "checked" })) as number;
+    const r = await markAppliedFromExtension({ jobId: id, url: "https://boards.greenhouse.io/taskwise/jobs/4012345/confirmation", company: "", role: "", fillSeconds: 214 }, "2026-10-01");
+    expect(r).toEqual({ jobId: id, appliedDate: "2026-10-01", followUpDate: "2026-10-08", created: false });
+    const row = await db.applications.get(id);
+    expect(row).toMatchObject({ stage: "Applied", appliedDate: "2026-10-01", followUpDate: "2026-10-08", fillSeconds: 214 });
+    expect(row?.triage).toBeUndefined();
+  });
+
+  it("finds the job by company and role when no id was matched", async () => {
+    const { markAppliedFromExtension } = await import("./applied");
+    const id = (await db.applications.add({ ...blankApplication(), company: "Brightloop", role: "Backend Engineer" })) as number;
+    const r = await markAppliedFromExtension({ jobId: null, url: "https://x.example/a", company: "Brightloop", role: "Backend Engineer" }, "2026-10-01");
+    expect(r.jobId).toBe(id);
+    expect((await db.applications.get(id))?.stage).toBe("Applied");
+  });
+
+  it("leaves a job that is already Applied or further untouched", async () => {
+    const { markAppliedFromExtension } = await import("./applied");
+    const id = (await db.applications.add({ ...blankApplication(), company: "A", role: "B", stage: "Waiting for interview", appliedDate: "2026-09-01", followUpDate: "2026-09-08" })) as number;
+    const r = await markAppliedFromExtension({ jobId: id, url: "", company: "", role: "", fillSeconds: 5 }, "2026-10-01");
+    expect(r).toMatchObject({ created: false, appliedDate: "2026-09-01" });
+    expect(await db.applications.get(id)).toMatchObject({ stage: "Waiting for interview", appliedDate: "2026-09-01" });
+    expect((await db.applications.get(id))?.fillSeconds).toBeUndefined();
+  });
+
+  it("adds a row for a page that isn't a saved job, and refuses when nothing is known", async () => {
+    const { markAppliedFromExtension } = await import("./applied");
+    const r = await markAppliedFromExtension({ jobId: null, url: "https://jobs.lever.co/x/1", company: "Taskwise", role: "SWE" }, "2026-10-01");
+    expect(r.created).toBe(true);
+    expect(await db.applications.get(r.jobId)).toMatchObject({ stage: "Applied", source: "Chrome extension", followUpDate: "2026-10-08" });
+    await expect(markAppliedFromExtension({ jobId: null, url: "", company: "", role: "" })).rejects.toThrow(/didn't say which job/);
+  });
+});

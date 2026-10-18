@@ -6,6 +6,7 @@
 // or an account page, and never runs on LinkedIn, Indeed or Jobright.
 import { pickAdapter } from "../lib/adapters";
 import { fillForm } from "../lib/fillEngine";
+import { watchForConfirmation } from "../lib/confirmFlow";
 import { ACCOUNT_PAGE_MESSAGE, isAccountPage } from "../lib/guards";
 import { isBlockedHost } from "../lib/hosts";
 import { preflight, summarizePreflight } from "../lib/preflight";
@@ -13,7 +14,7 @@ import { watchForNewFields, type FieldWatcher } from "../lib/watch";
 import { addQuestionActions, showApprovedDraft } from "../lib/questionActions";
 import { extractVisibleText } from "../lib/pageText";
 import { uploadResumeForJob, type ResumeOutcome } from "../lib/resumeFlow";
-import type { ContextReply, ResumeReply, SimpleReply, TabMessage } from "../messages";
+import type { ContextReply, FillSession, ResumeReply, SimpleReply, TabMessage } from "../messages";
 import type { FillOutcome } from "../types";
 
 const HOST_ID = "job-copilot-host";
@@ -56,6 +57,15 @@ function init(): void {
   toggle.addEventListener("click", () => {
     panel.classList.toggle("jc-hidden");
     if (!panel.classList.contains("jc-hidden")) renderMenu();
+  });
+
+  watchForConfirmation({
+    doc: document,
+    location,
+    adapterName: pickAdapter(location).name,
+    getSession: () => send<FillSession | null>({ type: "GET_FILL_SESSION" }),
+    seen: () => send({ type: "CONFIRMATION_SEEN" }),
+    onOffer: (session) => void offerMarkApplied(session),
   });
 
   chrome.runtime.onMessage.addListener((msg: TabMessage) => {
@@ -118,6 +128,42 @@ async function renderPreflight(box: HTMLElement): Promise<void> {
   }
 }
 
+/** On a confirmation page after SHE submitted: one button that marks the job applied in the app. */
+async function offerMarkApplied(session: FillSession | null): Promise<void> {
+  const ctx = await loadContext().catch(() => null);
+  const adapter = pickAdapter(location);
+  const info = adapter.pageJobInfo?.(document, location.hostname) ?? { company: "", role: "" };
+  const job = ctx?.match?.job;
+  const company = job?.company ?? session?.company ?? info.company;
+  const role = job?.role ?? session?.role ?? info.role;
+  const { panel } = ui;
+  panel.classList.remove("jc-hidden");
+  panel.innerHTML = "";
+  panel.appendChild(el("div", "jc-title", "It looks like you submitted this application"));
+  panel.appendChild(el("div", "jc-note", company || role ? `${company}${company && role ? ", " : ""}${role}` : "Job Copilot couldn't read the job from this page."));
+  const mark = el("button", "jc-action jc-primary", "Mark as applied in Job Copilot");
+  mark.addEventListener("click", async () => {
+    (mark as HTMLButtonElement).disabled = true;
+    const res = await send<SimpleReply>({ type: "MARK_APPLIED", url: session?.url || location.href, company, role, jobId: job?.id ?? session?.jobId ?? null });
+    mark.remove();
+    later.remove();
+    if (!res.ok) setStatus(res.error);
+    else if (res.queued) setStatus("Job Copilot isn't open. It will be marked as applied the next time you open it.");
+    else setStatus(`Marked as applied. A follow-up reminder is set for a week from today.${res.detail ? ` Filling took ${formatSeconds(Number(res.detail))}.` : ""}`);
+  });
+  const later = el("button", "jc-action", "Not now");
+  later.addEventListener("click", () => {
+    void send({ type: "END_FILL_SESSION" });
+    panel.classList.add("jc-hidden");
+  });
+  panel.append(mark, later);
+}
+
+function formatSeconds(s: number): string {
+  if (!Number.isFinite(s)) return "a few minutes";
+  return s < 60 ? `${s} seconds` : `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60} s` : ""}`;
+}
+
 async function runScoreThisJob(): Promise<void> {
   setStatus("Sending this page to Job Copilot...");
   const text = extractVisibleText(document.body);
@@ -147,6 +193,9 @@ async function runFillApplication(onlyEmpty = false): Promise<void> {
     return;
   }
   const adapter = pickAdapter(location);
+  // The first Fill click starts the clock for "time to fill" and remembers the job for later.
+  const info = adapter.pageJobInfo?.(document, location.hostname) ?? { company: "", role: "" };
+  void send({ type: "FILL_STARTED", jobId: ctx.match?.job.id ?? null, url: location.href, company: ctx.match?.job.company ?? info.company, role: ctx.match?.job.role ?? info.role });
   const root = adapter.findFormRoot(document) ?? document.body;
   const outcomes = fillForm(root, ctx.data.profile, { experiences: ctx.data.experiences, answers: ctx.data.answerBank, onlyEmpty });
   // The resume: this job's tailored one when the page matches a saved job. Asked for only now.

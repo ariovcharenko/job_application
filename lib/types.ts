@@ -225,6 +225,9 @@ export interface Application {
   fitBreakdown?: string;
   baseResumeId?: number;
   tailoredResumeId?: number;
+  /** Seconds from her first "Fill" click in the Chrome extension to the confirmation page, when
+   * she marked the job applied from there. Optional: absent on everything else. */
+  fillSeconds?: number;
   /** JSON-stringified TailorDraft (lib/resume/batch.ts): an AI proposal prepared ahead of time
    * (by the feed's batch tailoring), not yet reviewed. Nothing from it is in a resume file until
    * she accepts it in the Tailor dialog. */

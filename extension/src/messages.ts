@@ -13,6 +13,7 @@ export type InternalMessage =
   | { type: "SAVE_ANSWER"; question: string; answer: string }
   | { type: "FILL_STARTED"; jobId: number | null; url: string; company: string; role: string }
   | { type: "GET_FILL_SESSION" }
+  | { type: "CONFIRMATION_SEEN" }
   | { type: "MARK_APPLIED"; url: string; company: string; role: string; jobId: number | null }
   | { type: "END_FILL_SESSION" }
   // Pairing window (extension page only)
@@ -42,6 +43,8 @@ export interface FillSession {
   company: string;
   role: string;
   startedAt: number;
+  /** When the confirmation page first appeared: the fill clock stops here, not at her click. */
+  confirmedAt?: number;
 }
 
 /** Background -> content script (chrome.tabs.sendMessage). */

@@ -190,6 +190,17 @@ async function handleInternal(msg: InternalMessage, sender: chrome.runtime.Messa
       return s && Date.now() - s.startedAt < FILL_SESSION_MAX_MS ? s : null;
     }
 
+    case "CONFIRMATION_SEEN": {
+      if (tabId === undefined) return { ok: true };
+      const fills = await fillSessions();
+      const s = fills[tabId];
+      if (s && !s.confirmedAt) {
+        s.confirmedAt = Date.now();
+        await chrome.storage.session.set({ fills });
+      }
+      return { ok: true };
+    }
+
     case "END_FILL_SESSION": {
       if (tabId === undefined) return { ok: true };
       const fills = await fillSessions();
@@ -202,7 +213,7 @@ async function handleInternal(msg: InternalMessage, sender: chrome.runtime.Messa
       if (tabId === undefined) return { ok: false, error: "No tab." };
       const fills = await fillSessions();
       const s = fills[tabId];
-      const fillSeconds = s ? Math.round((Date.now() - s.startedAt) / 1000) : undefined;
+      const fillSeconds = s ? Math.round(((s.confirmedAt ?? Date.now()) - s.startedAt) / 1000) : undefined;
       try {
         const res = await bridge.request(
           "markApplied",
