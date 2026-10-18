@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Connect Job Copilot</title>
+    <style>
+      body { margin: 0; padding: 20px; font: 14px system-ui, sans-serif; color: #1d1d1f; background: #f5f5f7; }
+      h1 { font-size: 17px; margin: 0 0 10px; }
+      p { line-height: 1.45; margin: 0 0 10px; color: #3a3a3c; }
+      .origin { font-weight: 600; word-break: break-all; color: #1d1d1f; }
+      .code { font: 600 26px ui-monospace, monospace; letter-spacing: 4px; text-align: center; background: white; border-radius: 12px; padding: 10px; margin: 12px 0; }
+      ul { margin: 0 0 12px; padding-left: 18px; color: #3a3a3c; }
+      .row { display: flex; gap: 8px; }
+      button { flex: 1; padding: 10px; border: none; border-radius: 999px; font: 600 14px system-ui, sans-serif; cursor: pointer; }
+      #allow { background: #7b3fe4; color: white; }
+      #deny { background: #e5e5ea; color: #1d1d1f; }
+      #done { display: none; }
+    </style>
+  </head>
+  <body>
+    <div id="ask">
+      <h1>Connect Job Copilot?</h1>
+      <p><span class="origin" id="origin"></span> wants to connect to this extension.</p>
+      <p>Check that the app shows the same code:</p>
+      <div class="code" id="code"></div>
+      <ul>
+        <li>The app sends your Profile, saved answers, experience and job list here, so forms can be filled.</li>
+        <li>The extension sends back answers you save and "applied" updates.</li>
+        <li>No API key is ever shared. Nothing is ever submitted for you.</li>
+      </ul>
+      <div class="row">
+        <button id="deny">Don't connect</button>
+        <button id="allow">Connect</button>
+      </div>
+    </div>
+    <p id="done"></p>
+    <script type="module" src="pair.js"></script>
+  </body>
+</html>

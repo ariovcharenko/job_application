@@ -13,6 +13,7 @@ export const TASK_LABELS: Record<string, string> = {
   read_link: "Reading links",
   import_resume: "Importing your resume",
   draft_outreach: "Outreach drafts",
+  draft_answer: "Application answers",
   write_resume: "Writing resumes",
   revise_resume: "Revising resumes",
   polish_resume: "Polishing resumes",

@@ -45,11 +45,27 @@ A static, client-only Next.js app: no server-side secrets, no API routes. On
 (including a CSP that allows only this site and `api.anthropic.com`) are set in `next.config.js`.
 Every visitor brings their own key, stored only in their own browser.
 
-## The Chrome extension (not in the public build)
+## The Chrome extension (optional, unpacked)
 
-`extension/` is a separate Manifest V3 package that can fill application forms. It is turned off
-in the app (`FEATURES.extension` in `lib/features.ts`) until its sync bridge only talks to a
-verified extension, and it is not published.
+`extension/` is a separate Manifest V3 package that fills application forms from your Profile for
+you to review. It never clicks Submit, never creates accounts or enters passwords, and never runs
+on LinkedIn, Indeed or Jobright.
+
+- **Install:** `cd extension && npm install && npm run build`, then in Chrome open
+  `chrome://extensions`, turn on Developer mode, click Load unpacked and pick `extension/dist`.
+- **Connect:** in the app open Settings > Chrome extension and click Connect. The extension opens
+  its own small window with a code; check it matches the one in the app and click Allow. Only that
+  click issues a pairing token. The extension's ID is fixed by the `key` in its manifest, so it is
+  the same on every machine.
+- **How it talks to the app:** Chrome's point-to-point messaging (`externally_connectable`, only
+  from this site's origin and `localhost:3000`), never `window.postMessage`. No API key is ever
+  sent: drafting an answer happens in the app, and the text goes back to the form only after you
+  approve it there.
+- **Where it runs:** Greenhouse, Lever, Ashby and Workday pages by default. Anywhere else only after
+  you click "Use on this site" in its popup (Chrome asks for that one site).
+- **Tests:** `cd extension && npm test && npx tsc --noEmit && npm run build`. The ATS form tests use
+  fictional pages shaped like those sites (`extension/src/lib/__fixtures__`); they are not proof
+  that a live form works.
 
 ## Project layout
 

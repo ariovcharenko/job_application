@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Job Copilot extension: privacy</title>
+    <style>
+      body { max-width: 640px; margin: 32px auto; padding: 0 16px; font: 15px/1.55 system-ui, sans-serif; color: #1d1d1f; }
+      h1 { font-size: 22px; }
+      h2 { font-size: 16px; margin-top: 24px; }
+    </style>
+  </head>
+  <body>
+    <h1>Job Copilot extension: privacy</h1>
+    <p>The extension has no server and sends nothing to any server. It talks only to the Job Copilot app open in your own browser.</p>
+    <h2>What it stores</h2>
+    <p>
+      After you connect it from the app (Settings, Chrome extension, Connect, then confirm the matching code), the app copies your Profile,
+      saved answers, experience and a list of your tracked jobs (company, role, link) into the extension's storage on this device, so it can
+      fill application forms. Resumes are fetched from the app only when you click Fill, and are not kept.
+    </p>
+    <h2>What it never does</h2>
+    <ul>
+      <li>It never holds or sees an API key. AI drafts are written by the app, and come back only after you approve them there.</li>
+      <li>It never clicks Submit, never creates an account and never enters a password.</li>
+      <li>It never runs on LinkedIn, Indeed or Jobright.</li>
+      <li>It answers work authorization, sponsorship and demographic questions only from what you saved in your Profile. Anything not saved is left blank for you.</li>
+    </ul>
+    <h2>Where it runs</h2>
+    <p>
+      On Greenhouse, Lever, Ashby and Workday pages by default. On any other site only after you click "Use on this site" in its popup, which
+      asks Chrome for that one site. You can turn a site off again from the popup.
+    </p>
+    <h2>Removing your data</h2>
+    <p>Removing the extension deletes everything it stored. Disconnecting in the app's Settings stops all syncing.</p>
+  </body>
+</html>

@@ -1,44 +1,46 @@
 import { BLANK_SYNCED_DATA, type SyncedData } from "../types";
+import type { KV } from "./bridgeCore";
 
 const DATA_KEY = "syncedData";
-const APP_ORIGIN_KEY = "appOrigin";
-const DEFAULT_APP_ORIGIN = "http://localhost:3000";
+
+/** chrome.storage.local as the bridge's key-value store. */
+export const chromeKV: KV = {
+  async get<T>(key: string) {
+    const stored = await chrome.storage.local.get(key);
+    return stored[key] as T | undefined;
+  },
+  async set(key, value) {
+    await chrome.storage.local.set({ [key]: value });
+  },
+  async remove(key) {
+    await chrome.storage.local.remove(key);
+  },
+};
+
+export function withDefaults(stored: Partial<SyncedData> | undefined): SyncedData {
+  const data = { ...BLANK_SYNCED_DATA, ...(stored ?? {}) };
+  return { ...data, profile: { ...BLANK_SYNCED_DATA.profile, ...(stored?.profile ?? {}) } };
+}
 
 export async function getSyncedData(): Promise<SyncedData> {
   const stored = await chrome.storage.local.get(DATA_KEY);
-  return { ...BLANK_SYNCED_DATA, ...(stored[DATA_KEY] as Partial<SyncedData> | undefined) };
+  return withDefaults(stored[DATA_KEY] as Partial<SyncedData> | undefined);
 }
 
-export async function setSyncedData(data: SyncedData): Promise<void> {
-  await chrome.storage.local.set({ [DATA_KEY]: data });
+/**
+ * Drops anything older versions stored that this one must not keep: the Anthropic key the old
+ * postMessage bridge mirrored, and its pending-capture handoff. Pure, for tests.
+ */
+export function scrubLegacy(stored: Record<string, unknown>): { set: Record<string, unknown>; remove: string[] } {
+  const set: Record<string, unknown> = {};
+  const remove: string[] = [];
+  const data = stored[DATA_KEY] as Record<string, unknown> | undefined;
+  if (data && typeof data === "object" && ("anthropicKey" in data || "resume" in data)) {
+    const rest = { ...data };
+    delete rest.anthropicKey;
+    delete rest.resume;
+    set[DATA_KEY] = rest;
+  }
+  if ("pendingCapture" in stored) remove.push("pendingCapture");
+  return { set, remove };
 }
-
-export async function getAppOrigin(): Promise<string> {
-  const stored = await chrome.storage.local.get(APP_ORIGIN_KEY);
-  return (stored[APP_ORIGIN_KEY] as string | undefined) || DEFAULT_APP_ORIGIN;
-}
-
-export async function setAppOrigin(origin: string): Promise<void> {
-  await chrome.storage.local.set({ [APP_ORIGIN_KEY]: origin.replace(/\/+$/, "") });
-}
-
-export interface PendingCapture {
-  text: string;
-  url: string;
-  capturedAt: number;
-}
-
-const PENDING_CAPTURE_KEY = "pendingCapture";
-
-export async function setPendingCapture(capture: PendingCapture): Promise<void> {
-  await chrome.storage.local.set({ [PENDING_CAPTURE_KEY]: capture });
-}
-
-export async function takePendingCapture(): Promise<PendingCapture | null> {
-  const stored = await chrome.storage.local.get(PENDING_CAPTURE_KEY);
-  const capture = stored[PENDING_CAPTURE_KEY] as PendingCapture | undefined;
-  if (capture) await chrome.storage.local.remove(PENDING_CAPTURE_KEY);
-  return capture ?? null;
-}
-
-export { DEFAULT_APP_ORIGIN };

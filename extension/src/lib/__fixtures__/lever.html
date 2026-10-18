@@ -1,0 +1,38 @@
+<head><title>Brightloop - Backend Engineer</title></head>
+<body>
+  <div class="posting-headline"><h2>Backend Engineer</h2></div>
+  <form class="application-form" id="application-form">
+    <div class="application-field"><label><div class="application-label">Resume/CV</div><input type="file" name="resume" id="resume-upload-input" /></label></div>
+    <div class="application-field"><label><div class="application-label">Full name <span class="required">&#10033;</span></div><input type="text" name="name" /></label></div>
+    <div class="application-field"><label><div class="application-label">Email <span class="required">&#10033;</span></div><input type="email" name="email" /></label></div>
+    <div class="application-field"><label><div class="application-label">Phone</div><input type="text" name="phone" /></label></div>
+    <div class="application-field"><label><div class="application-label">Current location</div><input type="text" name="location" /></label></div>
+    <div class="application-field"><label><div class="application-label">Current company</div><input type="text" name="org" /></label></div>
+    <div class="application-field"><label><div class="application-label">LinkedIn URL</div><input type="text" name="urls[LinkedIn]" /></label></div>
+    <div class="application-field"><label><div class="application-label">GitHub URL</div><input type="text" name="urls[GitHub]" /></label></div>
+    <div class="application-field"><label><div class="application-label">Portfolio URL</div><input type="text" name="urls[Portfolio]" /></label></div>
+    <div class="application-question custom-question">
+      <div class="application-label">Are you legally authorized to work in the United States?</div>
+      <ul data-qa="multiple-choice">
+        <li><label><input type="radio" name="cards[a1][field0]" value="Yes" /><span>Yes</span></label></li>
+        <li><label><input type="radio" name="cards[a1][field0]" value="No" /><span>No</span></label></li>
+      </ul>
+    </div>
+    <div class="application-question custom-question">
+      <div class="application-label">Will you now or in the future require visa sponsorship?</div>
+      <ul data-qa="multiple-choice">
+        <li><label><input type="radio" name="cards[a2][field0]" value="Yes" /><span>Yes</span></label></li>
+        <li><label><input type="radio" name="cards[a2][field0]" value="No" /><span>No</span></label></li>
+      </ul>
+    </div>
+    <div class="application-question custom-question">
+      <div class="application-label">Tell us about a project you are proud of.</div>
+      <textarea name="cards[a3][field0]"></textarea>
+    </div>
+    <div class="application-question">
+      <div class="application-label">Gender</div>
+      <select name="eeo[gender]"><option value="">Select...</option><option>Male</option><option>Female</option><option>Decline to self-identify</option></select>
+    </div>
+    <button type="submit" id="btn-submit">Submit application</button>
+  </form>
+</body>

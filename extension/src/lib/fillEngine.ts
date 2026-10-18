@@ -1,18 +1,11 @@
+import { setNativeValue } from "./dom";
+import { findSavedAnswer } from "./answerMatch";
+import { isCombobox, isLegalSounding } from "./guards";
+import { cleanLabel } from "./label";
 import { findFormFields, getFieldLabel } from "./matching";
+import { fillRepeatedSections } from "./sections";
 import { matchEeoRule, matchLegalRule, matchTextRule } from "./fillRules";
-import type { FillOutcome, SyncedProfile } from "../types";
-
-function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement, value: string): void {
-  const proto = el instanceof HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-  const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-  // Many ATS forms (Greenhouse, Ashby) are React-controlled and ignore a plain `el.value = x`
-  // assignment — using the prototype's native setter first is what makes React's change
-  // detection actually notice the update.
-  if (setter) setter.call(el, value);
-  else el.value = value;
-  el.dispatchEvent(new Event("input", { bubbles: true }));
-  el.dispatchEvent(new Event("change", { bubbles: true }));
-}
+import type { FillOutcome, SyncedAnswer, SyncedExperience, SyncedProfile } from "../types";
 
 function setSelectValue(select: HTMLSelectElement, index: number): void {
   select.selectedIndex = index;
@@ -27,7 +20,7 @@ function checkRadio(radio: HTMLInputElement): void {
   radio.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
-const DECLINE_PATTERN = /decline|prefer not|don'?t wish|not specified|choose not/i;
+const DECLINE_PATTERN = /decline|prefer not|rather not|don'?t wish|do not wish|don'?t want to|do not want to|not specified|choose not|not to (answer|disclose|say)/i;
 
 function tokenize(s: string): string[] {
   return s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2);
@@ -102,6 +95,21 @@ function getGroupLabel(radios: HTMLInputElement[]): string {
   const group = first.closest('[role="group"], [role="radiogroup"]');
   const aria = group?.getAttribute("aria-label");
   if (aria?.trim()) return aria.trim();
+  const labelledBy = group?.getAttribute("aria-labelledby");
+  if (labelledBy) {
+    const text = labelledBy
+      .split(/\s+/)
+      .map((id) => textOf(first.ownerDocument.getElementById(id)))
+      .filter(Boolean)
+      .join(" ");
+    if (text) return text;
+  }
+  // Lever and similar: the question sits in a labelled wrapper around the options. Only explicit
+  // label elements count (never "the text above"), so a wrong guess can't answer another question.
+  const wrapper = first.closest(".application-question, [data-qa*='question' i], [data-field]");
+  const labelEl = wrapper?.querySelector(".application-label, [data-qa*='label' i], legend");
+  const wrapperText = textOf(labelEl ?? null);
+  if (wrapperText) return wrapperText;
   return "";
 }
 
@@ -120,6 +128,17 @@ function fillValueRadioGroup(radios: HTMLInputElement[], desired: string): boole
   return true;
 }
 
+const PLACEHOLDER_OPTION = /^\s*(select|choose|please|--|pick)|^\s*$/i;
+
+/** True when a field already holds something (typed by her or by an earlier Fill). */
+export function hasValue(field: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement): boolean {
+  if (field instanceof HTMLSelectElement) {
+    const opt = field.options[field.selectedIndex];
+    return !!opt && field.selectedIndex > 0 ? true : !!opt && field.selectedIndex === 0 && !!opt.value && !PLACEHOLDER_OPTION.test(opt.text);
+  }
+  return field.value.trim() !== "";
+}
+
 function legalValue(profile: SyncedProfile, field: "authorizedToWorkUS" | "requiresSponsorship" | "willingToRelocate"): "yes" | "no" | "" {
   return profile[field];
 }
@@ -131,14 +150,17 @@ function legalValue(profile: SyncedProfile, field: "authorizedToWorkUS" | "requi
  * from the matching stored Profile field, via the narrow, explicit patterns in fillRules.ts;
  * anything ambiguous is left blank and reported so she fills it herself.
  */
-export function fillForm(root: ParentNode, profile: SyncedProfile): FillOutcome[] {
-  const outcomes: FillOutcome[] = [];
+export function fillForm(root: ParentNode, profile: SyncedProfile, ctx: FillContext = {}): FillOutcome[] {
+  const sections = fillRepeatedSections(root, profile, ctx.experiences ?? []);
+  const outcomes: FillOutcome[] = [...sections.outcomes];
   const handledNames = new Set<string>();
 
   // Radio groups first, since findFormFields would otherwise treat each option as its own field.
   for (const [name, radios] of groupRadios(root)) {
     handledNames.add(name);
-    const label = getGroupLabel(radios);
+    if (radios.every((r) => sections.handled.has(r))) continue;
+    if (ctx.onlyEmpty && radios.some((r) => r.checked)) continue;
+    const label = cleanLabel(getGroupLabel(radios));
     if (!label) {
       outcomes.push({ label: `Unlabeled question (${radios.length} options)`, status: "skipped-needs-review", reason: "Couldn't find this question's text." });
       continue;
@@ -167,9 +189,16 @@ export function fillForm(root: ParentNode, profile: SyncedProfile): FillOutcome[
 
   for (const field of findFormFields(root)) {
     if (field instanceof HTMLInputElement && (field.type === "radio" || field.type === "checkbox")) continue;
-    const label = getFieldLabel(field);
+    if (sections.handled.has(field)) continue;
+    if (ctx.onlyEmpty && hasValue(field)) continue;
+    const label = cleanLabel(getFieldLabel(field));
     if (!label) {
       outcomes.push({ label: "(unlabeled field)", status: "skipped-unmatched" });
+      continue;
+    }
+    if (isCombobox(field)) {
+      // A search-as-you-type dropdown: typing text doesn't choose an option, so it is left to her.
+      outcomes.push({ label, status: "skipped-needs-review", reason: "A dropdown you pick from. Choose it yourself." });
       continue;
     }
 
@@ -225,10 +254,19 @@ export function fillForm(root: ParentNode, profile: SyncedProfile): FillOutcome[
         setNativeValue(field as HTMLInputElement | HTMLTextAreaElement, value);
         outcomes.push({ label, status: "filled" });
       }
-    } else if (field instanceof HTMLTextAreaElement) {
-      outcomes.push({ label, status: "skipped-needs-review", reason: "Free-text question — draft one with AI, then paste it in." });
+    } else if (isLegalSounding(label)) {
+      outcomes.push({ label, el: field, legal: true, status: "skipped-needs-review", reason: "A legal or identity question. Job Copilot never guesses these. Answer it yourself." });
+    } else if (field instanceof HTMLTextAreaElement || looksLikeQuestion(label)) {
+      const saved = findSavedAnswer(label, ctx.answers ?? []);
+      outcomes.push({
+        label,
+        el: field,
+        status: "skipped-needs-review",
+        reason: saved ? "You have a saved answer for a similar question. Check it before using it." : "Free-text question. Write it, use a saved answer or draft one.",
+        ...(saved ? { suggestion: { question: saved.answer.question, answer: saved.answer.answer } } : {}),
+      });
     } else {
-      outcomes.push({ label, status: "skipped-unmatched" });
+      outcomes.push({ label, el: field, status: "skipped-unmatched" });
     }
   }
 
@@ -236,3 +274,17 @@ export function fillForm(root: ParentNode, profile: SyncedProfile): FillOutcome[
 }
 
 export { setNativeValue };
+
+/** A short text box whose label reads like a question or prompt ("How did you hear about us?"). */
+function looksLikeQuestion(label: string): boolean {
+  return label.length > 25 || label.endsWith("?");
+}
+
+export interface FillContext {
+  /** Her saved answers, to suggest one for a similar question. */
+  answers?: SyncedAnswer[];
+  /** Leave anything that already has a value alone (used when new fields appear on a later step). */
+  onlyEmpty?: boolean;
+  /** "Your experience", for repeated work-experience blocks. */
+  experiences?: SyncedExperience[];
+}

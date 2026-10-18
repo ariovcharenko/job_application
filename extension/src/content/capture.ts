@@ -1,26 +1,48 @@
-// Runs on every page (see manifest.json). Injects one small floating button; everything it does
-// is behind an explicit click — nothing scans or fills a page on its own. Uses a shadow root so
-// the host page's CSS can't mangle (or be mangled by) this UI.
+// Runs on known ATS pages (manifest.json) and on sites she turned on with "Use on this site".
+// Injects one small floating button; everything it does is behind an explicit click. Uses a shadow
+// root so the host page's CSS can't mangle (or be mangled by) this UI.
+//
+// It never clicks a button on the page (so it can't submit anything), never fills a password field
+// or an account page, and never runs on LinkedIn, Indeed or Jobright.
 import { pickAdapter } from "../lib/adapters";
-import { draftFreeTextAnswer } from "../lib/anthropic";
 import { fillForm } from "../lib/fillEngine";
-import { getFieldLabel } from "../lib/matching";
+import { watchForConfirmation } from "../lib/confirmFlow";
+import { ACCOUNT_PAGE_MESSAGE, isAccountPage } from "../lib/guards";
+import { isBlockedHost } from "../lib/hosts";
+import { preflight, summarizePreflight } from "../lib/preflight";
+import { watchForNewFields, type FieldWatcher } from "../lib/watch";
+import { addQuestionActions, showApprovedDraft } from "../lib/questionActions";
 import { extractVisibleText } from "../lib/pageText";
-import { base64ToFile, setFileInput } from "../lib/resumeUpload";
-import { getAppOrigin, getSyncedData, setPendingCapture } from "../lib/storage";
+import { uploadResumeForJob, type ResumeOutcome } from "../lib/resumeFlow";
+import type { ContextReply, FillSession, ResumeReply, SimpleReply, TabMessage } from "../messages";
 import type { FillOutcome } from "../types";
 
 const HOST_ID = "job-copilot-host";
-if (!document.getElementById(HOST_ID) && window.top === window) {
-  init();
+
+function shouldRun(): boolean {
+  if (document.getElementById(HOST_ID)) return false;
+  if (isBlockedHost(location.hostname)) return false;
+  // In a frame only for a known ATS form embedded in a company's career page.
+  if (window.top !== window && pickAdapter(location).name === "generic") return false;
+  return true;
 }
+
+if (shouldRun()) init();
+
+interface Ui {
+  panel: HTMLElement;
+  shadow: ShadowRoot;
+}
+
+let ui: Ui;
+let lastContext: ContextReply | null = null;
 
 function init(): void {
   const host = document.createElement("div");
   host.id = HOST_ID;
   host.style.all = "initial";
   document.documentElement.appendChild(host);
-  const shadow = host.attachShadow({ mode: "open" });
+  const shadow = host.attachShadow({ mode: "closed" });
 
   const style = document.createElement("style");
   style.textContent = CSS;
@@ -30,102 +52,206 @@ function init(): void {
   const panel = el("div", "jc-panel jc-hidden");
   shadow.appendChild(toggle);
   shadow.appendChild(panel);
+  ui = { panel, shadow };
 
   toggle.addEventListener("click", () => {
     panel.classList.toggle("jc-hidden");
-    if (!panel.classList.contains("jc-hidden")) renderMenu(panel);
+    if (!panel.classList.contains("jc-hidden")) renderMenu();
   });
 
-  renderMenu(panel);
+  watchForConfirmation({
+    doc: document,
+    location,
+    adapterName: pickAdapter(location).name,
+    getSession: () => send<FillSession | null>({ type: "GET_FILL_SESSION" }),
+    seen: () => send({ type: "CONFIRMATION_SEEN" }),
+    onOffer: (session) => void offerMarkApplied(session),
+  });
+
+  chrome.runtime.onMessage.addListener((msg: TabMessage) => {
+    if (msg.type === "DRAFT_READY") showDraft(msg.fieldKey, msg.answer);
+    if (msg.type === "DRAFT_CANCELLED") setStatus("The draft was cancelled in Job Copilot.");
+  });
 }
 
-function renderMenu(panel: HTMLElement): void {
+function send<T>(message: unknown): Promise<T> {
+  return chrome.runtime.sendMessage(message) as Promise<T>;
+}
+
+async function loadContext(): Promise<ContextReply> {
+  const adapter = pickAdapter(location);
+  const page = adapter.pageJobInfo?.(document, location.hostname) ?? { company: "", role: "" };
+  lastContext = await send<ContextReply>({ type: "GET_CONTEXT", url: location.href, page });
+  return lastContext;
+}
+
+function renderMenu(): void {
+  const { panel } = ui;
   panel.innerHTML = "";
-  panel.appendChild(el("div", "jc-title", "Job Application Copilot"));
+  panel.appendChild(el("div", "jc-title", "Job Copilot"));
 
-  const scoreBtn = el("button", "jc-action", "Score this job posting");
-  scoreBtn.addEventListener("click", () => runScoreThisJob(panel));
-  panel.appendChild(scoreBtn);
-
-  const fillBtn = el("button", "jc-action", "Fill this application");
-  fillBtn.addEventListener("click", () => runFillApplication(panel));
+  const fillBtn = el("button", "jc-action jc-primary", "Fill this application");
+  fillBtn.addEventListener("click", () => void runFillApplication());
   panel.appendChild(fillBtn);
 
-  panel.appendChild(el("div", "jc-hint", "Nothing is ever submitted for you — review everything before you click Submit yourself."));
+  const scoreBtn = el("button", "jc-action", "Check this job in Job Copilot");
+  scoreBtn.addEventListener("click", () => void runScoreThisJob());
+  panel.appendChild(scoreBtn);
+
+  const pre = el("div", "jc-note", "Checking what this form asks for...");
+  panel.appendChild(pre);
+  void renderPreflight(pre);
+
+  panel.appendChild(el("div", "jc-hint", "Nothing is ever submitted for you. Review everything, then click Submit yourself."));
 }
 
-async function runScoreThisJob(panel: HTMLElement): Promise<void> {
-  setStatus(panel, "Capturing this page's text...");
+/** "Before you start": what the form asks for beyond the Profile, from the page alone. */
+async function renderPreflight(box: HTMLElement): Promise<void> {
+  try {
+    const ctx = await loadContext();
+    if (isAccountPage(document, location)) {
+      box.textContent = "Account or sign-in page. Job Copilot won't fill it.";
+      return;
+    }
+    const adapter = pickAdapter(location);
+    const items = preflight(adapter.findFormRoot(document) ?? document.body, ctx.data.profile, ctx.data.answerBank, adapter.findResumeInput(document));
+    const lines = summarizePreflight(items);
+    const job = ctx.match ? `Saved job: ${ctx.match.job.company}, ${ctx.match.job.role}.` : "Not one of your saved jobs yet.";
+    box.textContent = "";
+    box.appendChild(el("div", "", job));
+    if (lines.length) {
+      box.appendChild(el("div", "jc-row-label", "Also asks for:"));
+      for (const l of lines) box.appendChild(el("div", "", `\u2022 ${l}`));
+    } else box.appendChild(el("div", "", "Nothing beyond what your Profile covers."));
+  } catch {
+    box.textContent = "";
+  }
+}
+
+/** On a confirmation page after SHE submitted: one button that marks the job applied in the app. */
+async function offerMarkApplied(session: FillSession | null): Promise<void> {
+  const ctx = await loadContext().catch(() => null);
+  const adapter = pickAdapter(location);
+  const info = adapter.pageJobInfo?.(document, location.hostname) ?? { company: "", role: "" };
+  const job = ctx?.match?.job;
+  const company = job?.company ?? session?.company ?? info.company;
+  const role = job?.role ?? session?.role ?? info.role;
+  const { panel } = ui;
+  panel.classList.remove("jc-hidden");
+  panel.innerHTML = "";
+  panel.appendChild(el("div", "jc-title", "It looks like you submitted this application"));
+  panel.appendChild(el("div", "jc-note", company || role ? `${company}${company && role ? ", " : ""}${role}` : "Job Copilot couldn't read the job from this page."));
+  const mark = el("button", "jc-action jc-primary", "Mark as applied in Job Copilot");
+  mark.addEventListener("click", async () => {
+    (mark as HTMLButtonElement).disabled = true;
+    const res = await send<SimpleReply>({ type: "MARK_APPLIED", url: session?.url || location.href, company, role, jobId: job?.id ?? session?.jobId ?? null });
+    mark.remove();
+    later.remove();
+    if (!res.ok) setStatus(res.error);
+    else if (res.queued) setStatus("Job Copilot isn't open. It will be marked as applied the next time you open it.");
+    else setStatus(`Marked as applied. A follow-up reminder is set for a week from today.${res.detail ? ` Filling took ${formatSeconds(Number(res.detail))}.` : ""}`);
+  });
+  const later = el("button", "jc-action", "Not now");
+  later.addEventListener("click", () => {
+    void send({ type: "END_FILL_SESSION" });
+    panel.classList.add("jc-hidden");
+  });
+  panel.append(mark, later);
+}
+
+function formatSeconds(s: number): string {
+  if (!Number.isFinite(s)) return "a few minutes";
+  return s < 60 ? `${s} seconds` : `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60} s` : ""}`;
+}
+
+async function runScoreThisJob(): Promise<void> {
+  setStatus("Sending this page to Job Copilot...");
   const text = extractVisibleText(document.body);
   if (text.length < 200) {
-    setStatus(panel, "Couldn't find much text on this page — try selecting the job description manually and pasting it into the app instead.");
+    setStatus("Couldn't find much text on this page. Copy the job description and paste it into Job Copilot instead.");
     return;
   }
-  await setPendingCapture({ text, url: location.href, capturedAt: Date.now() });
-  const origin = await getAppOrigin();
-  window.open(origin, "_blank");
-  setStatus(panel, "Opened the app with this posting ready to score.");
+  const res = await send<SimpleReply>({ type: "CAPTURE_JOB", text, url: location.href });
+  setStatus(res.ok ? "Opened in Job Copilot." : res.error);
 }
 
-async function runFillApplication(panel: HTMLElement): Promise<void> {
-  setStatus(panel, "Filling in what it can...");
-  const data = await getSyncedData();
-  if (!data.profile.fullName && data.answerBank.length === 0) {
-    const origin = await getAppOrigin();
-    setStatus(panel, `No profile synced yet. Open ${origin} once (with this extension installed) so it can sync your info, then try again.`);
+let watcher: FieldWatcher | null = null;
+
+async function runFillApplication(onlyEmpty = false): Promise<void> {
+  if (isAccountPage(document, location)) {
+    setStatus(ACCOUNT_PAGE_MESSAGE);
     return;
   }
-
-  const adapter = pickAdapter(window.location);
+  setStatus("Filling in what it can...");
+  const ctx = await loadContext();
+  if (!ctx.paired) {
+    setStatus("Not connected yet. In Job Copilot, open Settings > Chrome extension and click Connect.");
+    return;
+  }
+  if (!ctx.data.profile.fullName && ctx.data.answerBank.length === 0) {
+    setStatus("No profile synced yet. Open Job Copilot once so it can send your Profile.");
+    return;
+  }
+  const adapter = pickAdapter(location);
+  // The first Fill click starts the clock for "time to fill" and remembers the job for later.
+  const info = adapter.pageJobInfo?.(document, location.hostname) ?? { company: "", role: "" };
+  void send({ type: "FILL_STARTED", jobId: ctx.match?.job.id ?? null, url: location.href, company: ctx.match?.job.company ?? info.company, role: ctx.match?.job.role ?? info.role });
   const root = adapter.findFormRoot(document) ?? document.body;
-  const outcomes = fillForm(root, data.profile);
-
-  const resumeInput = adapter.findResumeInput(document);
-  if (resumeInput) {
-    if (data.resume) {
-      try {
-        setFileInput(resumeInput, base64ToFile(data.resume.base64, data.resume.fileName));
-        outcomes.unshift({ label: "Resume", status: "filled" });
-      } catch (err) {
-        outcomes.unshift({ label: "Resume", status: "skipped-needs-review", reason: err instanceof Error ? err.message : String(err) });
-      }
-    } else {
-      outcomes.unshift({ label: "Resume", status: "skipped-no-data", reason: "No tailored resume synced yet — save one from the Tailor dialog in the app." });
-    }
-  }
-
-  renderChecklist(panel, outcomes, data.anthropicKey);
+  const outcomes = fillForm(root, ctx.data.profile, { experiences: ctx.data.experiences, answers: ctx.data.answerBank, onlyEmpty });
+  // The resume: this job's tailored one when the page matches a saved job. Asked for only now.
+  setStatus("Getting your resume from Job Copilot...");
+  const resume = await uploadResumeForJob(adapter.findResumeInput(document), ctx.match, {
+    requestResume: (jobId) => send<ResumeReply>({ type: "GET_RESUME", jobId }),
+  });
+  renderChecklist(outcomes, resume, ctx);
+  // A later step or a block she adds shows up as new fields: offer one click, never fill by itself.
+  watcher?.stop();
+  watcher = watchForNewFields(document.body, (count) => {
+    if (isAccountPage(document, location)) return;
+    offerNewFields(count);
+  });
 }
 
-function renderChecklist(panel: HTMLElement, outcomes: FillOutcome[], apiKey: string): void {
+function offerNewFields(count: number): void {
+  ui.panel.classList.remove("jc-hidden");
+  ui.panel.querySelector(".jc-new")?.remove();
+  const btn = el("button", "jc-action jc-primary jc-new", `${count} new field${count === 1 ? "" : "s"} appeared. Fill them`);
+  btn.addEventListener("click", () => void runFillApplication(true));
+  ui.panel.insertBefore(btn, ui.panel.firstChild);
+}
+
+function renderChecklist(outcomes: FillOutcome[], resume: ResumeOutcome, ctx: ContextReply): void {
+  const { panel } = ui;
   panel.innerHTML = "";
   const filled = outcomes.filter((o) => o.status === "filled").length;
-  const needsYou = outcomes.length - filled;
-  panel.appendChild(el("div", "jc-title", `Filled ${filled}, needs you ${needsYou}`));
+  panel.appendChild(el("div", "jc-title", `Filled ${filled}, needs you ${outcomes.length - filled}`));
+  panel.appendChild(el("div", "jc-note", ctx.match ? `Saved job: ${ctx.match.job.company}, ${ctx.match.job.role}.` : "This page isn't one of your saved jobs, so nothing is tied to a job."));
+  const resumeRow = el("div", `jc-row ${resume.status === "uploaded" ? "jc-filled" : "jc-skipped"}`);
+  resumeRow.appendChild(el("span", "jc-row-label", "Resume"));
+  resumeRow.appendChild(el("span", "jc-row-reason", resume.note));
+  panel.appendChild(resumeRow);
 
   for (const o of outcomes) {
     const row = el("div", `jc-row jc-${o.status}`);
     row.appendChild(el("span", "jc-row-label", o.label));
-    if (o.status !== "filled") {
-      row.appendChild(el("span", "jc-row-reason", o.reason ?? statusLabel(o.status)));
-    }
-    if (o.status === "skipped-needs-review" && o.reason?.includes("Free-text")) {
-      const draftBtn = el("button", "jc-draft", "Draft with AI");
-      draftBtn.addEventListener("click", () => draftForLabel(row, o.label, apiKey));
-      row.appendChild(draftBtn);
-    }
+    if (o.status !== "filled" || o.reason) row.appendChild(el("span", "jc-row-reason", o.reason ?? statusLabel(o.status)));
+    addQuestionActions(row, o, {
+      requestDraft: (question) => requestDraft(question),
+      saveAnswer: (question, answer) => send<SimpleReply>({ type: "SAVE_ANSWER", question, answer }),
+    });
+    row.dataset.fieldKey = o.label;
     panel.appendChild(row);
   }
 
   const back = el("button", "jc-action", "Back");
-  back.addEventListener("click", () => renderMenu(panel));
+  back.addEventListener("click", () => renderMenu());
   panel.appendChild(back);
 }
 
 function statusLabel(status: FillOutcome["status"]): string {
   switch (status) {
     case "skipped-no-data":
-      return "No stored answer";
+      return "No saved answer";
     case "skipped-needs-review":
       return "Needs your review";
     case "skipped-unmatched":
@@ -135,53 +261,30 @@ function statusLabel(status: FillOutcome["status"]): string {
   }
 }
 
-async function draftForLabel(row: HTMLElement, label: string, apiKey: string): Promise<void> {
-  if (!apiKey) {
-    row.appendChild(el("span", "jc-row-reason", "Add your Anthropic key in the app's Settings first."));
-    return;
-  }
-  const btn = row.querySelector(".jc-draft") as HTMLButtonElement | null;
-  if (btn) btn.textContent = "Drafting...";
-  try {
-    const context = extractVisibleText(document.body);
-    const draft = await draftFreeTextAnswer(apiKey, "claude-sonnet-5", label, context);
-    const textarea = el("textarea", "jc-draft-text") as HTMLTextAreaElement;
-    textarea.value = draft;
-    const insertBtn = el("button", "jc-action", "Insert this into the form") as HTMLButtonElement;
-    insertBtn.addEventListener("click", () => {
-      const field = findFieldByLabel(label);
-      if (field) {
-        const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
-        setter?.call(field, textarea.value);
-        field.dispatchEvent(new Event("input", { bubbles: true }));
-        field.dispatchEvent(new Event("change", { bubbles: true }));
-        insertBtn.textContent = "Inserted ✓";
-        insertBtn.disabled = true;
-      }
-    });
-    row.appendChild(textarea);
-    row.appendChild(insertBtn);
-  } catch (err) {
-    row.appendChild(el("span", "jc-row-reason", err instanceof Error ? err.message : String(err)));
-  } finally {
-    if (btn) btn.remove();
-  }
+/** The question and the page go to the app, which drafts with its own AI settings; the answer
+ * comes back only after she approves it there (see showDraft). */
+async function requestDraft(question: string): Promise<SimpleReply> {
+  return send<SimpleReply>({
+    type: "DRAFT_REQUEST",
+    question,
+    jobText: extractVisibleText(document.body),
+    pageUrl: location.href,
+    jobId: lastContext?.match?.job.id ?? null,
+    fieldKey: question,
+  });
 }
 
-function findFieldByLabel(label: string): HTMLTextAreaElement | null {
-  // Re-derive each textarea's label the same way fillEngine did, and match it back to the one
-  // shown in the checklist — the page hasn't changed shape since, so this is a safe re-lookup.
-  for (const ta of document.querySelectorAll("textarea")) {
-    if (getFieldLabel(ta) === label) return ta;
-  }
-  return null;
+function showDraft(fieldKey: string, answer: string): void {
+  ui.panel.classList.remove("jc-hidden");
+  const row = [...ui.panel.querySelectorAll<HTMLElement>(".jc-row")].find((r) => r.dataset.fieldKey === fieldKey) ?? ui.panel;
+  showApprovedDraft(row, fieldKey, answer);
 }
 
-function setStatus(panel: HTMLElement, text: string): void {
-  let status = panel.querySelector(".jc-status");
+function setStatus(text: string): void {
+  let status = ui.panel.querySelector(".jc-status");
   if (!status) {
     status = el("div", "jc-status");
-    panel.appendChild(status);
+    ui.panel.appendChild(status);
   }
   status.textContent = text;
 }
@@ -196,14 +299,14 @@ function el(tag: string, className: string, text?: string): HTMLElement {
 const CSS = `
   .jc-toggle {
     position: fixed; bottom: 20px; right: 20px; z-index: 2147483647;
-    background: #4f46e5; color: white; border: none; border-radius: 999px;
+    background: #7b3fe4; color: white; border: none; border-radius: 999px;
     padding: 10px 16px; font: 600 13px system-ui, sans-serif; cursor: pointer;
     box-shadow: 0 2px 8px rgba(0,0,0,0.25);
   }
   .jc-panel {
     position: fixed; bottom: 68px; right: 20px; z-index: 2147483647;
-    width: 320px; max-height: 70vh; overflow-y: auto;
-    background: white; color: #1a1a1a; border-radius: 12px;
+    width: 330px; max-height: 70vh; overflow-y: auto;
+    background: white; color: #1d1d1f; border-radius: 16px;
     box-shadow: 0 4px 24px rgba(0,0,0,0.25); padding: 14px;
     font: 13px system-ui, sans-serif;
   }
@@ -211,16 +314,22 @@ const CSS = `
   .jc-title { font-weight: 700; margin-bottom: 10px; }
   .jc-action {
     display: block; width: 100%; text-align: left; margin-bottom: 8px;
-    background: #f4f4f5; border: 1px solid #e4e4e7; border-radius: 8px;
-    padding: 8px 10px; cursor: pointer; font: 13px system-ui, sans-serif;
+    background: #f5f5f7; border: 1px solid #e5e5ea; border-radius: 10px;
+    padding: 8px 10px; cursor: pointer; font: 13px system-ui, sans-serif; color: #1d1d1f;
   }
-  .jc-action:hover { background: #ececee; }
-  .jc-hint { color: #71717a; font-size: 11px; margin-top: 8px; }
-  .jc-status { margin-top: 8px; color: #3f3f46; }
+  .jc-action:hover { background: #ececf0; }
+  .jc-primary { background: #7b3fe4; color: white; border-color: #7b3fe4; }
+  .jc-primary:hover { background: #6a32cc; }
+  .jc-hint { color: #6e6e73; font-size: 11px; margin-top: 8px; }
+  .jc-note { background: #f5f0ff; color: #4b2391; border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; font-size: 12px; }
+  .jc-status { margin-top: 8px; color: #3a3a3c; }
   .jc-row { border-top: 1px solid #eee; padding: 6px 0; }
   .jc-row-label { display: block; font-weight: 600; }
-  .jc-row-reason { display: block; color: #b45309; font-size: 12px; }
-  .jc-filled .jc-row-label::before { content: "✓ "; color: #16a34a; }
-  .jc-draft { margin-top: 4px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
-  .jc-draft-text { width: 100%; margin-top: 6px; min-height: 70px; box-sizing: border-box; }
+  .jc-row-reason { display: block; color: #a05a00; font-size: 12px; }
+  .jc-filled .jc-row-reason { color: #6e6e73; }
+  .jc-filled .jc-row-label::before { content: "\\2713  "; color: #1f8a3b; }
+  .jc-draft, .jc-small { margin-top: 4px; background: #f5f0ff; border: 1px solid #dccbfa; border-radius: 8px; padding: 4px 8px; cursor: pointer; font: 12px system-ui, sans-serif; color: #4b2391; }
+  .jc-suggest { margin-top: 4px; }
+  .jc-draft-text { width: 100%; margin-top: 6px; min-height: 70px; box-sizing: border-box; font: 12px system-ui, sans-serif; }
+  select.jc-select { width: 100%; margin: 4px 0 8px; font: 12px system-ui, sans-serif; }
 `;

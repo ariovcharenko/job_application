@@ -18,6 +18,10 @@ describe("pickAdapter", () => {
     expect(pickAdapter(fakeLocation("jobs.ashbyhq.com")).name).toBe("ashby");
   });
 
+  it("picks the workday adapter on myworkdayjobs.com tenants", () => {
+    expect(pickAdapter(fakeLocation("acme.wd5.myworkdayjobs.com")).name).toBe("workday");
+  });
+
   it("falls back to generic for anything else", () => {
     expect(pickAdapter(fakeLocation("careers.example.com")).name).toBe("generic");
   });

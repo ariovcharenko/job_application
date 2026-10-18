@@ -125,8 +125,11 @@ export default function PrivacyPage() {
         {FEATURES.extension && (
           <Section title="The Chrome extension">
             <p>
-              If you use the extension, your Profile, saved answers, a resume and your API key are copied into the extension&apos;s own
-              storage on this device, so it can fill application forms. It never submits a form for you.
+              If you connect the Chrome extension, your Profile, saved answers, your experience text, a list of your jobs (company, role and link) and the resume
+              file for the job you are applying to are copied into the extension&apos;s own storage on this device, so it can fill application forms. They
+              travel only between this site and the extension, never through the page. Your API keys are never sent to it. Free-text answers are drafted
+              here in the app, and sent back to the form only after you approve them. The extension never submits a form for you and never runs on
+              LinkedIn, Indeed or Jobright.
             </p>
           </Section>
         )}

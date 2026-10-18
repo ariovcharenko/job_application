@@ -1,24 +1,41 @@
 {
   "manifest_version": 3,
-  "name": "Job Application Copilot",
-  "version": "0.1.0",
-  "description": "Captures job postings, scores fit, and fills application forms for you to review — it never clicks Submit.",
+  "name": "Job Copilot",
+  "version": "0.2.0",
+  "description": "Fills job application forms from your Job Copilot profile for you to review. It never clicks Submit.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxdNdbyFEx2RvWCFuv96yHmAEOePugjvSTb2vJhUvUxb8JLQOtZ4tltIl8UuEpo4hKjof0xewdEDj4yfcMu8Wu0fyrHgq9F/p9o9HxoPb81KtnlWPf/AenQswpiIBVJtNAXq7N8D31miEdQcxOpm7soPjaXwBQJ96A/DTJ3yQRbL4ogeJXGkT0UJQfV5VJorOVWgj6IwV+Ul7vci1n5bxYE72yDd6gGLdRV9Jp1moQGT2u3RIsriOCP9fOvaMvc/kfG44iCZ+unbr5cY/LIgRpRcq2vVH/zl/QEc2zrN7mTkRE9OKO+cb+00ZZb242mUkyq1BRkMWZcTN9tVnf/2NswIDAQAB",
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Job Application Copilot"
+    "default_title": "Job Copilot"
   },
   "background": {
     "service_worker": "background.js",
     "type": "module"
   },
-  "permissions": ["storage", "activeTab", "scripting", "alarms"],
-  "host_permissions": ["http://*/*", "https://*/*"],
+  "permissions": ["storage", "scripting"],
+  "host_permissions": [
+    "https://*.greenhouse.io/*",
+    "https://*.lever.co/*",
+    "https://*.ashbyhq.com/*",
+    "https://*.myworkdayjobs.com/*",
+    "https://*.myworkdaysite.com/*"
+  ],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
   "content_scripts": [
     {
-      "matches": ["http://*/*", "https://*/*"],
+      "matches": [
+        "https://*.greenhouse.io/*",
+        "https://*.lever.co/*",
+        "https://*.ashbyhq.com/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://*.myworkdaysite.com/*"
+      ],
       "js": ["content/capture.js"],
       "run_at": "document_idle",
-      "all_frames": false
+      "all_frames": true
     }
-  ]
+  ],
+  "externally_connectable": {
+    "matches": ["https://job-copilot-arina-ovcharenkos-projects.vercel.app/*", "http://localhost:3000/*"]
+  }
 }

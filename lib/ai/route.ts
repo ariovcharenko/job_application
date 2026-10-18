@@ -23,6 +23,8 @@ export type AITask =
   /** Turn an uploaded resume (PDF) into her experience. Needs attachments. */
   | "import_resume"
   | "draft_outreach"
+  /** A free-text application question drafted for the Chrome extension (lib/extension/draftAnswer.ts). */
+  | "draft_answer"
   /** First tailored draft (engine/index.ts generateResume). */
   | "write_resume"
   /** Her own change requests (engine/revise.ts). */
