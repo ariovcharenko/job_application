@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getProvider } from "@/lib/ai";
@@ -16,9 +17,11 @@ import { skipJob, trackJob } from "@/lib/tracker/triage";
 import { todayISO } from "@/lib/tracker/stage";
 import type { Application, Preferences, Profile } from "@/lib/types";
 import { Button, Field, Modal, Notice, Spinner, TextArea } from "@/components/ui";
-import TailorPanel from "../tailor/TailorPanel";
 import MustHavesPanel from "./MustHavesPanel";
 import ScoreCard from "./ScoreCard";
+
+// The tailoring screen (and the .docx writer behind it) loads only when she tailors.
+const TailorPanel = dynamic(() => import("../tailor/TailorPanel"), { ssr: false });
 
 type Mode = "link" | "paste";
 

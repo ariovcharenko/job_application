@@ -9,7 +9,6 @@ import { linesShort } from "@/lib/resume/engine/budget";
 import { pageFill } from "@/lib/resume/engine/fit";
 import { PAGE_CSS, renderResumeHtml } from "@/lib/resume/engine/html";
 import { diffDocs } from "@/lib/resume/engine/changes";
-import { renderResumeDocx } from "@/lib/resume/engine/render";
 import { exportResume, getJobResume, storeJobResume, type ExportResult } from "@/lib/resume/engine/save";
 import { createDebouncedSave } from "@/lib/resume/engine/autosave";
 import { fitResume, toPoolTarget, toVisibleSpot } from "@/lib/resume/engine/trim";
@@ -45,7 +44,8 @@ import { readBreakdown } from "@/lib/intake/stored";
  * medium effort, plus one short follow-up when the page ends short, needs a writing fix or leaves
  * a key skill out of the bullets.
  */
-export const TAILOR_COST_HINT = "about 5 to 10¢";
+import { TAILOR_COST_HINT } from "@/lib/resume/costHint";
+export { TAILOR_COST_HINT };
 /** A revision reuses the cached system prompt (rules + master profile), so it's a bit cheaper. */
 export const REVISE_COST_HINT = "about 4¢";
 
@@ -331,6 +331,7 @@ export default function TailorPanel({
     setStoreState("saving");
     saver.schedule(async () => {
       try {
+        const { renderResumeDocx } = await import("@/lib/resume/engine/render");
         const bytes = await renderResumeDocx(header, finalDoc);
         const approvedMessages = result.flags.filter((f) => approved.has(f.id)).map((f) => f.message);
         const id = await storeJobResume(application.id, bytes, { v: 2, doc: result.doc, approved: approvedMessages, final: finalDoc }, coverage ?? { before: 0, after: 0 });
@@ -352,6 +353,7 @@ export default function TailorPanel({
     setPhase("saving");
     setError(null);
     try {
+      const { renderResumeDocx } = await import("@/lib/resume/engine/render");
       const bytes = await renderResumeDocx(header, finalDoc);
       const fileName = tailoredFileName(fullName, application.company, application.role);
       setSaved(await exportResume(bytes, fileName, storedId ?? undefined));

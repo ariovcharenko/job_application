@@ -5,7 +5,8 @@ import { useEffect } from "react";
 import { getAnswerBank, getBaseResumes, getProfile, getSettings } from "../lib/db";
 import { storeCapturedJob } from "../lib/extensionCapture";
 import { FEATURES } from "../lib/features";
-import { bufferToBase64 } from "../lib/resume/repo";
+// Not lib/resume/repo: that pulls JSZip and the .docx writer into every page via the layout.
+import { bytesToBase64 as bufferToBase64 } from "../lib/backup";
 
 const APP_SOURCE = "job-copilot-app";
 const EXTENSION_SOURCE = "job-copilot-extension";

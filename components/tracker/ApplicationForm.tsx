@@ -1,6 +1,7 @@
 "use client";
 
 import { useLiveQuery } from "dexie-react-hooks";
+import dynamic from "next/dynamic";
 import { useRef, useState } from "react";
 import { db, getProfile } from "@/lib/db";
 import { hasIncompletePosting, readBreakdown } from "@/lib/intake/stored";
@@ -16,14 +17,17 @@ import { deleteApplication, saveApplication } from "@/lib/tracker/repo";
 import { applyStageChange } from "@/lib/tracker/stage";
 import { ROLE_TYPES, STAGES, VISA_SIGNALS, type Application, type RoleType, type Stage, type VisaSignal } from "@/lib/types";
 import { Button, ConfirmDialog, ExternalLinkIcon, Field, Modal, Notice, outlinedClass, SelectField, TextArea, textButtonClass } from "@/components/ui";
-import OutreachDialog from "../outreach/OutreachDialog";
-import JobResumeDialog from "../resumes/JobResumeDialog";
 import ResumePreview from "../resumes/ResumePreview";
-import TailorDialog, { TAILOR_COST_HINT } from "../tailor/TailorDialog";
-import NewJobDialog from "./NewJobDialog";
+import { TAILOR_COST_HINT } from "@/lib/resume/costHint";
 import ScoreCard from "./ScoreCard";
 import DeleteJobMessage from "./DeleteJobMessage";
 import { CompanyMark, STAGE_STYLE } from "./StageBadge";
+
+// Opened from buttons, so their code (tailoring, .docx, AI calls) loads only when used.
+const OutreachDialog = dynamic(() => import("../outreach/OutreachDialog"), { ssr: false });
+const JobResumeDialog = dynamic(() => import("../resumes/JobResumeDialog"), { ssr: false });
+const TailorDialog = dynamic(() => import("../tailor/TailorDialog"), { ssr: false });
+const NewJobDialog = dynamic(() => import("./NewJobDialog"), { ssr: false });
 
 const opts = (values: readonly string[]) => values.map((v) => ({ value: v, label: v }));
 

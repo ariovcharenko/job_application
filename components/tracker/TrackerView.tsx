@@ -1,6 +1,7 @@
 "use client";
 
 import { useLiveQuery } from "dexie-react-hooks";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db, getMasterProfile, getPreferences, getProfile, getSettings } from "@/lib/db";
@@ -20,17 +21,28 @@ import { ROLE_TYPES, STAGES, type Application, type RoleType, type Stage } from 
 import { OPEN_ADD_JOB_EVENT } from "@/components/Nav";
 import { deleteApplication, saveApplication, setTriage } from "@/lib/tracker/repo";
 import { Button, ChevronRightIcon, ConfirmDialog, EmptyState, inputClass, Modal, panelClass, SectionHeading, Spinner, textButtonClass } from "@/components/ui";
-import ApiKeyCard from "@/components/settings/ApiKeyCard";
 import ReadinessStrip from "@/components/ReadinessStrip";
 import SetupCard from "@/components/SetupCard";
-import ApplicationForm from "./ApplicationForm";
 import CheckedJobs from "./CheckedJobs";
-import ImportDialog from "./ImportDialog";
-import NewJobDialog from "./NewJobDialog";
 import DeleteJobMessage from "./DeleteJobMessage";
 import { CompanyMark, STAGE_DOT } from "./StageBadge";
 import TrackerBoard from "./TrackerBoard";
 import TrackerTable from "./TrackerTable";
+
+// The dialogs carry the heavy parts (the Anthropic SDK, the .docx writer, JSZip, the tailoring
+// engine), so they load on first use instead of with the page. They're fetched in the background
+// once the page is idle (preloadDialogs), so opening one is still instant.
+const loadNewJobDialog = () => import("./NewJobDialog");
+const loadApplicationForm = () => import("./ApplicationForm");
+const NewJobDialog = dynamic(loadNewJobDialog, { ssr: false });
+const ApplicationForm = dynamic(loadApplicationForm, { ssr: false });
+const ImportDialog = dynamic(() => import("./ImportDialog"), { ssr: false });
+const ApiKeyCard = dynamic(() => import("@/components/settings/ApiKeyCard"), { ssr: false });
+
+function preloadDialogs() {
+  void loadNewJobDialog().catch(() => {});
+  void loadApplicationForm().catch(() => {});
+}
 
 const toolbarSelect = inputClass.replace("w-full", "w-auto");
 
@@ -188,6 +200,16 @@ export default function TrackerView() {
   useEffect(() => {
     if (prefsReady) saveViewPrefs({ view, stage, roleType });
   }, [prefsReady, view, stage, roleType]);
+  // Fetch the dialogs' code once the page has settled, so the first click doesn't wait for it.
+  useEffect(() => {
+    const w = window as Window & { requestIdleCallback?: (cb: () => void) => number; cancelIdleCallback?: (id: number) => void };
+    if (w.requestIdleCallback) {
+      const id = w.requestIdleCallback(preloadDialogs);
+      return () => w.cancelIdleCallback?.(id);
+    }
+    const t = setTimeout(preloadDialogs, 2000);
+    return () => clearTimeout(t);
+  }, []);
   const [editing, setEditing] = useState<Application | null>(null);
   const [importing, setImporting] = useState(false);
   const [pastingJob, setPastingJob] = useState(false);

@@ -1,13 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import JobResumeDialog from "@/components/resumes/JobResumeDialog";
+import dynamic from "next/dynamic";
 import { safeHttpUrl } from "@/lib/safeUrl";
 import { changeStage } from "@/lib/tracker/repo";
 import { needsFollowUp } from "@/lib/tracker/stage";
 import { STAGES, type Application, type Stage } from "@/lib/types";
 import { panelClass, TrashIcon } from "@/components/ui";
 import { CompanyMark, STAGE_SELECT_CLASS, STAGE_STYLE } from "./StageBadge";
+
+// Opened from the Resume column; its code (file reading, JSZip) loads only then.
+const JobResumeDialog = dynamic(() => import("@/components/resumes/JobResumeDialog"), { ssr: false });
 
 const link = "font-medium text-accent hover:underline underline-offset-2";
 
