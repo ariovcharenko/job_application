@@ -1,4 +1,4 @@
-// Cost estimates for AI calls (the Feed's batch tailoring and the eval runner).
+// Cost estimates for AI calls (the eval runner).
 //
 // Only Anthropic rates are listed. OpenAI models are left out on purpose: their prices weren't
 // verified when OpenAI resume writing was added, so any OpenAI model gets the deliberately high

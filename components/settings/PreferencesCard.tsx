@@ -3,44 +3,21 @@
 import { getPreferences, savePreferences } from "@/lib/db";
 import { EXPERIENCE_LEVEL_OPTIONS } from "@/lib/eligibility/experience";
 import { withLocations, withWorkModes } from "@/lib/eligibility/remoteSync";
-import { FEATURES } from "@/lib/features";
 import { MUST_HAVE_FILTERS } from "@/lib/intake/decision";
-import { SENIORITY_OPTIONS, WORK_MODES, type WorkMode } from "@/lib/options";
-import { ROLE_TYPES, type ExperienceLevel, type Preferences, type ScoreWeights } from "@/lib/types";
+import { WORK_MODES, type WorkMode } from "@/lib/options";
+import { ROLE_TYPES, type ExperienceLevel, type Preferences } from "@/lib/types";
 import { useAutosave } from "@/lib/useAutosave";
 import { Card, ChipSelect, Field, SelectField } from "@/components/ui";
 import LocationPicker from "@/components/LocationPicker";
 
-const WEIGHT_LABELS: [keyof ScoreWeights, string][] = [
-  ["sponsorship", "Work authorization fit"],
-  ["location", "Location / remote"],
-  ["match", "Role and skills match"],
-  ["other", "Company, pay, other"],
-  ["freshness", "Freshness"],
-];
-
-const DEAL_BREAKERS: [keyof Preferences["dealBreakers"], string][] = [
-  ["noSponsorship", 'Says "no sponsorship"'],
-  ["citizenshipRequired", "Requires US citizenship"],
-  ["clearanceRequired", "Requires a security clearance"],
-  ["locationOutsideTargets", "On-site or hybrid outside my locations"],
-];
-
 /** Every job family except the catch-all. */
 const ROLE_CHOICES = ROLE_TYPES.filter((r) => r !== "Other");
-
-const toList = (s: string) =>
-  s
-    .split(",")
-    .map((x) => x.trim())
-    .filter(Boolean);
 
 export default function PreferencesCard() {
   const { draft: p, setDraft: setP, status } = useAutosave(getPreferences, savePreferences);
   if (!p) return null;
 
   const update = (next: Preferences) => setP(next);
-  const total = Object.values(p.weights).reduce((a, b) => a + b, 0);
 
   const mustHaves = (
     <div>
@@ -105,59 +82,6 @@ export default function PreferencesCard() {
         </div>
       </div>
 
-      {FEATURES.jobFeed && (
-        <div className="mt-8 grid gap-6 border-t border-black/[0.06] pt-6">
-          <p className="text-[13px] text-muted">Used by the job feed&apos;s search and ranking.</p>
-          <ChipSelect label="Seniority" options={SENIORITY_OPTIONS} value={p.seniority} onChange={(v) => update({ ...p, seniority: v })} />
-          <Field
-            label="Keywords (comma-separated)"
-            placeholder="React, TypeScript, Python"
-            value={p.keywords.join(", ")}
-            onChange={(v) => update({ ...p, keywords: toList(v) })}
-          />
-          <ChipSelect
-            label="Companies the feed watches"
-            options={p.companyWatchlist}
-            value={p.companyWatchlist}
-            onChange={(v) => update({ ...p, companyWatchlist: v })}
-            allowCustom
-          />
-          <div>
-            <h3 className="text-sm font-semibold">Ranking weights</h3>
-            <div className="mt-3 grid gap-4 sm:grid-cols-3">
-              {WEIGHT_LABELS.map(([key, label]) => (
-                <Field
-                  key={key}
-                  label={label}
-                  type="number"
-                  value={String(p.weights[key])}
-                  onChange={(v) => update({ ...p, weights: { ...p.weights, [key]: Math.max(0, Number(v) || 0) } })}
-                />
-              ))}
-            </div>
-            <p className={`mt-2 text-sm ${total === 100 ? "text-muted" : "text-warn"}`}>Weights total {total}. They work best when they add up to 100.</p>
-          </div>
-          <div className="max-w-xs">
-            <Field
-              label="Apply threshold (ranking score)"
-              type="number"
-              value={String(p.applyThreshold)}
-              onChange={(v) => update({ ...p, applyThreshold: Math.min(100, Math.max(0, Number(v) || 0)) })}
-            />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold">Deal-breakers (lower the ranking)</h3>
-            <div className="mt-2 grid gap-2 sm:grid-cols-2">
-              {DEAL_BREAKERS.map(([key, label]) => (
-                <label key={key} className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={p.dealBreakers[key]} onChange={(e) => update({ ...p, dealBreakers: { ...p.dealBreakers, [key]: e.target.checked } })} />
-                  {label}
-                </label>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
     </Card>
   );
 }

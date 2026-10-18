@@ -59,7 +59,7 @@ export async function wipeAllData(deps: WipeDeps = browserWipeDeps()): Promise<W
 /** Fired on window after the keys are forgotten, so an open API key card can clear its field. */
 export const API_KEYS_FORGOTTEN_EVENT = "job-copilot:api-keys-forgotten";
 
-/** Removes the Anthropic, OpenAI (and JSearch) API keys from this browser. Everything else stays. */
+/** Removes the Anthropic, OpenAI API keys from this browser. Everything else stays. */
 export async function forgetApiKeys(): Promise<void> {
   await saveSettings({ anthropicKey: "", openaiKey: "", jsearchApiKey: "" });
   if (typeof window !== "undefined") window.dispatchEvent(new Event(API_KEYS_FORGOTTEN_EVENT));

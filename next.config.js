@@ -14,9 +14,6 @@ const { PHASE_DEVELOPMENT_SERVER } = require("next/constants");
  * untrusted HTML: posting text is shown as text, and the resume preview HTML is fully escaped
  * (lib/resume/engine/html.ts). Everything else stays locked down: no eval, no third-party scripts,
  * no plugins, no framing, and connections only to this site, Anthropic and OpenAI.
- *
- * If the job Feed (FEATURES.jobFeed) is turned back on, add https://jsearch.p.rapidapi.com to
- * connect-src or its searches will be blocked.
  */
 function buildCsp(dev) {
   const directives = {

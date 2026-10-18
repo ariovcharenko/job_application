@@ -100,11 +100,6 @@ export default function PrivacyPage() {
             removes both.
           </p>
           <p className="mt-2 text-muted">A backup file leaves the keys out unless you tick the box to include them.</p>
-          {FEATURES.jobFeed && (
-            <p className="mt-2 text-muted">
-              An optional JSearch (RapidAPI) key is stored the same way and sent only to JSearch, for the company watchlist feed.
-            </p>
-          )}
         </Section>
 
         <Section title="What the host sees">

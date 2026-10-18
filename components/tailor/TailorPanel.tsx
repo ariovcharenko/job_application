@@ -32,7 +32,7 @@ import { appendSkillToMaster, appendUsageNote, hasSkill, parseSkillInventory, ty
 import { carryApprovals, fillComment, placementComment, reviseResume, type ResumeComment } from "@/lib/resume/engine/revise";
 import { applyApprovals, normalizeFlagMessage, resumeText, validateResume, type Flag, type ValidationResult } from "@/lib/resume/engine/validate";
 import { jobFocusFor, jobSkills, skillCoverage, skillHits, skillReadiness } from "@/lib/resume/coverage";
-import { tailoredFileName } from "@/lib/resume/repo";
+import { tailoredFileName } from "@/lib/resume/fileName";
 import type { Application } from "@/lib/types";
 import { Button, ConfirmDialog, inputClass, Notice, Spinner } from "@/components/ui";
 import AIErrorNotice from "@/components/resumes/AIErrorNotice";
