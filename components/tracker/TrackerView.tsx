@@ -16,6 +16,7 @@ import { completeFollowUp, needsFollowUp, snoozeFollowUp, todayISO } from "@/lib
 import { sortApplications } from "@/lib/tracker/sort";
 import { DEFAULT_VIEW_PREFS, filterApplications, hasActiveFilters, loadViewPrefs, saveViewPrefs, stageCounts, type TrackerView as View } from "@/lib/tracker/filter";
 import { isTracked } from "@/lib/tracker/triage";
+import { appliedThisWeek, goalOf } from "@/lib/tracker/weeklyGoal";
 import { ROLE_TYPES, STAGES, type Application, type RoleType, type Stage } from "@/lib/types";
 import { OPEN_ADD_JOB_EVENT } from "@/components/Nav";
 import { deleteApplication, saveApplication, setTriage } from "@/lib/tracker/repo";
@@ -36,12 +37,41 @@ import TrackerTable from "./TrackerTable";
 const toolbarSelect = inputClass.replace("w-full", "w-auto");
 
 /** One figure in the stats row. The row is a single panel split by hairlines, not separate boxes. */
-function Stat({ label, value, title }: { label: string; value: React.ReactNode; title?: string }) {
+function Stat({ label, value, title, children }: { label: string; value: React.ReactNode; title?: string; children?: React.ReactNode }) {
   return (
     <div className="min-w-0 px-4 py-4 sm:px-6" title={title}>
       <dt className="truncate text-[12px] text-muted sm:text-[13px]">{label}</dt>
       <dd className="mt-1 text-[28px] font-semibold leading-tight tracking-display tabular-nums">{value}</dd>
+      {children}
     </div>
+  );
+}
+
+/** "4 of 15" applications this week, with a thin bar. Purple only once the goal is reached. */
+function WeeklyGoalStat({ done, goal }: { done: number; goal: number }) {
+  const pct = Math.min(100, Math.round((done / goal) * 100));
+  return (
+    <Stat
+      label="This week"
+      title={`${done} of your goal of ${goal} applications, Monday to Sunday`}
+      value={
+        <>
+          {done}
+          <span className="text-[17px] font-normal text-muted"> of {goal}</span>
+        </>
+      }
+    >
+      <div
+        className="mt-2 h-1 overflow-hidden rounded-full bg-black/[0.06]"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={goal}
+        aria-valuenow={Math.min(done, goal)}
+        aria-label="Weekly goal progress"
+      >
+        <div className={`h-full rounded-full ${done >= goal ? "bg-accent" : "bg-black/30"}`} style={{ width: `${pct}%` }} />
+      </div>
+    </Stat>
   );
 }
 
@@ -206,6 +236,8 @@ export default function TrackerView() {
     const [settings, profile, preferences, masterProfile] = await Promise.all([getSettings(), getProfile(), getPreferences(), getMasterProfile()]);
     return readiness({ settings, profile, preferences, masterProfile });
   }, []);
+  // Her optional weekly goal, live from Job preferences (null = off).
+  const weeklyGoal = useLiveQuery(async () => goalOf((await getPreferences()).weeklyGoal), []) ?? null;
 
   /** Runs `then` now if an API key is saved, otherwise asks for one first and runs it after. */
   const withKey = (then: () => void) => {
@@ -440,11 +472,16 @@ export default function TrackerView() {
 
           {tracked.length > 0 && (
             <dl
-              className={`${panelClass} mb-8 grid grid-cols-3 [&>*+*]:border-l [&>*]:border-black/[0.06]`}
+              className={`${panelClass} mb-8 grid [&>*]:border-black/[0.06] ${
+                weeklyGoal
+                  ? "grid-cols-2 max-md:[&>*:nth-child(even)]:border-l max-md:[&>*:nth-child(n+3)]:border-t md:grid-cols-4 md:[&>*+*]:border-l"
+                  : "grid-cols-3 [&>*+*]:border-l"
+              }`}
             >
               <Stat label="Tracked" value={stats.total} />
               <Stat label="Applied" value={stats.applied} />
               <Stat label="Response rate" value={`${stats.rate}%`} title={`${stats.responded} of ${stats.applied} applied heard back`} />
+              {weeklyGoal && <WeeklyGoalStat done={appliedThisWeek(tracked, new Date())} goal={weeklyGoal} />}
             </dl>
           )}
           {tracked.length > 0 && <BackupNudge jobCount={apps.length} />}

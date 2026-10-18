@@ -145,6 +145,8 @@ export interface Preferences {
   };
   weights: ScoreWeights;
   applyThreshold: number; // score at or above this means "Apply"
+  /** Optional: applications to send per week (Monday to Sunday). Missing or 0 = no goal shown. */
+  weeklyGoal?: number;
 }
 
 export interface AnswerBankEntry {

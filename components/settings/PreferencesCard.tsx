@@ -93,6 +93,16 @@ export default function PreferencesCard() {
           onChange={(v) => update(withWorkModes(p, v as WorkMode[]))}
         />
         {mustHaves}
+        <div className="max-w-xs">
+          <Field
+            label="Weekly goal (applications, optional)"
+            type="number"
+            placeholder="Off"
+            value={p.weeklyGoal ? String(p.weeklyGoal) : ""}
+            onChange={(v) => update({ ...p, weeklyGoal: Math.min(200, Math.max(0, Math.round(Number(v) || 0))) || undefined })}
+          />
+          <p className="mt-1.5 text-[13px] text-muted">Shows your progress on the Tracker, Monday to Sunday. Leave empty for no goal.</p>
+        </div>
       </div>
 
       {FEATURES.jobFeed && (
