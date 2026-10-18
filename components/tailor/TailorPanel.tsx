@@ -25,14 +25,14 @@ import { cleanTitle, entriesNotOnPage, parseMasterExperiences } from "@/lib/resu
 import { appendSkillToMaster, appendUsageNote, hasSkill, parseSkillInventory, type RoleKey } from "@/lib/resume/master/skills";
 import { carryApprovals, fillComment, placementComment, reviseResume, type ResumeComment } from "@/lib/resume/engine/revise";
 import { applyApprovals, normalizeFlagMessage, resumeText, validateResume, type Flag, type ValidationResult } from "@/lib/resume/engine/validate";
-import { jobFocusFor, jobSkills, skillCoverage, skillHits } from "@/lib/resume/coverage";
+import { jobFocusFor, jobSkills, skillCoverage, skillHits, skillReadiness } from "@/lib/resume/coverage";
 import { tailoredFileName } from "@/lib/resume/repo";
 import type { Application } from "@/lib/types";
 import { Button, inputClass, Notice, Spinner } from "@/components/ui";
 import AIErrorNotice from "@/components/resumes/AIErrorNotice";
-import SkillGapsCard, { type PlaceOption } from "./SkillGapsCard";
-import PreTailorCard from "./PreTailorCard";
-import { applyConfirmations, confirmedForPrompt, placeChoices, preTailorGaps, type ConfirmedSkill } from "@/lib/resume/gaps";
+import RecruiterReviewCard, { type PlaceOption, type ReadinessCounts } from "./RecruiterReviewCard";
+import { answerComment, codeReviewItems, mergeReviewItems, planReviewItems, relocateTarget, reviewResume, type ReviewItem } from "@/lib/resume/engine/review";
+import { isSoftSkill, normalizeSkill } from "@/lib/resume/master/skills";
 import AskForChanges from "./AskForChanges";
 import QualityCard from "./QualityCard";
 import TailoredForCard from "./TailoredForCard";
@@ -48,6 +48,11 @@ import { readBreakdown } from "@/lib/intake/stored";
 export const TAILOR_COST_HINT = "about 5 to 10¢";
 /** A revision reuses the cached system prompt (rules + master profile), so it's a bit cheaper. */
 export const REVISE_COST_HINT = "about 4¢";
+/**
+ * One recruiter review: the same cached system prompt plus the page and the job (~6-8k input
+ * tokens, mostly a cache read) and a short JSON answer with thinking at medium effort.
+ */
+export const REVIEW_COST_HINT = "about 3¢";
 
 function PopoverAction({ label, hint, onClick, danger }: { label: string; hint: string; onClick: () => void; danger?: boolean }) {
   return (
@@ -144,9 +149,15 @@ export default function TailorPanel({
   const [saver] = useState(() => createDebouncedSave(600));
   const started = useRef(false);
   const [placements, setPlacements] = useState<Placement[]>([]);
-  // The before-tailoring question: skills she already answered (ticked or not) aren't asked again.
-  const [answered, setAnswered] = useState<Set<string>>(new Set());
-  const [preStep, setPreStep] = useState(false);
+  // Recruiter review: the model's items (code decided their actions), what she queued or ignored,
+  // and the code-counted readiness when this draft or the last review started.
+  const [reviewItems, setReviewItems] = useState<ReviewItem[]>([]);
+  const [reviewSummary, setReviewSummary] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const [queued, setQueued] = useState<Map<string, { comment: ResumeComment; quote?: string }>>(new Map());
+  const [ignored, setIgnored] = useState<Set<string>>(new Set());
+  const [doneIds, setDoneIds] = useState<Set<string>>(new Set());
+  const [baseline, setBaseline] = useState<ReadinessCounts | null>(null);
   const [selection, setSelection] = useState<{
     quote: string;
     x: number;
@@ -202,44 +213,26 @@ export default function TailorPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [application.id]);
 
-  // The job's skills her experience doesn't show and she hasn't answered yet: asked before tailoring.
-  const pendingGaps = useMemo(
-    () => (master ? preTailorGaps({ fitBreakdown, jdText }, master).filter((g) => !answered.has(g.skill.toLowerCase())) : []),
-    [fitBreakdown, jdText, master, answered],
-  );
-  const masterPlaces = useMemo(() => (master ? placeChoices(master) : []), [master]);
+  /** "Tailor resume" / "Start over". Missing skills are asked about afterwards, in the recruiter review. */
+  const start = () => void generate();
 
-  /** "Tailor resume" / "Start over": ask about the job's missing skills first, when there are any. */
-  const start = () => {
-    if (pendingGaps.length) setPreStep(true);
-    else void generate([]);
+  /** Forget the last review: a new draft gets a fresh one. */
+  const resetReview = () => {
+    setReviewItems([]);
+    setReviewSummary(null);
+    setQueued(new Map());
+    setIgnored(new Set());
+    setDoneIds(new Set());
+    setBaseline(null);
   };
 
-  /**
-   * One tailoring run. Her answers to the before-tailoring question are saved to her experience
-   * first (gaps.ts applyConfirmations), so the call and the checks both see them as hers.
-   */
-  const generate = async (confirmed: ConfirmedSkill[]) => {
-    let m = masterRef.current;
+  /** One tailoring run. */
+  const generate = async () => {
+    const m = masterRef.current;
     if (!m.trim() || !header) return;
     setError(null);
     setAiError(null);
     setSaved(null);
-    setPreStep(false);
-    setAnswered((a) => new Set([...a, ...pendingGaps.map((g) => g.skill.toLowerCase())]));
-    if (confirmed.length) {
-      const updated = applyConfirmations(m, confirmed);
-      if (updated !== m) {
-        try {
-          await saveMasterProfile(updated);
-        } catch (e) {
-          setError(`Couldn't save your skills to Your experience: ${e instanceof Error ? e.message : String(e)}`);
-          return;
-        }
-        setMaster(updated);
-        m = updated;
-      }
-    }
     setProgress(null);
     setPhase("generating");
     try {
@@ -254,7 +247,6 @@ export default function TailorPanel({
         requiredSkills,
         focus: focus ?? undefined,
         measure: (d) => pageFill(header, d),
-        confirmed: confirmedForPrompt(confirmed),
         onProgress: setProgress,
       });
       setResult(out.result);
@@ -263,6 +255,7 @@ export default function TailorPanel({
       setHistory([]);
       setPlacements([]);
       setChangedFrom(null);
+      resetReview();
       setPhase("ready");
     } catch (e) {
       setAiError(e);
@@ -511,10 +504,10 @@ export default function TailorPanel({
    * One revision call with everything she asked for, plus any skills waiting to be placed. Runs
    * right away; the answer is checked like any generation (anything new still needs her OK).
    */
-  const runRevision = async (requests: ResumeComment[]) => {
-    if (!result || phase !== "ready") return;
+  const runRevision = async (requests: ResumeComment[]): Promise<boolean> => {
+    if (!result || phase !== "ready") return false;
     const all = [...requests, ...placementComments(result.doc)];
-    if (all.length === 0) return;
+    if (all.length === 0) return false;
     const m = masterRef.current;
     setError(null);
     setAiError(null);
@@ -533,8 +526,10 @@ export default function TailorPanel({
       setResult(next);
       setChanges(done);
       setPlacements([]);
+      return true;
     } catch (e) {
       setAiError(e);
+      return false;
     } finally {
       setPhase("ready");
     }
@@ -590,18 +585,86 @@ export default function TailorPanel({
     return { issues, ...qualityScore(issues) };
   }, [finalDoc, master, skillsForJob, requiredSkills]);
 
-  // The job's skills the page doesn't show, and whether her experience has each one.
-  const skillGaps = useMemo(() => {
-    if (!finalDoc || !master) return null;
-    const onPage = skillCoverage(skillsForJob, resumeText(finalDoc));
-    if (!onPage) return null;
-    const inventory = parseSkillInventory(master);
-    return {
-      total: skillsForJob.length,
-      onPage: onPage.found.length,
-      gaps: onPage.missing.map((s) => ({ skill: s, inProfile: hasSkill(s, inventory, master) })),
-    };
-  }, [finalDoc, master, skillsForJob]);
+  // The job's key skills (required ones, or every job skill when none is marked required), and how
+  // many the page shows and proves in a bullet. Counted by code, never by the model (decision #7).
+  const keySkills = useMemo(() => {
+    const req = requiredSkills.filter((s) => !isSoftSkill(s));
+    return req.length ? req : skillsForJob;
+  }, [requiredSkills, skillsForJob]);
+  const readiness = useMemo(
+    () => (finalDoc && master ? skillReadiness(finalDoc, keySkills, master, resumeText(finalDoc)) : null),
+    [finalDoc, master, keySkills],
+  );
+  const readinessNow: ReadinessCounts | null = readiness ? { total: readiness.skills.length, shown: readiness.shown.length, proven: readiness.proven.length } : null;
+  // The counts when this draft first showed (or the last review ran), for "before and now".
+  useEffect(() => {
+    if (!baseline && readinessNow && phase === "ready") setBaseline(readinessNow);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readiness, phase]);
+
+  const planContext = (doc: ResumeDoc) => ({
+    doc,
+    master: masterRef.current,
+    keySkills,
+    jobSkills: skillsForJob,
+    isRequired: (s: string) => requiredSkills.some((r) => r.toLowerCase() === s.toLowerCase()),
+  });
+  // Free items found by code on the page as it is now, merged with the model's items from the last
+  // review (one row per skill), minus what she ignored or already applied.
+  const reviewList = useMemo(() => {
+    if (!fitted || !master) return [];
+    const code = codeReviewItems(planContext(fitted.doc));
+    // A skill she already placed in a role waits in "Apply" below, so its question is answered.
+    const placed = new Set(placements.map((p) => normalizeSkill(p.skill)));
+    const placedHere = (i: ReviewItem) =>
+      ("skill" in i.action && placed.has(normalizeSkill(i.action.skill))) || (i.id.startsWith("code:prove:") && placed.has(i.id.slice("code:prove:".length)));
+    return mergeReviewItems(code, reviewItems).filter((i) => !ignored.has(i.id) && !doneIds.has(i.id) && !placedHere(i));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitted, master, reviewItems, ignored, doneIds, keySkills, skillsForJob, requiredSkills, placements]);
+
+  /** One review call on the page as she sees it. Code then decides what each item may do. */
+  const runReview = async () => {
+    if (!fitted || !readiness || phase !== "ready" || reviewing) return;
+    setReviewing(true);
+    setAiError(null);
+    try {
+      const review = await reviewResume(await getProvider(), masterRef.current, {
+        company: application.company,
+        role: application.role,
+        jdText: application.jdText,
+        doc: fitted.doc,
+        readiness,
+      });
+      setReviewItems(planReviewItems(review, planContext(fitted.doc)));
+      setReviewSummary(review.summary || null);
+      setQueued(new Map());
+      setIgnored(new Set());
+      setDoneIds(new Set());
+      if (readinessNow) setBaseline(readinessNow);
+    } catch (e) {
+      setAiError(e);
+    } finally {
+      setReviewing(false);
+    }
+  };
+
+  const queueComment = (id: string, comment: ResumeComment, quote?: string) => setQueued((q) => new Map(q).set(id, { comment, quote }));
+
+  /** Every queued item in one update, each found again on the page as it is now. */
+  const applyQueued = async () => {
+    if (!fitted) return;
+    const comments = [...queued.values()].map(({ comment, quote }) => {
+      const visible = relocateTarget(fitted.doc, comment.target, quote);
+      const target = visible ? toPoolTarget(fitted.map, visible) : null;
+      const rest: ResumeComment = { id: comment.id, quote: comment.quote, note: comment.note };
+      return target ? { ...rest, target } : rest;
+    });
+    const ids = [...queued.keys()];
+    if (await runRevision(comments)) {
+      setDoneIds((d) => new Set([...d, ...ids]));
+      setQueued(new Map());
+    }
+  };
 
   const undo = () => {
     const prev = history[history.length - 1];
@@ -611,6 +674,8 @@ export default function TailorPanel({
     setHistory((h) => h.slice(0, -1));
     setChanges([]);
     setChangedFrom(null);
+    // Review items applied in the update she undid can be applied again.
+    setDoneIds(new Set());
   };
 
   if (master === null || header === null) return <Spinner label="Loading your experience..." />;
@@ -631,33 +696,11 @@ export default function TailorPanel({
     return <TailorProgress progress={progress} />;
   }
 
-  const preTailor = (
-    <PreTailorCard
-      gaps={pendingGaps}
-      places={masterPlaces}
-      cost={TAILOR_COST_HINT}
-      onTailor={(confirmed) => void generate(confirmed)}
-      onSkip={() => void generate([])}
-      disabled={phase === "revising"}
-    />
-  );
-
   if (!result || !fitted || !finalDoc) {
-    // Before the first resume: the missing-skills question comes first, when the job has any.
-    if (pendingGaps.length) {
-      return (
-        <div className="grid gap-3">
-          {notStartedReason && <p className="text-sm text-muted">{notStartedReason}</p>}
-          {preTailor}
-          {error && <Notice kind="error">{error}</Notice>}
-          {aiError !== null && <AIErrorNotice error={aiError} />}
-        </div>
-      );
-    }
     return (
       <div className="rounded-2xl bg-paper p-4">
         {notStartedReason && <p className="mb-3 text-sm text-muted">{notStartedReason}</p>}
-        <Button onClick={() => void generate([])}>Tailor resume ({TAILOR_COST_HINT})</Button>
+        <Button onClick={() => void generate()}>Tailor resume ({TAILOR_COST_HINT})</Button>
         {error && <Notice kind="error">{error}</Notice>}
         {aiError !== null && <AIErrorNotice error={aiError} />}
       </div>
@@ -744,7 +787,6 @@ export default function TailorPanel({
 
   return (
     <div className="grid gap-4">
-      {preStep && pendingGaps.length > 0 && preTailor}
       <TailoredForCard lines={tailoredFor} />
 
       {openFlags.length > 0 && (
@@ -954,6 +996,44 @@ export default function TailorPanel({
         </div>
       </div>
 
+      {readinessNow && (
+        <RecruiterReviewCard
+          company={application.company}
+          now={readinessNow}
+          before={baseline}
+          summary={reviewSummary}
+          items={reviewList}
+          queuedIds={new Set(queued.keys())}
+          ignoredCount={ignored.size}
+          places={places}
+          pendingPlacements={placements.map((p) => ({ skill: p.skill, placeLabel: p.label }))}
+          onQueue={(item) => {
+            if (item.action.type === "revise") queueComment(item.id, item.action.comment, item.quote);
+          }}
+          onUnqueue={(id) =>
+            setQueued((q) => {
+              const next = new Map(q);
+              next.delete(id);
+              return next;
+            })
+          }
+          onIgnore={(id) => setIgnored((s) => new Set([...s, id]))}
+          onShowIgnored={() => setIgnored(new Set())}
+          onAddSkill={(skill, place, how) => void addGap(skill, place, how)}
+          onAnswer={(item, answer) => {
+            if (answer.trim()) queueComment(item.id, answerComment(item, answer), item.quote);
+          }}
+          onCancelPlacement={(i) => setPlacements((ps) => ps.filter((_, k) => k !== i))}
+          onApply={() => void applyQueued()}
+          onReview={() => void runReview()}
+          reviewing={reviewing}
+          reviewed={reviewSummary !== null || reviewItems.length > 0}
+          reviewCost={REVIEW_COST_HINT}
+          applyCost={REVISE_COST_HINT}
+          disabled={busy || reviewing}
+        />
+      )}
+
       <AskForChanges
         onSend={(text) => void runRevision([{ id: `ask-${Date.now()}`, quote: "", note: text }])}
         busy={phase === "revising"}
@@ -962,20 +1042,6 @@ export default function TailorPanel({
         changes={changes}
       />
 
-      {skillGaps && (
-        <SkillGapsCard
-          total={skillGaps.total}
-          onPage={skillGaps.onPage}
-          gaps={skillGaps.gaps}
-          places={places}
-          pending={placements.map((p) => ({ skill: p.skill, placeLabel: p.label }))}
-          onAdd={(skill, place, how) => void addGap(skill, place, how)}
-          onApply={() => void runRevision([])}
-          onCancel={(i) => setPlacements((ps) => ps.filter((_, k) => k !== i))}
-          applyCost={REVISE_COST_HINT}
-          disabled={busy}
-        />
-      )}
 
       <section className="rounded-2xl bg-paper p-5" aria-label="Checks">
         {failing === 0 ? (
