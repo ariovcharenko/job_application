@@ -1,5 +1,6 @@
 "use client";
 
+import { recordManualBackup } from "@/lib/backupReminder";
 import { downloadBlob } from "@/lib/download";
 
 import { useEffect, useState } from "react";
@@ -61,6 +62,7 @@ export default function BackupCard() {
     try {
       const text = await exportBackup({ includeKey });
       downloadBlob(new Blob([text], { type: "application/json" }), `job-copilot-backup-${todayISO()}.json`);
+      recordManualBackup();
       setStatus({
         kind: "ok",
         text: includeKey

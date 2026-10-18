@@ -24,6 +24,7 @@ import ApiKeyCard from "@/components/settings/ApiKeyCard";
 import ReadinessStrip from "@/components/ReadinessStrip";
 import SetupCard from "@/components/SetupCard";
 import ApplicationForm from "./ApplicationForm";
+import BackupNudge from "./BackupNudge";
 import CheckedJobs from "./CheckedJobs";
 import ImportDialog from "./ImportDialog";
 import NewJobDialog from "./NewJobDialog";
@@ -446,6 +447,7 @@ export default function TrackerView() {
               <Stat label="Response rate" value={`${stats.rate}%`} title={`${stats.responded} of ${stats.applied} applied heard back`} />
             </dl>
           )}
+          {tracked.length > 0 && <BackupNudge jobCount={apps.length} />}
 
           {tracked.length > 0 && (
           <div className="mb-4 grid gap-3">
