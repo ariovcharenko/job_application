@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "../../db";
 import { blankApplication } from "../../tracker/blank";
 import type { ReviewItem } from "./review";
-import { docFingerprint, parseStoredReview, restoreReview, type StoredReview } from "./reviewState";
+import { docFingerprint, factSaveTarget, parseStoredReview, restoreReview, type StoredReview } from "./reviewState";
 import { getJobResume, parseStoredResume, saveJobReview, storeJobResume, withPreviousVersion, type StoredEngineResume } from "./save";
 import type { ResumeDoc } from "./schema";
 
@@ -138,5 +138,17 @@ describe("the review stored with the job's resume", () => {
     await saveJobReview(appId, review());
     await saveJobReview(appId, null);
     expect((await getJobResume(appId))?.stored.review).toBeUndefined();
+  });
+});
+
+describe("factSaveTarget", () => {
+  const keys = ["experience:brightloop:software engineer intern", "projects:taskwise:"];
+  it("saves only to a role she chose (or the question's own role) while the box is checked", () => {
+    expect(factSaveTarget(true, keys[0], keys)).toBe(keys[0]);
+    expect(factSaveTarget(false, keys[0], keys)).toBeNull();
+  });
+  it("never picks a role for her: no choice means nothing is saved to her experience", () => {
+    expect(factSaveTarget(true, "", keys)).toBeNull();
+    expect(factSaveTarget(true, "experience:gone:x", keys)).toBeNull();
   });
 });

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button, compactInputClass, inputClass, outlinedClass } from "@/components/ui";
 import type { ReviewItem, ReviewPriority } from "@/lib/resume/engine/review";
-import type { ReadinessCounts } from "@/lib/resume/engine/reviewState";
+import { factSaveTarget, type ReadinessCounts } from "@/lib/resume/engine/reviewState";
 
 export type { ReadinessCounts };
 
@@ -148,8 +148,9 @@ function ItemRow({
   const [answer, setAnswer] = useState("");
   // "Also save to my experience": on by default, so she isn't asked the same thing for the next job.
   const [saveFact, setSaveFact] = useState(true);
-  const [factRole, setFactRole] = useState(factPlace ?? places[0]?.key ?? "");
-  const saveTo = saveFact && places.some((p) => p.key === factRole) ? factRole : null;
+  // Preselected only when the question points at a role; otherwise she picks one.
+  const [factRole, setFactRole] = useState(factPlace ?? "");
+  const saveTo = factSaveTarget(saveFact, factRole, places.map((p) => p.key));
   const submitAnswer = () => {
     if (answer.trim()) onAnswer(answer, saveTo);
   };
@@ -303,6 +304,7 @@ function ItemRow({
                           Role to save your answer to
                         </label>
                         <select id={`fact-role-${item.id}`} value={factRole} onChange={(e) => setFactRole(e.target.value)} className={`${compactInputClass} min-w-0 max-w-full`}>
+                          <option value="">Choose a role</option>
                           {places.map((p) => (
                             <option key={p.key} value={p.key}>
                               {p.label}
@@ -314,7 +316,9 @@ function ItemRow({
                   </div>
                 )}
                 <p className="text-xs text-muted">
-                  {saveTo
+                  {saveFact && places.length > 0 && !saveTo
+                    ? "Choose a role to also save your answer to Your experience. Without one, it's only used on this page."
+                    : saveTo
                     ? "Saved under that role in Your experience, so it can be used there for other jobs too. It's never used in another role."
                     : "Anything new in your answer is marked on the page for you to keep."}
                 </p>

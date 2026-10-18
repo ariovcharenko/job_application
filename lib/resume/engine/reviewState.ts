@@ -177,3 +177,12 @@ export function restoreReview(stored: StoredReview, doc: ResumeDoc): { review: S
   });
   return { review: { ...stored, items, queued, done: [...done], fingerprint }, stale };
 }
+
+/**
+ * Where "Use my answer" also saves her answer in Your experience: the role she has chosen (or the
+ * one the question points at), only while "Also save to my experience" is on. No role chosen
+ * means nothing is saved there (the answer is still queued); a role is never guessed for her.
+ */
+export function factSaveTarget(save: boolean, chosen: string, placeKeys: string[]): string | null {
+  return save && chosen !== "" && placeKeys.includes(chosen) ? chosen : null;
+}
