@@ -104,6 +104,13 @@ export const BLANK_SYNCED_DATA: SyncedData = {
  * review checklist. Never includes a submit control. */
 export interface FillOutcome {
   label: string;
+  /** The field itself (content script only; never sent anywhere), for "Use saved answer" and
+   * "Save to answer bank". */
+  el?: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+  /** A saved answer that fits this question, offered with one click and never written by itself. */
+  suggestion?: { question: string; answer: string };
+  /** True for questions only the Profile may answer (no draft, no saved essay). */
+  legal?: boolean;
   status: "filled" | "skipped-no-data" | "skipped-needs-review" | "skipped-unmatched";
   reason?: string;
 }

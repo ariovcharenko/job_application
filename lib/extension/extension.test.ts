@@ -201,3 +201,16 @@ describe("protocol copies agree", () => {
     for (const m of manifest.externally_connectable.matches as string[]) expect(ext).toContain(m.replace("/*", ""));
   });
 });
+
+describe("saveAnswerFromExtension", () => {
+  it("adds a new answer, ignores a repeat of the same question, and refuses legal questions", async () => {
+    const { saveAnswerFromExtension } = await import("./answers");
+    expect(await saveAnswerFromExtension("Why do you want to work here?", "Because I like queues.")).toEqual({ saved: true, duplicate: false });
+    expect(await saveAnswerFromExtension("why do you want to work here", "Something else")).toEqual({ saved: false, duplicate: true });
+    const rows = await db.answerBank.toArray();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ answer: "Because I like queues.", tags: ["from extension"] });
+    await expect(saveAnswerFromExtension("Are you authorized to work in the US?", "Yes")).rejects.toThrow(/legal or identity/);
+    expect(await db.answerBank.count()).toBe(1);
+  });
+});

@@ -22,3 +22,12 @@ export const ACCOUNT_PAGE_MESSAGE = "This looks like an account or sign-in page.
 export function isCombobox(el: Element): boolean {
   return el.getAttribute("role") === "combobox" || el.getAttribute("aria-haspopup") === "listbox" || el.getAttribute("aria-autocomplete") === "list";
 }
+
+const LEGAL_SOUNDING =
+  /(authoriz|eligib).{0,40}(work|employ)|sponsor|\bvisa\b|citizen|work permit|immigration|security clearance|veteran|disabilit|gender|\brace\b|ethnic|pronoun|sexual orientation|criminal|convict|background check|date of birth|\bssn\b|social security/i;
+
+/** Questions about work authorization, sponsorship, clearance or identity. These are answered only
+ * from the Profile fields (fillRules.ts); a saved essay answer or an AI draft is never offered. */
+export function isLegalSounding(label: string): boolean {
+  return LEGAL_SOUNDING.test(label);
+}

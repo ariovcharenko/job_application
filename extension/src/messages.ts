@@ -34,7 +34,7 @@ export interface ContextReply {
 
 export type ResumeReply = { ok: true; resume: ResumeFile | null } | { ok: false; error: string };
 
-export type SimpleReply = { ok: true; queued?: boolean; detail?: string } | { ok: false; error: string };
+export type SimpleReply = { ok: true; queued?: boolean; duplicate?: boolean; detail?: string } | { ok: false; error: string };
 
 export interface FillSession {
   jobId: number | null;

@@ -8,8 +8,9 @@ import { pickAdapter } from "../lib/adapters";
 import { fillForm } from "../lib/fillEngine";
 import { ACCOUNT_PAGE_MESSAGE, isAccountPage } from "../lib/guards";
 import { isBlockedHost } from "../lib/hosts";
+import { preflight, summarizePreflight } from "../lib/preflight";
 import { watchForNewFields, type FieldWatcher } from "../lib/watch";
-import { getFieldLabel } from "../lib/matching";
+import { addQuestionActions, showApprovedDraft } from "../lib/questionActions";
 import { extractVisibleText } from "../lib/pageText";
 import { uploadResumeForJob, type ResumeOutcome } from "../lib/resumeFlow";
 import type { ContextReply, ResumeReply, SimpleReply, TabMessage } from "../messages";
@@ -87,7 +88,34 @@ function renderMenu(): void {
   scoreBtn.addEventListener("click", () => void runScoreThisJob());
   panel.appendChild(scoreBtn);
 
+  const pre = el("div", "jc-note", "Checking what this form asks for...");
+  panel.appendChild(pre);
+  void renderPreflight(pre);
+
   panel.appendChild(el("div", "jc-hint", "Nothing is ever submitted for you. Review everything, then click Submit yourself."));
+}
+
+/** "Before you start": what the form asks for beyond the Profile, from the page alone. */
+async function renderPreflight(box: HTMLElement): Promise<void> {
+  try {
+    const ctx = await loadContext();
+    if (isAccountPage(document, location)) {
+      box.textContent = "Account or sign-in page. Job Copilot won't fill it.";
+      return;
+    }
+    const adapter = pickAdapter(location);
+    const items = preflight(adapter.findFormRoot(document) ?? document.body, ctx.data.profile, ctx.data.answerBank, adapter.findResumeInput(document));
+    const lines = summarizePreflight(items);
+    const job = ctx.match ? `Saved job: ${ctx.match.job.company}, ${ctx.match.job.role}.` : "Not one of your saved jobs yet.";
+    box.textContent = "";
+    box.appendChild(el("div", "", job));
+    if (lines.length) {
+      box.appendChild(el("div", "jc-row-label", "Also asks for:"));
+      for (const l of lines) box.appendChild(el("div", "", `\u2022 ${l}`));
+    } else box.appendChild(el("div", "", "Nothing beyond what your Profile covers."));
+  } catch {
+    box.textContent = "";
+  }
 }
 
 async function runScoreThisJob(): Promise<void> {
@@ -120,7 +148,7 @@ async function runFillApplication(onlyEmpty = false): Promise<void> {
   }
   const adapter = pickAdapter(location);
   const root = adapter.findFormRoot(document) ?? document.body;
-  const outcomes = fillForm(root, ctx.data.profile, { experiences: ctx.data.experiences, onlyEmpty });
+  const outcomes = fillForm(root, ctx.data.profile, { experiences: ctx.data.experiences, answers: ctx.data.answerBank, onlyEmpty });
   // The resume: this job's tailored one when the page matches a saved job. Asked for only now.
   setStatus("Getting your resume from Job Copilot...");
   const resume = await uploadResumeForJob(adapter.findResumeInput(document), ctx.match, {
@@ -158,11 +186,10 @@ function renderChecklist(outcomes: FillOutcome[], resume: ResumeOutcome, ctx: Co
     const row = el("div", `jc-row jc-${o.status}`);
     row.appendChild(el("span", "jc-row-label", o.label));
     if (o.status !== "filled" || o.reason) row.appendChild(el("span", "jc-row-reason", o.reason ?? statusLabel(o.status)));
-    if (o.status === "skipped-needs-review" && o.reason?.includes("Free-text")) {
-      const draftBtn = el("button", "jc-draft", "Draft with AI in Job Copilot");
-      draftBtn.addEventListener("click", () => void requestDraft(row, o.label, draftBtn as HTMLButtonElement));
-      row.appendChild(draftBtn);
-    }
+    addQuestionActions(row, o, {
+      requestDraft: (question) => requestDraft(question),
+      saveAnswer: (question, answer) => send<SimpleReply>({ type: "SAVE_ANSWER", question, answer }),
+    });
     row.dataset.fieldKey = o.label;
     panel.appendChild(row);
   }
@@ -187,56 +214,21 @@ function statusLabel(status: FillOutcome["status"]): string {
 
 /** The question and the page go to the app, which drafts with its own AI settings; the answer
  * comes back only after she approves it there (see showDraft). */
-async function requestDraft(row: HTMLElement, label: string, btn: HTMLButtonElement): Promise<void> {
-  btn.disabled = true;
-  btn.textContent = "Opening Job Copilot...";
-  const res = await send<SimpleReply>({
+async function requestDraft(question: string): Promise<SimpleReply> {
+  return send<SimpleReply>({
     type: "DRAFT_REQUEST",
-    question: label,
+    question,
     jobText: extractVisibleText(document.body),
     pageUrl: location.href,
     jobId: lastContext?.match?.job.id ?? null,
-    fieldKey: label,
+    fieldKey: question,
   });
-  if (res.ok) {
-    btn.textContent = "Waiting for your approval in Job Copilot";
-  } else {
-    btn.disabled = false;
-    btn.textContent = "Draft with AI in Job Copilot";
-    row.appendChild(el("span", "jc-row-reason", res.error));
-  }
 }
 
-/** An approved draft is shown next to its question. It goes into the form only on her click. */
 function showDraft(fieldKey: string, answer: string): void {
   ui.panel.classList.remove("jc-hidden");
   const row = [...ui.panel.querySelectorAll<HTMLElement>(".jc-row")].find((r) => r.dataset.fieldKey === fieldKey) ?? ui.panel;
-  row.querySelector(".jc-draft")?.remove();
-  const textarea = el("textarea", "jc-draft-text") as HTMLTextAreaElement;
-  textarea.value = answer;
-  const insertBtn = el("button", "jc-action", "Insert into the form") as HTMLButtonElement;
-  insertBtn.addEventListener("click", () => {
-    const field = findTextareaByLabel(fieldKey);
-    if (!field) {
-      insertBtn.textContent = "Couldn't find that question on the page. Copy the text instead.";
-      return;
-    }
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
-    setter?.call(field, textarea.value);
-    field.dispatchEvent(new Event("input", { bubbles: true }));
-    field.dispatchEvent(new Event("change", { bubbles: true }));
-    insertBtn.textContent = "Inserted";
-    insertBtn.disabled = true;
-  });
-  row.appendChild(textarea);
-  row.appendChild(insertBtn);
-}
-
-function findTextareaByLabel(label: string): HTMLTextAreaElement | null {
-  for (const ta of document.querySelectorAll("textarea")) {
-    if (getFieldLabel(ta) === label) return ta;
-  }
-  return null;
+  showApprovedDraft(row, fieldKey, answer);
 }
 
 function setStatus(text: string): void {
@@ -288,6 +280,7 @@ const CSS = `
   .jc-filled .jc-row-reason { color: #6e6e73; }
   .jc-filled .jc-row-label::before { content: "\\2713  "; color: #1f8a3b; }
   .jc-draft, .jc-small { margin-top: 4px; background: #f5f0ff; border: 1px solid #dccbfa; border-radius: 8px; padding: 4px 8px; cursor: pointer; font: 12px system-ui, sans-serif; color: #4b2391; }
+  .jc-suggest { margin-top: 4px; }
   .jc-draft-text { width: 100%; margin-top: 6px; min-height: 70px; box-sizing: border-box; font: 12px system-ui, sans-serif; }
   select.jc-select { width: 100%; margin: 4px 0 8px; font: 12px system-ui, sans-serif; }
 `;

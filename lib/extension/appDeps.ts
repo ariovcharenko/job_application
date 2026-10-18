@@ -1,4 +1,5 @@
 import { storeCapturedJob } from "../extensionCapture";
+import { saveAnswerFromExtension } from "./answers";
 import { buildSyncedData } from "./payload";
 import { addDraftRequest } from "./hub";
 import type { HandlerDeps } from "./handlers";
@@ -14,9 +15,7 @@ export function appHandlerDeps(): HandlerDeps {
     },
     showDraft: addDraftRequest,
     getResume: async (jobId) => (await import("./resumeFile")).resumeForJob(jobId),
-    async saveAnswer() {
-      throw new Error("Saving answers from the extension isn't available yet.");
-    },
+    saveAnswer: saveAnswerFromExtension,
     async markApplied() {
       throw new Error("Marking jobs applied from the extension isn't available yet.");
     },

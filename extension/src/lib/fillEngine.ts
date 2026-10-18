@@ -1,10 +1,11 @@
 import { setNativeValue } from "./dom";
-import { isCombobox } from "./guards";
+import { findSavedAnswer } from "./answerMatch";
+import { isCombobox, isLegalSounding } from "./guards";
 import { cleanLabel } from "./label";
 import { findFormFields, getFieldLabel } from "./matching";
 import { fillRepeatedSections } from "./sections";
 import { matchEeoRule, matchLegalRule, matchTextRule } from "./fillRules";
-import type { FillOutcome, SyncedExperience, SyncedProfile } from "../types";
+import type { FillOutcome, SyncedAnswer, SyncedExperience, SyncedProfile } from "../types";
 
 function setSelectValue(select: HTMLSelectElement, index: number): void {
   select.selectedIndex = index;
@@ -253,10 +254,19 @@ export function fillForm(root: ParentNode, profile: SyncedProfile, ctx: FillCont
         setNativeValue(field as HTMLInputElement | HTMLTextAreaElement, value);
         outcomes.push({ label, status: "filled" });
       }
-    } else if (field instanceof HTMLTextAreaElement) {
-      outcomes.push({ label, status: "skipped-needs-review", reason: "Free-text question — draft one with AI, then paste it in." });
+    } else if (isLegalSounding(label)) {
+      outcomes.push({ label, el: field, legal: true, status: "skipped-needs-review", reason: "A legal or identity question. Job Copilot never guesses these. Answer it yourself." });
+    } else if (field instanceof HTMLTextAreaElement || looksLikeQuestion(label)) {
+      const saved = findSavedAnswer(label, ctx.answers ?? []);
+      outcomes.push({
+        label,
+        el: field,
+        status: "skipped-needs-review",
+        reason: saved ? "You have a saved answer for a similar question. Check it before using it." : "Free-text question. Write it, use a saved answer or draft one.",
+        ...(saved ? { suggestion: { question: saved.answer.question, answer: saved.answer.answer } } : {}),
+      });
     } else {
-      outcomes.push({ label, status: "skipped-unmatched" });
+      outcomes.push({ label, el: field, status: "skipped-unmatched" });
     }
   }
 
@@ -265,7 +275,14 @@ export function fillForm(root: ParentNode, profile: SyncedProfile, ctx: FillCont
 
 export { setNativeValue };
 
+/** A short text box whose label reads like a question or prompt ("How did you hear about us?"). */
+function looksLikeQuestion(label: string): boolean {
+  return label.length > 25 || label.endsWith("?");
+}
+
 export interface FillContext {
+  /** Her saved answers, to suggest one for a similar question. */
+  answers?: SyncedAnswer[];
   /** Leave anything that already has a value alone (used when new fields appear on a later step). */
   onlyEmpty?: boolean;
   /** "Your experience", for repeated work-experience blocks. */

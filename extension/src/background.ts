@@ -166,7 +166,7 @@ async function handleInternal(msg: InternalMessage, sender: chrome.runtime.Messa
     case "SAVE_ANSWER": {
       try {
         const res = await bridge.request("saveAnswer", { question: msg.question.slice(0, 500), answer: msg.answer.slice(0, 5000) }, { queue: true });
-        return { ok: true, queued: "queued" in res } satisfies SimpleReply;
+        return { ok: true, queued: "queued" in res, duplicate: !("queued" in res) && res.duplicate } satisfies SimpleReply;
       } catch (e) {
         return { ok: false, error: errorText(e) } satisfies SimpleReply;
       }
