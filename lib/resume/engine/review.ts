@@ -248,7 +248,7 @@ Rules:
  * from the cache). Takes any AIProvider, so routing it to another provider is a change at the call
  * site (getProvider) only.
  */
-export async function reviewResume(provider: AIProvider, masterProfile: string, input: ReviewInput, onProgress?: (chars: number) => void): Promise<RecruiterReview> {
+export async function reviewResume(provider: AIProvider, masterProfile: string, input: ReviewInput, onProgress?: (chars: number) => void, signal?: AbortSignal): Promise<RecruiterReview> {
   return provider.completeJson<RecruiterReview>({
     tier: "smart",
     effort: REVIEW_EFFORT,
@@ -259,6 +259,7 @@ export async function reviewResume(provider: AIProvider, masterProfile: string, 
     schema: REVIEW_JSON_SCHEMA,
     parse: (raw) => parseReview(raw, input.doc),
     onProgress,
+    signal,
   });
 }
 

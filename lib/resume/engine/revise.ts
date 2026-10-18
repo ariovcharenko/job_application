@@ -101,6 +101,7 @@ export async function reviseResume(
   comments: ResumeComment[],
   onProgress?: (charsWritten: number) => void,
   effort: "low" | "medium" | "high" = REVISE_EFFORT,
+  signal?: AbortSignal,
 ): Promise<ResumeRevision> {
   return provider.completeJson<ResumeRevision>({
     tier: "smart",
@@ -112,6 +113,7 @@ export async function reviseResume(
     schema: RESUME_REVISION_JSON_SCHEMA,
     parse: (raw) => ResumeRevisionSchema.parse(raw),
     onProgress,
+    signal,
   });
 }
 

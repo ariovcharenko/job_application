@@ -10,7 +10,7 @@ const TYPICAL_CHARS = 7000;
  * The waiting screen while a resume is written: the current step, how much of the page has
  * arrived, and the seconds so far, so a long call never looks frozen.
  */
-export default function TailorProgress({ progress }: { progress: Progress | null }) {
+export default function TailorProgress({ progress, onCancel }: { progress: Progress | null; onCancel?: () => void }) {
   const [started] = useState(() => Date.now());
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -42,9 +42,16 @@ export default function TailorProgress({ progress }: { progress: Progress | null
       <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-black/5">
         <div className="h-full rounded-full bg-accent transition-[width] duration-500" style={{ width: `${chars ? Math.max(share, 4) : 2}%` }} />
       </div>
-      <p className="mt-2 text-xs text-muted">
-        {step === "polishing" ? "Step 2 of 2" : "Step 1 of 2"} · {seconds}s. Usually under a minute.
-      </p>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-muted">
+          {step === "polishing" ? "Step 2 of 2" : "Step 1 of 2"} · {seconds}s. Usually under a minute.
+        </p>
+        {onCancel && (
+          <button type="button" onClick={onCancel} className="text-xs font-medium text-muted hover:text-ink">
+            Cancel
+          </button>
+        )}
+      </div>
     </div>
   );
 }

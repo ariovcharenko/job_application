@@ -17,6 +17,7 @@ import { todayISO } from "@/lib/tracker/stage";
 import type { Application, Preferences, Profile } from "@/lib/types";
 import { Button, Field, Modal, Notice, Spinner, TextArea } from "@/components/ui";
 import TailorPanel from "../tailor/TailorPanel";
+import { useCloseGuard } from "../tailor/useCloseGuard";
 import MustHavesPanel from "./MustHavesPanel";
 import ScoreCard from "./ScoreCard";
 
@@ -82,6 +83,7 @@ export default function NewJobDialog({
   /** Open a job she already checked (offered when she enters a link she has checked before). */
   onOpenExisting?: (app: Application & { id: number }) => void;
 }) {
+  const guard = useCloseGuard(onClose);
   const [mode, setMode] = useState<Mode>(initialMode ?? (initialJdText ? "paste" : "link"));
   const [url, setUrl] = useState(initialUrl);
   const [jdText, setJdText] = useState(initialJdText);
@@ -196,7 +198,8 @@ export default function NewJobDialog({
 
   if (live && app) {
     return (
-      <Modal title={`${live.signals.role || "Job"}${live.signals.company ? ` at ${live.signals.company}` : ""}`} onClose={onClose}>
+      <>
+      <Modal title={`${live.signals.role || "Job"}${live.signals.company ? ` at ${live.signals.company}` : ""}`} onClose={guard.requestClose}>
         <div className="grid gap-5">
           {app.checkedBefore ? (
             <Notice kind="info">
@@ -237,6 +240,7 @@ export default function NewJobDialog({
             <TailorPanel
               application={app}
               autoStart={false}
+              onBusyChange={guard.setBusy}
               // Tailoring links the resume and puts the job in the applications table (in the DB);
               // keep this dialog's copy in step so its buttons don't write stale data back.
               onSaved={(id) => setApp((a) => (a ? { ...a, tailoredResumeId: id, triage: undefined, tailorDraft: undefined } : a))}
@@ -248,12 +252,14 @@ export default function NewJobDialog({
             />
           </div>
           <div className="flex justify-end border-t border-black/[0.06] pt-5">
-            <Button variant="secondary" onClick={onClose}>
+            <Button variant="secondary" onClick={guard.requestClose}>
               Done
             </Button>
           </div>
         </div>
       </Modal>
+      {guard.confirm}
+      </>
     );
   }
 

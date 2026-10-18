@@ -45,6 +45,8 @@ export interface TailorInput {
   confirmed?: ConfirmedForPrompt[];
   /** Where the run is, for the waiting screen: which step, and how much of that answer has arrived. */
   onProgress?: (p: TailorProgress) => void;
+  /** Her "Cancel": stops whichever call is running. */
+  signal?: AbortSignal;
 }
 
 export interface TailorProgress {
@@ -151,7 +153,7 @@ export async function tailorResume(input: TailorInput): Promise<TailorOutput> {
 
   const progress = (step: TailorProgress["step"]) => (input.onProgress ? (chars: number) => input.onProgress!({ step, chars }) : undefined);
   input.onProgress?.({ step: "writing", chars: 0 });
-  const raw = await generateResume(provider, master, company, jdText, { have, gaps }, focus, input.confirmed ?? [], progress("writing"));
+  const raw = await generateResume(provider, master, company, jdText, { have, gaps }, focus, input.confirmed ?? [], progress("writing"), input.signal);
   let result = validateResume(raw, master, checkOpts);
   const comments = followUpComments(result, input);
   if (comments.length === 0) return { result, notes: [], calls: 1 };
@@ -159,7 +161,7 @@ export async function tailorResume(input: TailorInput): Promise<TailorOutput> {
   let notes: string[] = [];
   try {
     input.onProgress?.({ step: "polishing", chars: 0 });
-    const out = await reviseResume(provider, master, company, jdText, result.doc as ResumeDoc, comments, progress("polishing"), FOLLOW_UP_EFFORT);
+    const out = await reviseResume(provider, master, company, jdText, result.doc as ResumeDoc, comments, progress("polishing"), FOLLOW_UP_EFFORT, input.signal);
     const { changes, ...doc } = out;
     result = validateResume(doc, master, checkOpts);
     const keywords = comments.filter((c) => c.id.startsWith("keywords:")).length;
@@ -174,8 +176,9 @@ export async function tailorResume(input: TailorInput): Promise<TailorOutput> {
       .join(", ")
       .replace(/, ([^,]*)$/, " and $1");
     notes = [`Polished automatically: ${what} in one extra pass.`, ...changes];
-  } catch {
-    // The first draft stands; she can still ask for changes.
+  } catch (e) {
+    // Her Cancel stops the whole run; any other failure leaves the first draft standing.
+    if (input.signal?.aborted) throw e;
   }
   return { result, notes, calls: 2 };
 }
