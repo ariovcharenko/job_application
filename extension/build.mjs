@@ -1,41 +1,36 @@
-// Bundles each extension entry point with esbuild, then copies manifest.json + popup.html +
-// icons into dist/. No framework — content scripts and the popup are plain DOM/TS, kept small.
+// Bundles each extension entry point with esbuild, then copies manifest.json + the HTML pages +
+// icons into dist/. No framework: content scripts and the popup are plain DOM/TS, kept small.
+// Content scripts are classic scripts in Chrome (not modules), so they're built as IIFEs.
 import { cp, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import esbuild from "esbuild";
 
 const watch = process.argv.includes("--watch");
 
-const entryPoints = {
-  background: "src/background.ts",
-  "content/capture": "src/content/capture.ts",
-  "content/bridge": "src/content/bridge.ts",
-  popup: "src/popup.ts",
-};
+const common = { outdir: "dist", bundle: true, target: "chrome110", sourcemap: true, logLevel: "info" };
+const builds = [
+  { ...common, entryPoints: { background: "src/background.ts", popup: "src/popup.ts", pair: "src/pair.ts" }, format: "esm" },
+  { ...common, entryPoints: { "content/capture": "src/content/capture.ts" }, format: "iife" },
+];
+
+async function copyStatic() {
+  await cp("manifest.json", "dist/manifest.json");
+  for (const page of ["popup.html", "pair.html", "privacy.html"]) await cp(page, `dist/${page}`);
+  if (existsSync("icons")) await cp("icons", "dist/icons", { recursive: true });
+}
 
 async function build() {
   await mkdir("dist", { recursive: true });
-  const ctx = await esbuild.context({
-    entryPoints,
-    outdir: "dist",
-    bundle: true,
-    format: "esm",
-    target: "chrome110",
-    sourcemap: true,
-    logLevel: "info",
-  });
-
+  const contexts = await Promise.all(builds.map((b) => esbuild.context(b)));
   if (watch) {
-    await ctx.watch();
+    await Promise.all(contexts.map((c) => c.watch()));
+    await copyStatic();
     console.log("Watching for changes...");
-  } else {
-    await ctx.rebuild();
-    await ctx.dispose();
+    return;
   }
-
-  await cp("manifest.json", "dist/manifest.json");
-  await cp("popup.html", "dist/popup.html");
-  if (existsSync("icons")) await cp("icons", "dist/icons", { recursive: true });
+  await Promise.all(contexts.map((c) => c.rebuild()));
+  await Promise.all(contexts.map((c) => c.dispose()));
+  await copyStatic();
 }
 
 build().catch((err) => {

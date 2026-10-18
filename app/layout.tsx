@@ -49,8 +49,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="flex min-h-screen flex-col">
         <StoragePersist />
         <AutoBackupRunner />
-        {/* Off in the public build: the bridge posts the key, Profile and resume via
-            window.postMessage (see lib/features.ts). Covered by lib/features.test.ts. */}
+        {/* Point-to-point link to the paired Chrome extension (see lib/features.ts). Does nothing
+            without an installed extension and a pairing. Covered by components/ExtensionBridge.test.ts. */}
         {FEATURES.extension && <ExtensionBridge />}
         <ScrollToHash />
         <Nav />

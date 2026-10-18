@@ -1,76 +1,104 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect } from "react";
 // Relative imports (not "@/"), so the bridge's logic can be unit-tested under Vitest.
-import { getAnswerBank, getBaseResumes, getProfile, getSettings } from "../lib/db";
-import { storeCapturedJob } from "../lib/extensionCapture";
+import { liveQuery } from "dexie";
+import { pageRuntime } from "../lib/extension/client";
+import { appHandlerDeps } from "../lib/extension/appDeps";
+import { setLink, setLinkStatus } from "../lib/extension/hub";
+import { ExtensionLink } from "../lib/extension/link";
+import { buildSyncedData } from "../lib/extension/payload";
+import { getExtensionId, getPairingToken, SESSION_EVENT } from "../lib/extension/session";
 import { FEATURES } from "../lib/features";
-// Not lib/resume/repo: that pulls JSZip and the .docx writer into every page via the layout.
-import { bytesToBase64 as bufferToBase64 } from "../lib/backup";
 
-const APP_SOURCE = "job-copilot-app";
-const EXTENSION_SOURCE = "job-copilot-extension";
+// The draft dialog pulls in the AI client, so it loads only when the extension asks for a draft.
+const DraftRequestDialog = dynamic(() => import("./extension/DraftRequestDialog"), { ssr: false });
 
-/** The parts of `window` the bridge uses (a plain object in tests). */
-export interface BridgeWindow {
-  postMessage: (message: unknown, targetOrigin: string) => void;
-  addEventListener: (type: "message", listener: (event: MessageEvent) => void) => void;
-  removeEventListener: (type: "message", listener: (event: MessageEvent) => void) => void;
-  location: { origin: string };
-}
+const RETRY_MS = [2000, 5000, 15000, 30000];
 
 /**
- * Talks to the Chrome extension's content script (see extension/src/content/bridge.ts) over
- * window.postMessage: sends a copy of profile / answer bank / resume / key for the extension to
- * mirror into chrome.storage.local, and receives job postings captured with the extension's
- * "Score this job" button.
- *
- * OFF in the public build (FEATURES.extension): any other extension running on the page can read
- * window.postMessage traffic, and this sends the API key. With the flag off this does nothing at
- * all, not even add a listener, on top of app/layout.tsx not mounting the component. Returns the
- * cleanup.
+ * Keeps the app connected to the Chrome extension, once she has paired them in Settings. Point to
+ * point (chrome.runtime, only from this site's origin); nothing is posted to the page, and no API
+ * key is ever sent. Without a pairing token, or outside Chrome, this does nothing at all.
+ * Returns the cleanup.
  */
-export function startExtensionBridge(win: BridgeWindow, enabled: boolean = FEATURES.extension): () => void {
+export function startExtensionBridge(enabled: boolean = FEATURES.extension): () => void {
   if (!enabled) return () => {};
+  let link: ExtensionLink | null = null;
+  let retry = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let sub: { unsubscribe(): void } | undefined;
+  let stopped = false;
 
-  async function sendSync() {
-    const [profile, answerBank, settings, baseResumes] = await Promise.all([getProfile(), getAnswerBank(), getSettings(), getBaseResumes()]);
-    const latestResume = [...baseResumes].sort((a, b) => b.addedAt - a.addedAt)[0];
-    win.postMessage(
-      {
-        source: APP_SOURCE,
-        type: "SYNC_DATA",
-        payload: {
-          profile,
-          answerBank: answerBank.map((a) => ({ question: a.question, answer: a.answer, tags: a.tags })),
-          resume: latestResume ? { fileName: latestResume.fileName, base64: bufferToBase64(latestResume.bytes) } : null,
-          anthropicKey: settings.anthropicKey,
-          updatedAt: Date.now(),
-        },
+  const stopLink = () => {
+    clearTimeout(timer);
+    sub?.unsubscribe();
+    sub = undefined;
+    link?.disconnect();
+    link = null;
+    setLink(null);
+  };
+
+  const start = () => {
+    stopLink();
+    const token = getPairingToken();
+    const runtime = pageRuntime();
+    if (!token || !runtime || stopped) return;
+    const l = new ExtensionLink({
+      runtime,
+      extensionId: getExtensionId(),
+      token,
+      deps: appHandlerDeps(),
+      onStatus(s) {
+        setLinkStatus(s);
+        if (s === "connected") {
+          retry = 0;
+          // Keep the extension's copy current while the app is open.
+          let first = true;
+          let debounce: ReturnType<typeof setTimeout> | undefined;
+          sub = liveQuery(() => buildSyncedData()).subscribe({
+            next: (data) => {
+              if (first) {
+                first = false;
+                return;
+              }
+              clearTimeout(debounce);
+              debounce = setTimeout(() => link?.pushSync(data), 800);
+            },
+            error: () => {},
+          });
+        }
+        if (s === "idle" && link === l && !stopped) {
+          sub?.unsubscribe();
+          sub = undefined;
+          const delay = RETRY_MS[Math.min(retry++, RETRY_MS.length - 1)];
+          timer = setTimeout(() => {
+            if (link === l && document.visibilityState === "visible") l.connect();
+            else if (link === l) timer = setTimeout(() => l.connect(), delay);
+          }, delay);
+        }
       },
-      win.location.origin,
-    );
-  }
+    });
+    link = l;
+    setLink(l);
+    l.connect();
+  };
 
-  function onMessage(event: MessageEvent) {
-    if (event.source !== (win as unknown)) return;
-    const data = event.data as { source?: string; type?: string; payload?: unknown } | null;
-    if (!data || data.source !== EXTENSION_SOURCE) return;
-    if (data.type === "REQUEST_SYNC") void sendSync();
-    if (data.type === "CAPTURED_JOB") {
-      const payload = data.payload as { text: string; url: string };
-      storeCapturedJob({ text: payload.text, url: payload.url });
-    }
-  }
-
-  win.addEventListener("message", onMessage);
-  // Push once on load too, so an already-running extension content script has current data
-  // even if it doesn't ask.
-  void sendSync();
-  return () => win.removeEventListener("message", onMessage);
+  const onSession = () => {
+    retry = 0;
+    start();
+  };
+  window.addEventListener(SESSION_EVENT, onSession);
+  start();
+  return () => {
+    stopped = true;
+    window.removeEventListener(SESSION_EVENT, onSession);
+    stopLink();
+  };
 }
 
 export default function ExtensionBridge() {
-  useEffect(() => startExtensionBridge(window), []);
-  return null;
+  useEffect(() => startExtensionBridge(), []);
+  return <DraftRequestDialog />;
 }

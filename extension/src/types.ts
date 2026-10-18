@@ -1,5 +1,6 @@
-// Mirrors the shapes the Next.js app sends over the sync bridge. Kept as a plain, decoupled copy
-// (not a shared package) since the extension builds separately from the app.
+// Mirrors the shapes the Next.js app sends over the bridge (lib/extension/protocol.ts). Kept as a
+// plain, decoupled copy (not a shared package) since the extension builds separately from the app.
+// There is deliberately no API key anywhere in here: the extension never holds one.
 
 export interface SyncedProfile {
   fullName: string;
@@ -33,49 +34,69 @@ export interface SyncedAnswer {
   tags: string[];
 }
 
-export interface SyncedResume {
-  fileName: string;
-  /** Base64-encoded .docx bytes. */
-  base64: string;
+/** One role from "Your experience" (the master profile), parsed by the app. */
+export interface SyncedExperience {
+  title: string;
+  company: string;
+  location: string;
+  /** As written, e.g. "May 2026 - Aug 2026" or "Jun 2025 - Present". */
+  dates: string;
+  /** The master profile section it's under ("Experience", "Projects"...). */
+  section: string;
+  bullets: string[];
+}
+
+/** One tracker job, just enough to recognize its application page. */
+export interface SyncedJob {
+  id: number;
+  company: string;
+  role: string;
+  url: string;
+  stage: string;
 }
 
 export interface SyncedData {
   profile: SyncedProfile;
   answerBank: SyncedAnswer[];
-  resume: SyncedResume | null;
-  anthropicKey: string;
+  /** "Your experience" as plain text. */
+  masterProfile: string;
+  experiences: SyncedExperience[];
+  jobs: SyncedJob[];
   updatedAt: number;
 }
 
+export const BLANK_PROFILE: SyncedProfile = {
+  fullName: "",
+  email: "",
+  phone: "",
+  location: "",
+  linkedin: "",
+  github: "",
+  portfolio: "",
+  school: "",
+  degreeType: "",
+  major: "",
+  minor: "",
+  graduation: "",
+  gpa: "",
+  authorizedToWorkUS: "",
+  requiresSponsorship: "",
+  visaStatus: "",
+  gender: "",
+  race: "",
+  veteran: "",
+  disability: "",
+  salaryExpectation: "",
+  earliestStart: "",
+  willingToRelocate: "",
+};
+
 export const BLANK_SYNCED_DATA: SyncedData = {
-  profile: {
-    fullName: "",
-    email: "",
-    phone: "",
-    location: "",
-    linkedin: "",
-    github: "",
-    portfolio: "",
-    school: "",
-    degreeType: "",
-    major: "",
-    minor: "",
-    graduation: "",
-    gpa: "",
-    authorizedToWorkUS: "",
-    requiresSponsorship: "",
-    visaStatus: "",
-    gender: "",
-    race: "",
-    veteran: "",
-    disability: "",
-    salaryExpectation: "",
-    earliestStart: "",
-    willingToRelocate: "",
-  },
+  profile: BLANK_PROFILE,
   answerBank: [],
-  resume: null,
-  anthropicKey: "",
+  masterProfile: "",
+  experiences: [],
+  jobs: [],
   updatedAt: 0,
 };
 

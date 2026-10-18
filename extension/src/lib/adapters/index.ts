@@ -6,7 +6,7 @@ import { leverAdapter } from "./lever";
 
 const ADAPTERS: AtsAdapter[] = [greenhouseAdapter, leverAdapter, ashbyAdapter];
 
-export function pickAdapter(location: Location): AtsAdapter {
+export function pickAdapter(location: Pick<Location, "hostname">): AtsAdapter {
   return ADAPTERS.find((a) => a.matches(location)) ?? genericAdapter;
 }
 

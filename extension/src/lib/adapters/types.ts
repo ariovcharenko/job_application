@@ -1,9 +1,13 @@
+import type { PageJobInfo } from "../jobMatch";
+
 export interface AtsAdapter {
   name: string;
   /** True if this adapter recognizes the current page (by hostname, usually). */
-  matches(location: Location): boolean;
+  matches(location: Pick<Location, "hostname">): boolean;
   /** The element to scope form-field scanning to. Falls back to the whole document when null. */
   findFormRoot(doc: Document): ParentNode | null;
   /** The resume upload <input type="file">, if this ATS has one visible. */
   findResumeInput(doc: Document): HTMLInputElement | null;
+  /** The company and role the page shows, for matching it to a tracker job. */
+  pageJobInfo?(doc: Document): PageJobInfo;
 }

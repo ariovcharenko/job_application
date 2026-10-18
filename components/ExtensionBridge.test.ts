@@ -1,42 +1,60 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, vi } from "vitest";
-import { FEATURES } from "../lib/features";
-import { startExtensionBridge, type BridgeWindow } from "./ExtensionBridge";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { installBrowser } from "../lib/extension/testBrowser";
+import { startExtensionBridge } from "./ExtensionBridge";
 
-// M7: with the extension flag off, the public site must never post anything (the API key,
-// Profile, resume) to window.postMessage, where any other extension on the page could read it.
+// With no extension installed (no chrome.runtime) or no pairing token, the bridge must do nothing:
+// no message, no connection, no listener on the page's message channel (the old bridge posted the
+// API key to window.postMessage, where any other extension on the page could read it).
 
-function fakeWindow() {
-  return {
-    postMessage: vi.fn(),
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    location: { origin: "https://job-copilot.example" },
-  } satisfies BridgeWindow;
-}
+let win: ReturnType<typeof installBrowser>["window"];
+beforeEach(() => {
+  win = installBrowser().window;
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("extension bridge", () => {
-  it("is off in the public build", () => {
-    expect(FEATURES.extension).toBe(false);
-  });
-
-  it("makes zero postMessage calls and adds no listener with the flag off", async () => {
-    const win = fakeWindow();
-    const stop = startExtensionBridge(win);
-    await new Promise((r) => setTimeout(r, 20));
-    expect(win.postMessage).not.toHaveBeenCalled();
-    expect(win.addEventListener).not.toHaveBeenCalled();
+  it("does nothing without a pairing token, even when chrome.runtime exists", () => {
+    const connect = vi.fn();
+    vi.stubGlobal("chrome", { runtime: { sendMessage: vi.fn(), connect } });
+    const post = win.postMessage;
+    const stop = startExtensionBridge(true);
+    expect(connect).not.toHaveBeenCalled();
+    expect(post).not.toHaveBeenCalled();
     stop();
   });
 
-  it("only runs when explicitly enabled (proves the spy would catch it)", async () => {
-    const win = fakeWindow();
-    const stop = startExtensionBridge(win, true);
-    await vi.waitFor(() => expect(win.postMessage).toHaveBeenCalledTimes(1));
-    expect(win.addEventListener).toHaveBeenCalledWith("message", expect.any(Function));
+  it("does nothing outside Chrome even with a token", () => {
+    localStorage.setItem("job-copilot:extension-token", "t");
+    const post = win.postMessage;
+    const stop = startExtensionBridge(true);
+    expect(post).not.toHaveBeenCalled();
     stop();
-    expect(win.removeEventListener).toHaveBeenCalled();
+  });
+
+  it("connects by extension ID when paired, and never uses window.postMessage", () => {
+    localStorage.setItem("job-copilot:extension-token", "tok");
+    const port = { postMessage: vi.fn(), disconnect: vi.fn(), onMessage: { addListener: vi.fn() }, onDisconnect: { addListener: vi.fn() } };
+    const connect = vi.fn(() => port);
+    vi.stubGlobal("chrome", { runtime: { sendMessage: vi.fn(), connect } });
+    const post = win.postMessage;
+    const stop = startExtensionBridge(true);
+    expect(connect).toHaveBeenCalledWith(expect.stringMatching(/^[a-p]{32}$/), { name: "job-copilot-app" });
+    expect(port.postMessage).toHaveBeenCalledWith({ kind: "hello", token: "tok", protocol: 1 });
+    expect(post).not.toHaveBeenCalled();
+    stop();
+    expect(port.disconnect).toHaveBeenCalled();
+  });
+
+  it("is off when the flag is off", () => {
+    localStorage.setItem("job-copilot:extension-token", "tok");
+    const connect = vi.fn();
+    vi.stubGlobal("chrome", { runtime: { sendMessage: vi.fn(), connect } });
+    startExtensionBridge(false)();
+    expect(connect).not.toHaveBeenCalled();
   });
 
   it("is mounted in the layout only behind the flag", () => {
@@ -44,5 +62,12 @@ describe("extension bridge", () => {
     const mounts = layout.match(/<ExtensionBridge\s*\/>/g) ?? [];
     expect(mounts).toHaveLength(1);
     expect(layout).toContain("{FEATURES.extension && <ExtensionBridge />}");
+  });
+
+  it("never reads an API key anywhere in the extension code", () => {
+    const dir = fileURLToPath(new URL("../lib/extension/", import.meta.url));
+    for (const f of ["payload.ts", "handlers.ts", "link.ts", "client.ts", "appDeps.ts"]) {
+      expect(readFileSync(dir + f, "utf8"), f).not.toMatch(/anthropicKey|openaiKey|jsearchApiKey|getSettings/);
+    }
   });
 });
