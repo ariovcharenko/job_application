@@ -89,6 +89,11 @@ export default function PrivacyPage() {
             through this app&apos;s server (a small relay on Vercel) on its way to TypeSafe. The relay carries your key and the posting text for
             that one request and forwards it. It stores nothing, logs nothing and has no key of its own: it works only with the key your browser sends.
           </p>
+          <p className="mt-2">
+            When you tailor a resume, the changed bullets and the matching lines from Your experience are also sent to Jev to check the wording.
+            Any bullet it thinks may claim more than your experience says gets a &quot;Look at&quot; note on the page. The bullet stays, and
+            the note is only a hint.
+          </p>
           <p className="mt-2 text-muted">
             The early read is only a hint shown while the full check runs. The match percentage, the verdict and every work authorization
             answer come from Claude and code in your browser, never from Jev. Your Anthropic and OpenAI calls are unchanged and still go straight

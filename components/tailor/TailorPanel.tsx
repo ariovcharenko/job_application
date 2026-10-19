@@ -5,7 +5,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { canFallBackToClaude, providerFor, RESUME_WRITING_TASKS, type WriterFallback } from "@/lib/ai/route";
 import { formatRunCost, spendSince } from "@/lib/ai/usage";
 import type { ProviderId } from "@/lib/ai/provider";
-import { getMasterProfile, getProfile, saveMasterProfile } from "@/lib/db";
+import { getMasterProfile, getProfile, getSettings, saveMasterProfile } from "@/lib/db";
+import { checkWording } from "@/lib/resume/engine/honesty";
+import { saveJobWording } from "@/lib/resume/engine/save";
 import { buildHeader, type ResumeHeader } from "@/lib/resume/engine";
 import { linesShort } from "@/lib/resume/engine/budget";
 import { pageFill } from "@/lib/resume/engine/fit";
@@ -31,7 +33,7 @@ import type { ResumeDoc } from "@/lib/resume/engine/schema";
 import { cleanTitle, entriesNotOnPage, parseMasterExperiences } from "@/lib/resume/master/experiences";
 import { appendSkillToMaster, appendUsageNote, hasSkill, parseSkillInventory, type RoleKey } from "@/lib/resume/master/skills";
 import { carryApprovals, fillComment, placementComment, reviseResume, type ResumeComment } from "@/lib/resume/engine/revise";
-import { applyApprovals, normalizeFlagMessage, resumeText, validateResume, type Flag, type ValidationResult } from "@/lib/resume/engine/validate";
+import { applyApprovals, normalizeFlagMessage, resumeText, validateResume, withWording, type Flag, type ValidationResult, type WordingHit } from "@/lib/resume/engine/validate";
 import { jobFocusFor, jobSkills, skillCoverage, skillHits, skillReadiness } from "@/lib/resume/coverage";
 import { tailoredFileName } from "@/lib/resume/fileName";
 import type { Application } from "@/lib/types";
@@ -98,12 +100,16 @@ function FlagRow({ flag, onKeep, onRemove, disabled }: { flag: Flag; onKeep: () 
         </span>
         {flag.message}
         <span className="mt-0.5 block text-xs text-muted">
-          {flag.severity === "block" ? "Not in Your experience, so it is struck through and left out unless you keep it." : "This is in Your experience, but check that it says what you mean."}
+          {flag.kind === "wording"
+            ? "Jev's check is only a hint. Keep it as is if it is accurate, or click the line to rewrite it."
+            : flag.severity === "block"
+              ? "Not in Your experience, so it is struck through and left out unless you keep it."
+              : "This is in Your experience, but check that it says what you mean."}
         </span>
       </span>
       <span className="flex shrink-0 gap-1">
         <button type="button" disabled={disabled} onClick={onKeep} className="rounded-full bg-black/[0.05] px-2.5 py-0.5 text-xs font-medium hover:bg-accent-soft hover:text-accent-deep disabled:opacity-40">
-          Keep
+          {flag.kind === "wording" ? "Keep as is" : "Keep"}
         </button>
         <button type="button" disabled={disabled} onClick={onRemove} className="rounded-full px-2.5 py-0.5 text-xs font-medium text-bad hover:bg-bad-soft disabled:opacity-40">
           Remove
@@ -215,6 +221,33 @@ export default function TailorPanel({
   const [history, setHistory] = useState<{ result: ValidationResult; approved: Set<string> }[]>([]);
   // The running AI call, so "Cancel" can stop it.
   const abortRef = useRef<AbortController | null>(null);
+  // Optional Jev wording check (honesty.ts): runs beside the other steps, never blocks the preview.
+  const jevKeyRef = useRef("");
+  const wordingRef = useRef<WordingHit[]>([]);
+  const wordingAbort = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      wordingAbort.current?.abort();
+    };
+  }, []);
+  const vopts = (extra: { addJobSkills?: boolean } = {}) => ({ ...checkOpts, wording: wordingRef.current, ...extra });
+  /** Asks Jev about the bullets of `doc`; the notes appear when it answers. No key or any error: nothing. */
+  const runWording = (doc: ResumeDoc, m: string) => {
+    wordingAbort.current?.abort();
+    const key = jevKeyRef.current;
+    if (!key.trim()) return;
+    const c = new AbortController();
+    wordingAbort.current = c;
+    void checkWording(key, doc, m, { signal: c.signal }).then((hits) => {
+      if (c.signal.aborted || !mountedRef.current) return;
+      wordingRef.current = hits;
+      setResult((cur) => (cur ? withWording(cur, hits) : cur));
+      void saveJobWording(application.id, hits).catch(() => {});
+    });
+  };
   const [confirmStart, setConfirmStart] = useState(false);
   // Earlier saved versions of this job's resume (save.ts keeps the last 3), newest first.
   const [previousVersions, setPreviousVersions] = useState<PreviousVersion[]>([]);
@@ -236,10 +269,12 @@ export default function TailorPanel({
   }, [fitBreakdown]);
 
   useEffect(() => {
-    Promise.all([getMasterProfile(), getProfile(), getJobResume(application.id)]).then(([m, p, existing]) => {
+    Promise.all([getMasterProfile(), getProfile(), getJobResume(application.id), getSettings()]).then(([m, p, existing, settings]) => {
+      jevKeyRef.current = settings.jevKey ?? "";
+      if (existing?.stored.wording) wordingRef.current = existing.stored.wording;
       // Reopen the resume already saved for this job, with her decisions, instead of an empty panel.
       if (existing && m.trim()) {
-        const reopened = validateResume(existing.stored.doc, m, { jobSkills: jobSkills(application, m), focus: jobFocusFor(application, m) });
+        const reopened = validateResume(existing.stored.doc, m, { jobSkills: jobSkills(application, m), focus: jobFocusFor(application, m), wording: wordingRef.current });
         // Older saves stored ticks with the previous "master profile" wording.
         const ticked = new Set(existing.stored.approved.map(normalizeFlagMessage));
         loadedFromStore.current = true;
@@ -346,9 +381,11 @@ export default function TailorPanel({
       } else if (saveError) setError(`Couldn't save this resume to the job: ${saveError}`);
       // Tailor again keeps the version she had one Undo away.
       setHistory((h) => historyAfterStartOver(h, result ? { result, approved } : null));
+      wordingRef.current = [];
       setResult(out.result);
       setApproved(new Set());
       setChanges(out.notes);
+      runWording(out.result.doc, m);
       showRunCost("This resume", runStart);
       setPlacements([]);
       setChangedFrom(null);
@@ -564,7 +601,7 @@ export default function TailorPanel({
   const commitDoc = (next: ResumeDoc, masterText = masterRef.current) => {
     // While an update is running its answer would replace this edit, so edits wait for it.
     if (!result || !masterText || phase !== "ready") return;
-    const checked = validateResume(next, masterText, checkOpts);
+    const checked = validateResume(next, masterText, vopts());
     setHistory((h) => [...h, { result, approved }]);
     setResult(checked);
     setApproved(carryApprovals(result.flags, approved, checked.flags));
@@ -634,7 +671,7 @@ export default function TailorPanel({
       // An answer with no bullets would leave a blank page: keep the resume she has and say so.
       assertUsable(doc);
       // A model answer: the job's skills she has go back on the Skills lines if it dropped any.
-      const next = validateResume(doc, m, { ...checkOpts, addJobSkills: true });
+      const next = validateResume(doc, m, vopts({ addJobSkills: true }));
       await persistNow(next, carryApprovals(result.flags, approved, next.flags), m);
       setHistory((h) => [...h, { result, approved }]);
       setChangedFrom(fitted?.doc ?? result.doc);
@@ -642,6 +679,7 @@ export default function TailorPanel({
       setApproved((current) => carryApprovals(result.flags, current, next.flags));
       setResult(next);
       setChanges(done);
+      runWording(next.doc, m);
       showRunCost("This update", runStart);
       setPlacements([]);
       return true;
@@ -884,7 +922,7 @@ export default function TailorPanel({
   const restoreVersion = (v: PreviousVersion) => {
     if (!result || phase !== "ready") return;
     const m = masterRef.current;
-    const restored = validateResume(v.doc, m, checkOpts);
+    const restored = validateResume(v.doc, m, vopts());
     const ticked = new Set(v.approved.map(normalizeFlagMessage));
     setHistory((h) => [...h, { result, approved }]);
     setResult(restored);

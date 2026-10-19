@@ -17,7 +17,7 @@ import type { ResumeDoc } from "./schema";
 //    whose own text doesn't name it, or a "client"/"partner" claim that role doesn't make). Shown
 //    highlighted and kept, unless she removes it. Real work is never silently dropped.
 
-export type FlagKind = "skill" | "number" | "employer" | "education" | "leadership" | "claim";
+export type FlagKind = "skill" | "number" | "employer" | "education" | "leadership" | "claim" | "wording";
 export type FlagSeverity = "block" | "note";
 
 export interface Flag {
@@ -159,7 +159,7 @@ function sectionText(master: string, heading: RegExp): string {
 }
 
 /** The master entry an experience on the page claims to be: same company, then same title or dates. */
-function findEntry(entries: MasterEntry[], e: ResumeDoc["experience"][number]): MasterEntry | undefined {
+export function findEntry(entries: MasterEntry[], e: ResumeDoc["experience"][number]): MasterEntry | undefined {
   const c = normalizeLoose(e.company);
   if (!c) return undefined;
   const same = entries.filter((m) => normalizeLoose(m.company) === c);
@@ -282,6 +282,44 @@ export interface ValidateOptions {
    * after the model writes, not on her own edits, so a skill she removed by hand stays removed.
    */
   addJobSkills?: boolean;
+  /** Wording checks from Jev (honesty.ts), kept as "look at" notes on the bullets they name. */
+  wording?: WordingHit[];
+}
+
+/** A bullet Jev thought may claim more than her experience says (honesty.ts). `text` is the bullet without ** markers. */
+export interface WordingHit {
+  text: string;
+  /** Short source line from her experience, shown in the note. */
+  source: string;
+}
+
+/** Message of a wording note. The same words are used to carry a dismissal ("Keep") across updates. */
+export function wordingMessage(source: string): string {
+  return `This may claim more than Your experience says. Source: ${source.trim().replace(/[.\s]+$/, "")}.`;
+}
+
+/**
+ * "Look at" notes for the bullets in `hits` (matched by their text, so a bullet she edited or that
+ * moved loses or keeps its note correctly). Never blocks anything: the facts are hers.
+ */
+export function wordingFlags(doc: ResumeDoc, hits: WordingHit[] | undefined): Flag[] {
+  if (!hits?.length) return [];
+  const byText = new Map(hits.map((h) => [h.text, h]));
+  const out: Flag[] = [];
+  for (const section of ["experience", "projects"] as const) {
+    (doc[section] ?? []).forEach((e, entry) =>
+      e.bullets.forEach((b, bullet) => {
+        const hit = byText.get(plain(b));
+        if (hit) out.push({ id: `wording-${section}-${entry}-${bullet}`, kind: "wording", severity: "note", message: wordingMessage(hit.source), target: { section, entry, bullet } });
+      }),
+    );
+  }
+  return out;
+}
+
+/** The result with its wording notes replaced by those for `hits`. Other flags are untouched. */
+export function withWording(result: ValidationResult, hits: WordingHit[]): ValidationResult {
+  return { ...result, flags: [...result.flags.filter((f) => f.kind !== "wording"), ...wordingFlags(result.doc, hits)] };
 }
 
 const sameText = (a: string, b: string) => normalizeLoose(a) !== "" && normalizeLoose(a) === normalizeLoose(b);
@@ -557,6 +595,7 @@ export function validateResume(raw: ResumeDoc, masterProfile: string, opts: Vali
   // An "(alt. title: X)" note is for choosing a title, never for the page.
   for (const e of [...doc.experience, ...(doc.projects ?? [])]) e.title = cleanTitle(e.title);
 
+  flags.push(...wordingFlags(doc, opts.wording));
   return { doc, flags, fixes };
 }
 

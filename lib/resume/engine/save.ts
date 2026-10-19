@@ -5,6 +5,7 @@ import { chooseTailoredFileName } from "../fileName";
 import type { Application, TailoredResume } from "../../types";
 import { parseStoredReview, type StoredReview } from "./reviewState";
 import { ResumeDocSchema, type ResumeDoc } from "./schema";
+import type { WordingHit } from "./validate";
 
 export function downloadBytes(bytes: ArrayBuffer, fileName: string) {
   downloadBlob(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }), fileName);
@@ -25,6 +26,8 @@ export interface StoredEngineResume {
    * update) never silently replaces the one she had. Optional: older rows have none.
    */
   previous?: PreviousVersion[];
+  /** Bullets the optional Jev wording check flagged (honesty.ts), matched by text. Optional: older rows have none. */
+  wording?: WordingHit[];
   /**
    * The last recruiter review for this page (reviewState.ts), so reopening the job shows it with no
    * AI call. Optional: older rows and pages never reviewed have none.
@@ -62,12 +65,18 @@ function parsePrevious(raw: unknown): PreviousVersion[] {
 }
 
 /** Reads appliedEdits back. Older rows stored just the final document; those reopen with no ticks. */
+function parseWording(raw: unknown): WordingHit[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((h) => (typeof h?.text === "string" && typeof h?.source === "string" ? [{ text: h.text, source: h.source }] : []));
+}
+
 export function parseStoredResume(appliedEdits: string): StoredEngineResume | null {
   try {
     const raw = JSON.parse(appliedEdits);
     if (raw?.v === 2) {
       const previous = parsePrevious(raw.previous);
       const review = parseStoredReview(raw.review);
+      const wording = parseWording(raw.wording);
       return {
         v: 2,
         doc: ResumeDocSchema.parse(raw.doc),
@@ -75,6 +84,7 @@ export function parseStoredResume(appliedEdits: string): StoredEngineResume | nu
         final: ResumeDocSchema.parse(raw.final),
         ...(previous.length ? { previous } : {}),
         ...(review ? { review } : {}),
+        ...(wording.length ? { wording } : {}),
       };
     }
     const doc = ResumeDocSchema.safeParse(raw);
@@ -104,7 +114,9 @@ const sameDoc = (a: ResumeDoc, b: ResumeDoc) => JSON.stringify(a) === JSON.strin
  */
 export function withPreviousVersion(existing: StoredEngineResume | null, next: NextVersion, savedAt: number): StoredEngineResume {
   const review = next.review === null ? undefined : (next.review ?? existing?.review);
-  const current: StoredEngineResume = { v: 2, doc: next.doc, approved: next.approved, final: next.final, ...(review ? { review } : {}) };
+  // Hits are matched by bullet text, so stale ones for a bullet that changed are harmless.
+  const wording = next.wording ?? existing?.wording;
+  const current: StoredEngineResume = { v: 2, doc: next.doc, approved: next.approved, final: next.final, ...(review ? { review } : {}), ...(wording?.length ? { wording } : {}) };
   if (!existing) return current;
   const kept = existing.previous ?? [];
   if (sameDoc(existing.final, next.final) && sameDoc(existing.doc, next.doc)) return kept.length ? { ...current, previous: kept } : current;
@@ -154,6 +166,19 @@ export async function saveJobReview(applicationId: number, review: StoredReview 
     const next: StoredEngineResume = { ...existing.stored };
     if (review) next.review = review;
     else delete next.review;
+    await db.tailoredResumes.update(existing.id, { appliedEdits: JSON.stringify(next) });
+    return true;
+  });
+}
+
+/** Stores the Jev wording hits with this job's resume, without a new version or touching the file. */
+export async function saveJobWording(applicationId: number, wording: WordingHit[]): Promise<boolean> {
+  return db.transaction("rw", db.tailoredResumes, async () => {
+    const existing = await getJobResume(applicationId);
+    if (!existing) return false;
+    const next: StoredEngineResume = { ...existing.stored };
+    if (wording.length) next.wording = wording;
+    else delete next.wording;
     await db.tailoredResumes.update(existing.id, { appliedEdits: JSON.stringify(next) });
     return true;
   });

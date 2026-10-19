@@ -55,7 +55,7 @@ export default function JevKeyCard() {
       <div className="grid gap-4">
         <Field label="API key" type="password" placeholder="Paste your Jev key from TypeSafe" value={s.jevKey ?? ""} onChange={(v) => setS({ ...s, jevKey: v })} />
         <p className="text-[13px] text-muted">
-          Your Jev key is stored only in this browser and uses your own TypeSafe credits. When the app asks Jev a question, the key and the job text pass through this app&apos;s server on the way to TypeSafe.
+          Your Jev key is stored only in this browser and uses your own TypeSafe credits. When the app asks Jev a question, the key and the job text pass through this app&apos;s server on the way to TypeSafe. When you tailor a resume, the changed bullets and the matching lines from Your experience are also sent to Jev to check the wording.
           Nothing is stored or logged.
         </p>
         <div className="flex flex-wrap gap-3">
