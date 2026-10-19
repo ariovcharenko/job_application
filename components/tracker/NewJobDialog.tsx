@@ -26,6 +26,8 @@ import MustHavesPanel from "./MustHavesPanel";
 import ScoreCard from "./ScoreCard";
 import BulkLinksPanel from "./BulkLinksPanel";
 import EarlyReadPills from "./EarlyReadPills";
+import QuickResultCard from "./QuickResult";
+import { quickResult } from "@/lib/intake/quick";
 
 // The tailoring screen (and the .docx writer behind it) loads only when she tailors.
 const TailorPanel = dynamic(() => import("../tailor/TailorPanel"), { ssr: false });
@@ -118,6 +120,8 @@ export default function NewJobDialog({
   const [moving, setMoving] = useState(false);
   // The optional Jev early read, shown while Claude's check runs. Display only: never saved as a verdict.
   const [early, setEarly] = useState<EarlyRead | null>(null);
+  // The posting text, once in hand, for the instant code-only quick result.
+  const [quickText, setQuickText] = useState("");
   // An early read that says this job is not a fit: held until she picks Skip or Check anyway.
   const [skipAsk, setSkipAsk] = useState<{ text: string; link: string; reason: string; earlyP: Promise<EarlyRead | null> } | null>(null);
   // A link from "Several links" that needs its text pasted, opened in its own dialog on top.
@@ -133,6 +137,12 @@ export default function NewJobDialog({
   const live = useMemo(
     () => (analysis && prefs && geo ? { ...analysis, ...assessJob(analysis.signals, prefs, master, analysis.jdText, { profile, geo }) } : analysis),
     [analysis, prefs, master, profile, geo],
+  );
+
+  // Instant, code-only result while Claude's check runs (uses the early read when Jev has answered).
+  const quick = useMemo(
+    () => (quickText && prefs && profile ? quickResult({ jdText: quickText, early, mustHaves: prefs.mustHaves, candidate: candidateFacts(profile), master, prefs }) : null),
+    [quickText, early, prefs, profile, master],
   );
 
   // Keep the tracker row's stored verdict in step with the filters she just changed.
@@ -174,6 +184,7 @@ export default function NewJobDialog({
     setDuplicate(null);
     setSkipAsk(null);
     setEarly(null);
+    setQuickText("");
     // Mark busy before the first await, so a quick second click can't start (and pay for) a second check.
     setStep("Checking...");
     try {
@@ -194,6 +205,8 @@ export default function NewJobDialog({
         text = await readJobPosting(provider, link, { onStep: setStep });
       }
       // Optional Jev early read, once the posting text is in hand. Never throws; null with no key.
+      setQuickText(text);
+      void getMasterProfile().then(setMaster);
       const earlyP = runEarlyRead(settings.jevKey, text);
       void earlyP.then((r) => r && setEarly(r));
       if (settings.jevKey?.trim()) {
@@ -441,7 +454,8 @@ export default function NewJobDialog({
               </div>
             </div>
           )}
-          {early && !skipAsk && step && prefs && <EarlyReadPills read={early} mustHaves={prefs.mustHaves} />}
+          {quick && !skipAsk && step && <QuickResultCard result={quick} />}
+          {early && !quick && !skipAsk && step && prefs && <EarlyReadPills read={early} mustHaves={prefs.mustHaves} />}
           <div aria-live="polite">{step && <Spinner label={step} />}</div>
           {error && (
             <Notice kind="error">
