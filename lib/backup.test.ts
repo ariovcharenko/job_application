@@ -56,6 +56,16 @@ describe("backup file", () => {
     expect(await getSettings()).toMatchObject({ openaiKey: "test-openai-key-here", openaiModel: "test-openai-model", resumeWriter: "anthropic" });
   });
 
+  it("treats the Jev key like the other keys: out by default, in only when asked", () => {
+    const withJev = { ...settings, jevKey: "test-jev-key-123" };
+    const without = buildBackup(withJev, profile, prefs, { includeKey: false });
+    expect(without).not.toContain("test-jev-key-123");
+    expect(parseBackup(without).includesKey).toBe(false);
+    const parsed = parseBackup(buildBackup({ ...withJev, anthropicKey: "", jsearchApiKey: "" }, profile, prefs, { includeKey: true }));
+    expect(parsed.settings.jevKey).toBe("test-jev-key-123");
+    expect(parsed.includesKey).toBe(true);
+  });
+
   it("carries the AI spend log through export and restore", async () => {
     await db.aiUsage.bulkAdd([
       { at: 100, provider: "anthropic", model: "claude-haiku-4-5", task: "check_job", inputTokens: 900, outputTokens: 80, cacheReadTokens: 0, cacheWriteTokens: 0 },

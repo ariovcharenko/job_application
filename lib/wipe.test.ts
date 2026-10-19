@@ -108,6 +108,14 @@ describe("forgetApiKeys", () => {
     expect(await hasApiKey()).toBe(false);
   });
 
+  it("clears the Jev key too", async () => {
+    await saveSettings({ jevKey: "test-jev-key-123" });
+    expect(await hasAnyApiKey()).toBe(true);
+    await forgetApiKeys();
+    expect((await getSettings()).jevKey).toBe("");
+    expect(await hasAnyApiKey()).toBe(false);
+  });
+
   it("clears the OpenAI key too, keeping the OpenAI model and writer choice", async () => {
     await saveSettings({ openaiKey: "test-openai-key", openaiModel: "test-model", resumeWriter: "openai" });
     expect(await hasAnyApiKey()).toBe(true);

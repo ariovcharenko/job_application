@@ -25,6 +25,7 @@ const SettingsSchema = z.object({
   openaiModel: z.string().optional(),
   resumeWriter: z.enum(["auto", "anthropic", "openai"]).optional(),
   jsearchApiKey: z.string().optional(),
+  jevKey: z.string().optional(),
 });
 
 const Rows = z.array(z.record(z.unknown()));
@@ -64,7 +65,7 @@ export interface BackupTables {
 
 export interface ParsedBackup {
   version: 1 | 2;
-  settings: Partial<Pick<AppSettings, "workspaceId" | "fastModel" | "smartModel" | "anthropicKey" | "openaiKey" | "openaiModel" | "resumeWriter" | "jsearchApiKey">>;
+  settings: Partial<Pick<AppSettings, "workspaceId" | "fastModel" | "smartModel" | "anthropicKey" | "openaiKey" | "openaiModel" | "resumeWriter" | "jsearchApiKey" | "jevKey">>;
   profile: Profile;
   preferences: Preferences;
   /** Absent in backups made before the master profile existed. */
@@ -116,7 +117,7 @@ export function buildBackup(
       openaiModel: settings.openaiModel,
       resumeWriter: settings.resumeWriter,
       // Keys only when she ticks the box: the Anthropic, OpenAI and JSearch keys follow one rule.
-      ...(opts.includeKey ? { anthropicKey: settings.anthropicKey, openaiKey: settings.openaiKey, jsearchApiKey: settings.jsearchApiKey } : {}),
+      ...(opts.includeKey ? { anthropicKey: settings.anthropicKey, openaiKey: settings.openaiKey, jsearchApiKey: settings.jsearchApiKey, jevKey: settings.jevKey } : {}),
     },
     profile,
     preferences,
@@ -198,7 +199,8 @@ export function parseBackup(text: string): ParsedBackup {
     includesKey:
       (typeof b.settings.anthropicKey === "string" && b.settings.anthropicKey !== "") ||
       (typeof b.settings.openaiKey === "string" && b.settings.openaiKey !== "") ||
-      (typeof b.settings.jsearchApiKey === "string" && b.settings.jsearchApiKey !== ""),
+      (typeof b.settings.jsearchApiKey === "string" && b.settings.jsearchApiKey !== "") ||
+      (typeof b.settings.jevKey === "string" && b.settings.jevKey !== ""),
   };
 }
 

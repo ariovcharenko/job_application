@@ -5,7 +5,7 @@ import { FEATURES } from "@/lib/features";
 
 export const metadata: Metadata = {
   title: "Privacy",
-  description: "What Job Copilot keeps in your browser, what it sends to Anthropic or OpenAI, and what the host sees.",
+  description: "What Job Copilot keeps in your browser, what it sends to Anthropic, OpenAI or Jev, and what the host sees.",
 };
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -20,11 +20,11 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 export default function PrivacyPage() {
   return (
     <div className="mx-auto max-w-2xl">
-      <PageHeader title="Privacy" subtitle="What stays in your browser, what goes to Anthropic (and OpenAI, if you add a key), and what the host sees." />
+      <PageHeader title="Privacy" subtitle="What stays in your browser, what goes to Anthropic (and OpenAI or Jev, if you add a key), and what the host sees." />
       <div className="grid gap-4 text-[15px] leading-relaxed text-ink">
         <Section title="Your data lives in this browser">
           <p>
-            There is no Job Copilot server and no account. Everything you add is stored in this browser&apos;s own database on this
+            There is no Job Copilot database and no account. Everything you add is stored in this browser&apos;s own database on this
             device. Nobody else can see it, including us.
           </p>
           <p className="mt-2">
@@ -82,6 +82,20 @@ export default function PrivacyPage() {
           </p>
         </Section>
 
+        <Section title="What is sent to Jev (only if you add a Jev key)">
+          <p>
+            Jev is optional. If you add your own Jev key from TypeSafe, then when you add a job the app also sends the posting text (trimmed) and a few
+            short questions to Jev for an instant early read. Jev does not accept requests directly from web pages, so the request goes
+            through this app&apos;s server (a small relay on Vercel) on its way to TypeSafe. The relay carries your key and the posting text for
+            that one request and forwards it. It stores nothing, logs nothing and has no key of its own: it works only with the key your browser sends.
+          </p>
+          <p className="mt-2 text-muted">
+            The early read is only a hint shown while the full check runs. The match percentage, the verdict and every work authorization
+            answer come from Claude and code in your browser, never from Jev. Your Anthropic and OpenAI calls are unchanged and still go straight
+            from your browser to those providers. TypeSafe handles the data under its own terms.
+          </p>
+        </Section>
+
         <Section title="Pasting a job link">
           <p>
             Links to Greenhouse, Lever, Ashby and SmartRecruiters postings are read straight from your browser, from those companies&apos;
@@ -98,8 +112,8 @@ export default function PrivacyPage() {
             keys&quot; in Settings removes it.
           </p>
           <p className="mt-2">
-            An optional OpenAI key is stored the same way, in this browser only, and sent only to OpenAI. &quot;Forget my API keys&quot;
-            removes both.
+            An optional OpenAI key is stored the same way, in this browser only, and sent only to OpenAI. An optional Jev key is also stored in this
+            browser only and uses your own TypeSafe credits. &quot;Forget my API keys&quot; removes all of them.
           </p>
           <p className="mt-2 text-muted">A backup file leaves the keys out unless you tick the box to include them.</p>
         </Section>
@@ -107,7 +121,7 @@ export default function PrivacyPage() {
         <Section title="What the host sees">
           <p>
             The site is hosted on Vercel, which only serves its files. Like any web host it keeps normal request logs (such as IP address,
-            browser and which page was loaded). None of your data is in those requests.
+            browser and which page was loaded). None of your data is in those requests, apart from the Jev relay described above if you use it, which keeps nothing.
           </p>
           <p className="mt-2">There are no analytics, no trackers, no ads and no cookies.</p>
         </Section>

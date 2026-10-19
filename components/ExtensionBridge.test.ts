@@ -67,7 +67,7 @@ describe("extension bridge", () => {
   it("never reads an API key anywhere in the extension code", () => {
     const dir = fileURLToPath(new URL("../lib/extension/", import.meta.url));
     for (const f of ["payload.ts", "handlers.ts", "link.ts", "client.ts", "appDeps.ts"]) {
-      expect(readFileSync(dir + f, "utf8"), f).not.toMatch(/anthropicKey|openaiKey|jsearchApiKey|getSettings/);
+      expect(readFileSync(dir + f, "utf8"), f).not.toMatch(/anthropicKey|openaiKey|jevKey|jsearchApiKey|getSettings/);
     }
   });
 });

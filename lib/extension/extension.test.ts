@@ -27,7 +27,7 @@ beforeEach(async () => {
 describe("payload", () => {
   it("sends profile, answers, experience and a jobs index, and no key anywhere", async () => {
     await saveProfile({ ...DEFAULT_PROFILE, fullName: "Alex Rivera", email: "alex@example.com", authorizedToWorkUS: "yes" });
-    await saveSettings({ anthropicKey: "sk-ant-SECRET", openaiKey: "sk-openai-SECRET", jsearchApiKey: "rapid-SECRET" });
+    await saveSettings({ anthropicKey: "sk-ant-SECRET", openaiKey: "sk-openai-SECRET", jsearchApiKey: "rapid-SECRET", jevKey: "jev-SECRET" });
     await saveMasterProfile(MASTER);
     await db.applications.add({ ...blankApplication(), company: "Taskwise", role: "SWE", url: "https://boards.greenhouse.io/taskwise/jobs/1234567" });
     await db.applications.add({ ...blankApplication(), company: "Skipped Co", role: "X", triage: "skipped" });
@@ -38,7 +38,7 @@ describe("payload", () => {
     expect(data.experiences[0]).toMatchObject({ company: "Brightloop", bullets: ["Built a queue that cut latency 40%.", "Wrote tests."] });
     const json = JSON.stringify(data);
     expect(json).not.toMatch(/SECRET|sk-ant|sk-openai/);
-    expect(json).not.toMatch(/apiKey|anthropicKey|openaiKey/i);
+    expect(json).not.toMatch(/apiKey|anthropicKey|openaiKey|jevKey/i);
   });
 });
 

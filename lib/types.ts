@@ -47,6 +47,8 @@ export interface AppSettings {
   smartModel: string; // tailoring, cover letters, free-text answers
   /** OpenAI key, optional. Used only to write and revise resumes and draft outreach messages (lib/ai/route.ts). Sent only to api.openai.com. */
   openaiKey?: string;
+  /** Jev (TypeSafe) key, optional. Sent with each request through this app's /api/jev pass-through (Jev blocks browser calls). Used only for the early read of a posting. */
+  jevKey?: string;
   /** The OpenAI model that writes resumes. */
   openaiModel?: string;
   /** Who writes and revises resumes. "auto" = OpenAI when an OpenAI key is saved, else Claude. */
