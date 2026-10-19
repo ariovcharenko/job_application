@@ -4,6 +4,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import dynamic from "next/dynamic";
 import { useRef, useState } from "react";
 import { db, getProfile } from "@/lib/db";
+import { INTERVIEW_LABEL } from "@/lib/intake/earlyRead";
 import { hasIncompletePosting, postedAgeOf, readBreakdown } from "@/lib/intake/stored";
 import { postedLabel } from "@/lib/tracker/postedAge";
 import { JOB_SOURCES, WORK_MODES } from "@/lib/options";
@@ -233,6 +234,12 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
           {app.followUpDate && (
             <p className="-mt-2 text-[13px] text-muted">
               Follow up on <span className="font-medium text-ink">{formatDay(app.followUpDate)}</span>
+            </p>
+          )}
+
+          {app.interviewFocus && INTERVIEW_LABEL[app.interviewFocus] && (
+            <p className="-mt-2">
+              <span className="inline-block rounded-full bg-paper px-3 py-1 text-[13px] text-muted">Likely interview: {INTERVIEW_LABEL[app.interviewFocus]}</span>
             </p>
           )}
 

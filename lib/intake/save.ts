@@ -38,6 +38,7 @@ export async function saveAnalyzedJob(a: JobAnalysis, updateId?: number): Promis
     jdText: a.jdText,
     fitScore: a.score.score,
     fitBreakdown: JSON.stringify(toStoredBreakdown(a)),
+    ...(a.interviewFocus ? { interviewFocus: a.interviewFocus } : {}),
   };
 
   const target = updateId !== undefined ? await db.applications.get(updateId) : undefined;
@@ -61,4 +62,25 @@ export async function saveAnalyzedJob(a: JobAnalysis, updateId?: number): Promis
   // Only the fields that change are written (see saveApplicationChanges).
   const id = existing ? await saveApplicationChanges(app, existing) : await saveApplication(app);
   return { ...app, id, ...(existing && !target ? { checkedBefore: existing.updatedAt || existing.createdAt } : {}) };
+}
+
+/**
+ * She accepted the early-read offer to skip a job: remember it as "not applying" (hidden, but a
+ * repeat of the same link is recognized) with the reason in its notes. No score is stored, since
+ * the full check never ran. An existing row for the same link is only marked skipped.
+ */
+export async function saveEarlySkip(input: { url: string; jdText: string; reason: string }): Promise<number> {
+  const note = `Skipped after an early read: ${input.reason}. Not fully checked.`;
+  const existing = input.url ? await findExistingJob({ url: input.url }) : undefined;
+  if (existing?.id !== undefined) {
+    await saveApplicationChanges({ ...existing, triage: "skipped", notes: existing.notes ? `${existing.notes}\n${note}` : note }, existing);
+    return existing.id;
+  }
+  let host = "";
+  try {
+    host = new URL(input.url).hostname.replace(/^www\./, "");
+  } catch {
+    /* no usable link */
+  }
+  return saveApplication({ ...blankApplication(), company: host, role: "Not fully checked", url: input.url, jdText: input.jdText, triage: "skipped", notes: note });
 }

@@ -234,6 +234,8 @@ export interface Application {
    * (by the feed's batch tailoring), not yet reviewed. Nothing from it is in a resume file until
    * she accepts it in the Tailor dialog. */
   tailorDraft?: string;
+  /** What the posting says the interview mainly tests (from the optional Jev early read, only when it was confident). Absent on older rows. */
+  interviewFocus?: "coding" | "system_design" | "behavioral" | "mixed";
   createdAt: number;
   updatedAt: number;
 }

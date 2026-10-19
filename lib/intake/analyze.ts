@@ -28,6 +28,8 @@ export interface JobAnalysis extends JobAssessment {
   url: string;
   jdText: string;
   signals: JobSignals;
+  /** From the optional Jev early read: stored on the application when present. */
+  interviewFocus?: "coding" | "system_design" | "behavioral" | "mixed";
 }
 
 /**
