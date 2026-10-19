@@ -9,14 +9,14 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export const JEV_URL = "https://api.typesafe.ai/v1/systemone";
-export const JEV_MODEL = "jev-latest";
-export const MAX_STATE_CHARS = 60_000;
-export const MAX_QUESTIONS = 20;
+const JEV_URL = "https://api.typesafe.ai/v1/systemone";
+const JEV_MODEL = "jev-latest";
+const MAX_STATE_CHARS = 60_000;
+const MAX_QUESTIONS = 20;
 const MAX_BODY_CHARS = 200_000;
 const TIMEOUT_MS = 10_000;
 
-export type JevErrorKind = "no_key" | "auth" | "rate_limit" | "overloaded" | "bad_request" | "too_long" | "network" | "timeout" | "unknown";
+type JevErrorKind = "no_key" | "auth" | "rate_limit" | "overloaded" | "bad_request" | "too_long" | "network" | "timeout" | "unknown";
 
 const HEADERS = { "Cache-Control": "no-store", "Content-Type": "application/json" };
 

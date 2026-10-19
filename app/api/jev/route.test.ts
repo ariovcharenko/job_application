@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { POST, JEV_URL } from "./route";
+import { POST } from "./route";
+
+const JEV_URL = "https://api.typesafe.ai/v1/systemone";
 
 const KEY = "test-jev-key-123456";
 const q = { a: { type: "noul", instructions: "x" } };
