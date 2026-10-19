@@ -11,7 +11,7 @@ import {
   type FitOptions,
   type LayoutMeasureFn,
 } from "./trim";
-import { applyApprovals, resumeText, type ValidationResult } from "./validate";
+import { applyApprovals, resumeText, type ValidationResult, type WordingHit } from "./validate";
 
 // Saves a tailoring result to its job as soon as the AI call returns, inside the call's own code
 // path (not in a React effect), so closing the dialog while a resume is being written can't lose
@@ -30,6 +30,8 @@ export interface VersionInput {
   master: string;
   /** The recruiter review to store with it; null clears it (a new draft); left out keeps it. */
   review?: StoredReview | null;
+  /** Jev wording hits to store; [] clears (a new draft), left out keeps the stored ones. */
+  wording?: WordingHit[];
 }
 
 /** The final page and what's stored for it. Pure apart from `measure`, so it's testable. */
@@ -57,6 +59,7 @@ export function buildVersion(input: VersionInput): {
         .map((f) => f.message),
       final,
       ...(input.review !== undefined ? { review: input.review } : {}),
+      ...(input.wording !== undefined ? { wording: input.wording } : {}),
     },
     coverage:
       onPage && inProfile
@@ -90,6 +93,7 @@ export async function tailorAndSave(
       master: input.master,
       // A new draft: the last review was about the page it replaces.
       review: null,
+      wording: [],
     });
     return { out, id };
   } catch (e) {
