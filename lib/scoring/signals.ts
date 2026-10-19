@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { AIProvider, JsonSchema } from "../ai/provider";
 import { cleanSkillList } from "../resume/master/jobSkills";
 import { normalizeSkill } from "../resume/master/skills";
+import { trimPostingForCheck } from "../intake/trimPosting";
 
 export const VISA_SIGNAL_VALUES = ["unknown", "sponsors", "opt-friendly", "no-sponsorship"] as const;
 export const FRESHNESS_VALUES = ["within_24h", "within_week", "older", "unknown"] as const;
@@ -92,7 +93,7 @@ const JOB_SIGNALS_JSON_SCHEMA: JsonSchema = {
       description:
         '"sponsors" only if the text says it sponsors work visas. "opt-friendly" if it welcomes CPT/OPT/STEM OPT or says it uses E-Verify for students. "no-sponsorship" only if the text rules out sponsorship or requires citizenship/permanent residency. Otherwise "unknown" — never guess.',
     },
-    visaEvidence: { type: "string", description: "The exact quote behind visaSignal, or \"\" if unknown." },
+    visaEvidence: { type: "string", description: "Shortest exact quote (under 25 words) behind visaSignal, or \"\"." },
     citizenshipRequired: { type: "boolean", description: "True only if US citizenship is explicitly required." },
     clearanceRequired: { type: "boolean", description: "True only if a security clearance is explicitly required." },
     freshness: {
@@ -100,14 +101,14 @@ const JOB_SIGNALS_JSON_SCHEMA: JsonSchema = {
       enum: [...FRESHNESS_VALUES],
       description: "How recently this was posted, judged against today's date given in the instructions.",
     },
-    freshnessEvidence: { type: "string", description: "The text this was based on (e.g. \"Posted 2 days ago\"), or \"\" if unknown." },
+    freshnessEvidence: { type: "string", description: "The few words this was based on (e.g. \"Posted 2 days ago\"), or \"\"." },
     optSignal: {
       type: "string",
       enum: [...OPT_SIGNAL_VALUES],
       description:
         '"welcomes-opt" only if the text explicitly welcomes F-1 students on OPT/CPT/STEM OPT. "excludes-opt" only if it explicitly rules out OPT/CPT, or requires candidates to be authorized to work without sponsorship now AND in the future, or requires citizenship/permanent residency. Otherwise "unknown" — never guess.',
     },
-    optEvidence: { type: "string", description: "The exact quote behind optSignal, or \"\" if unknown." },
+    optEvidence: { type: "string", description: "Shortest exact quote (under 25 words) behind optSignal, or \"\"." },
     minYearsExperience: {
       type: "integer",
       description: "The minimum years of professional experience required (e.g. 3 for \"3+ years\"). 0 if it says new grads/no experience are welcome. -1 if not stated.",
@@ -138,21 +139,36 @@ OPT rules (separate from sponsorship), applied just as strictly:
 
 Degree: report the minimum degree the text requires. If it accepts equivalent experience instead ("Bachelor's degree or equivalent experience"), or only prefers a degree, use "none".`;
 
-// Keep prompts (and cost) bounded against an accidental paste of an entire page.
-const MAX_JD_CHARS = 20000;
+// Prompts (and cost) stay bounded: the posting is trimmed of boilerplate and capped at about 8k
+// characters (lib/intake/trimPosting.ts, which never drops eligibility text). Trimming runs on the
+// whole text, so a sentence at the very end of a long page is not lost to a blind cut.
+
+/**
+ * Output cap. A realistic full answer (15 required + 8 preferred skills, three evidence quotes)
+ * is about 500 tokens (measured in signals.test.ts); this leaves more than double that as headroom.
+ */
+export const SIGNALS_MAX_TOKENS = 1200;
 
 /**
  * Extracts structured signals from a job description with the "fast" model. The model never
  * computes a score — lib/scoring/score.ts turns these signals into a number deterministically.
  */
-export async function extractJobSignals(provider: AIProvider, jdText: string, today: string): Promise<JobSignals> {
-  const text = jdText.trim().slice(0, MAX_JD_CHARS);
+export async function extractJobSignals(
+  provider: AIProvider,
+  jdText: string,
+  today: string,
+  opts: { signal?: AbortSignal } = {},
+): Promise<JobSignals> {
+  const text = trimPostingForCheck(jdText.trim());
   return provider.completeJson<JobSignals>({
     tier: "fast",
-    maxTokens: 2000,
+    maxTokens: SIGNALS_MAX_TOKENS,
     system: SYSTEM_PROMPT(today),
+    // The instructions are the same for every check on a given day, so repeat checks can reuse them.
+    cacheSystem: true,
     prompt: `Job posting:\n"""\n${text}\n"""`,
     schema: JOB_SIGNALS_JSON_SCHEMA,
     parse: (raw) => cleanSignalSkills(JobSignalsSchema.parse(raw)),
+    signal: opts.signal,
   });
 }

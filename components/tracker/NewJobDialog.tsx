@@ -8,6 +8,8 @@ import { AIError } from "@/lib/ai/provider";
 import { db, getMasterProfile, getPreferences, getProfile, getSettings } from "@/lib/db";
 import { candidateFacts } from "@/lib/eligibility/candidate";
 import { interviewFocusOf, runEarlyRead, skipOffer, type EarlyRead } from "@/lib/intake/earlyRead";
+import { startParallelCheck, type ParallelCheck } from "@/lib/intake/parallelCheck";
+import { checkedInLabel, createCheckTimer, timingBreakdown, type CheckTimer, type CheckTiming } from "@/lib/intake/timing";
 import { loadGeo, type GeoIndex } from "@/lib/geo/index";
 import { analyzeJob, assessJob, looksLikeUrl, readJobPosting, toStoredBreakdown, type JobAnalysis } from "@/lib/intake/analyze";
 import { findExistingJob } from "@/lib/intake/dedupe";
@@ -29,9 +31,6 @@ import EarlyReadPills from "./EarlyReadPills";
 
 // The tailoring screen (and the .docx writer behind it) loads only when she tailors.
 const TailorPanel = dynamic(() => import("../tailor/TailorPanel"), { ssr: false });
-
-/** How long the check waits for the early read before going ahead without an offer. */
-const EARLY_WAIT_MS = 4000;
 
 type Mode = "link" | "bulk" | "paste";
 
@@ -119,7 +118,12 @@ export default function NewJobDialog({
   // The optional Jev early read, shown while Claude's check runs. Display only: never saved as a verdict.
   const [early, setEarly] = useState<EarlyRead | null>(null);
   // An early read that says this job is not a fit: held until she picks Skip or Check anyway.
-  const [skipAsk, setSkipAsk] = useState<{ text: string; link: string; reason: string; earlyP: Promise<EarlyRead | null> } | null>(null);
+  // Claude's check is already running while this is shown: Skip stops it, Check anyway lets it finish.
+  const [skipAsk, setSkipAsk] = useState<{ text: string; link: string; reason: string } | null>(null);
+  const [skipping, setSkipping] = useState(false);
+  // The check in flight (so Skip can abort it) and how long each step took (shown as "Checked in 4.2s").
+  const runRef = useRef<ParallelCheck<void> | null>(null);
+  const [timing, setTiming] = useState<CheckTiming | null>(null);
   // A link from "Several links" that needs its text pasted, opened in its own dialog on top.
   const [pasteFor, setPasteFor] = useState<string | null>(null);
 
@@ -174,6 +178,8 @@ export default function NewJobDialog({
     setDuplicate(null);
     setSkipAsk(null);
     setEarly(null);
+    setTiming(null);
+    const timer = createCheckTimer();
     // Mark busy before the first await, so a quick second click can't start (and pay for) a second check.
     setStep("Checking...");
     try {
@@ -191,42 +197,59 @@ export default function NewJobDialog({
       let text = jdText;
       if (mode === "link") {
         setStep("Reading the job posting...");
+        timer.start("read");
         text = await readJobPosting(provider, link, { onStep: setStep });
+        timer.end("read");
       }
-      // Optional Jev early read, once the posting text is in hand. Never throws; null with no key.
-      const earlyP = runEarlyRead(settings.jevKey, text);
+      // The moment the text is in hand, Claude's check and the optional Jev early read both
+      // start, side by side. Claude never waits for Jev (Jev never throws; null with no key).
+      timer.start("jev");
+      const earlyP = runEarlyRead(settings.jevKey, text).then((r) => {
+        timer.end("jev");
+        return r;
+      });
       void earlyP.then((r) => r && setEarly(r));
-      if (settings.jevKey?.trim()) {
-        const quick = await Promise.race([earlyP, new Promise<null>((r) => setTimeout(() => r(null), EARLY_WAIT_MS))]);
-        const offer = quick && skipOffer(quick, (prefs ?? current).mustHaves, candidateFacts(me));
-        if (offer) {
-          // Ask before the paid check. Nothing is skipped without her click.
-          setSkipAsk({ text, link, reason: offer.reason, earlyP });
-          return;
-        }
-      }
-      await finishCheck(text, link, earlyP, force);
+      const mustHaves = (prefs ?? current).mustHaves;
+      const candidate = candidateFacts(me);
+      const run = startParallelCheck<void>({
+        check: (signal) => finishCheck(text, link, earlyP, force, signal, timer),
+        early: earlyP,
+        offerFor: (r) => skipOffer(r, mustHaves, candidate),
+        // Claude is still running: offer the skip. Nothing is skipped without her click.
+        onOffer: (offer) => setSkipAsk({ text, link, reason: offer.reason }),
+      });
+      runRef.current = run;
+      await run.result;
     } catch (e) {
+      // She chose Skip: the aborted check is not an error.
+      if (e instanceof AIError && e.kind === "cancelled") return;
       const needsKey = e instanceof AIError && e.kind === "no_key";
       const unreadable = e instanceof AIError && e.kind === "fetch_failed";
       setError({ message: e instanceof Error ? e.message : String(e), needsKey, extensionTip: unreadable && extensionPaired() });
       // A page that can't be read automatically: switch to pasting, keeping the link.
       if (unreadable) setMode("paste");
     } finally {
+      runRef.current = null;
+      setSkipAsk(null);
       setStep(null);
     }
   };
 
   /** Claude's check and the save, from the posting text on. The stored verdict comes only from this. */
-  const finishCheck = async (text: string, link: string, earlyP: Promise<EarlyRead | null>, force: boolean) => {
+  const finishCheck = async (text: string, link: string, earlyP: Promise<EarlyRead | null>, force: boolean, signal: AbortSignal, timer: CheckTimer) => {
+    const cancelled = () => new AIError("cancelled", "Skipped.");
     const [provider, current, masterText, me] = await Promise.all([getProvider("check_job"), getPreferences(), getMasterProfile(), getProfile()]);
     setMaster(masterText);
     setProfile(me);
     setStep("Scoring the job...");
-    const a = await analyzeJob(provider, { url: link, jdText: text }, prefs ?? current, masterText, todayISO(), me);
+    timer.start("claude");
+    const a = await analyzeJob(provider, { url: link, jdText: text }, prefs ?? current, masterText, todayISO(), me, { signal });
+    timer.end("claude");
     // Interview focus is the one thing kept from the early read, and only when Jev was confident.
+    // (Jev has its own short timeout, so this wait is bounded and usually already over.)
     const focus = interviewFocusOf(await earlyP);
     if (focus) a.interviewFocus = focus;
+    if (signal.aborted) throw cancelled();
     // Pasted with no link: company and role are only known now. If she already checked this
     // position, ask before saving over it (saving would update that row, not add a second one).
     if (!force && updateId === undefined && !looksLikeUrl(link)) {
@@ -236,31 +259,25 @@ export default function NewJobDialog({
         return;
       }
     }
+    if (signal.aborted) throw cancelled();
     setStep("Saving it...");
-    setApp(await saveAnalyzedJob(a, updateId));
+    timer.start("save");
+    const saved = await saveAnalyzedJob(a, updateId);
+    timer.end("save");
+    setApp(saved);
     setAnalysis(a);
+    setTiming(timer.snapshot());
   };
 
-  /** "Check anyway" on the early-read offer: the same check as without an early read. */
-  const checkAnyway = async () => {
-    if (!skipAsk || step) return;
-    const { text, link, earlyP } = skipAsk;
-    setSkipAsk(null);
-    setStep("Scoring the job...");
-    try {
-      await finishCheck(text, link, earlyP, false);
-    } catch (e) {
-      setError({ message: e instanceof Error ? e.message : String(e), needsKey: e instanceof AIError && e.kind === "no_key" });
-    } finally {
-      setStep(null);
-    }
-  };
+  /** "Check anyway" on the early-read offer: Claude's check is already running, so just close the offer. */
+  const checkAnyway = () => setSkipAsk(null);
 
-  /** "Skip" on the early-read offer: remember it as not applying, with no Claude call. */
+  /** "Skip" on the early-read offer: stop Claude's call and remember the job as not applying. */
   const skipForNow = async () => {
-    if (!skipAsk || step) return;
+    if (!skipAsk || skipping) return;
     const { text, link, reason } = skipAsk;
-    setStep("Saving it...");
+    setSkipping(true);
+    runRef.current?.abort();
     try {
       await saveEarlySkip({ url: link, jdText: text, reason });
       setSkipAsk(null);
@@ -268,7 +285,7 @@ export default function NewJobDialog({
     } catch (e) {
       setError({ message: e instanceof Error ? e.message : String(e), needsKey: false });
     } finally {
-      setStep(null);
+      setSkipping(false);
     }
   };
 
@@ -358,6 +375,11 @@ export default function NewJobDialog({
             </div>
           )}
           <ScoreCard result={toStoredBreakdown(live)} posted={postedLabel(postedAge(live.signals, app.createdAt, Date.now()))} />
+          {timing && (
+            <p className="-mt-2 text-xs text-muted" title={timingBreakdown(timing)}>
+              {checkedInLabel(timing)}
+            </p>
+          )}
           <MustHavesPanel onChange={setPrefs} />
           <div>
             <h3 className="mb-2 font-semibold tracking-tight">Tailored resume</h3>
@@ -432,10 +454,10 @@ export default function NewJobDialog({
               <p className="font-semibold tracking-display">Early read: this looks like Not a fit for you ({skipAsk.reason}).</p>
               <p className="mt-1 text-sm text-muted">Skip the full check? Nothing is skipped unless you choose Skip.</p>
               <div className="mt-3 flex flex-wrap gap-2">
-                <Button onClick={skipForNow} disabled={step !== null}>
+                <Button onClick={skipForNow} disabled={skipping}>
                   Skip
                 </Button>
-                <Button variant="secondary" onClick={checkAnyway} disabled={step !== null}>
+                <Button variant="secondary" onClick={checkAnyway} disabled={skipping}>
                   Check anyway
                 </Button>
               </div>

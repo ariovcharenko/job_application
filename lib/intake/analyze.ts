@@ -186,9 +186,10 @@ export async function analyzeJob(
   masterProfile: string,
   today: string,
   profile: AssessContext["profile"] = null,
+  opts: { signal?: AbortSignal } = {},
 ): Promise<JobAnalysis> {
   const jdText = input.jdText.trim() || (await readJobPosting(provider, input.url));
-  const [signals, geo] = await Promise.all([extractJobSignals(provider, jdText, today), loadGeo()]);
+  const [signals, geo] = await Promise.all([extractJobSignals(provider, jdText, today, opts), loadGeo()]);
   return { url: input.url.trim(), jdText, signals, ...assessJob(signals, prefs, masterProfile, jdText, { profile, geo }) };
 }
 
