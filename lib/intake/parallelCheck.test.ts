@@ -3,7 +3,7 @@ import { AIError } from "../ai/provider";
 import type { EarlyRead } from "./earlyRead";
 import { startParallelCheck } from "./parallelCheck";
 
-const READ: EarlyRead = { noSponsor: 0.99, noOpt: 0, citizenOrClearance: 0, workStyle: null, interviewFocus: null };
+const READ: EarlyRead = { noSponsor: 0.99, noOpt: 0, citizenOrClearance: 0, workStyle: null, level: null, degree: null, interviewFocus: null };
 const OFFER = { reason: "won't sponsor" };
 
 /** A fake Claude check that takes `ms` and rejects with "cancelled" when aborted. */

@@ -228,7 +228,7 @@ export default function NewJobDialog({
       const run = startParallelCheck<void>({
         check: (signal) => finishCheck(text, link, earlyP, force, signal, timer),
         early: earlyP,
-        offerFor: (r) => skipOffer(r, mustHaves, candidate),
+        offerFor: (r) => skipOffer(r, mustHaves, candidate, prefs ?? current),
         // Claude is still running: offer the skip. Nothing is skipped without her click.
         onOffer: (offer) => setSkipAsk({ text, link, reason: offer.reason }),
       });
@@ -478,7 +478,7 @@ export default function NewJobDialog({
             </div>
           )}
           {quick && !skipAsk && step && <QuickResultCard result={quick} />}
-          {early && !quick && !skipAsk && step && prefs && <EarlyReadPills read={early} mustHaves={prefs.mustHaves} />}
+          {early && !quick && !skipAsk && step && prefs && <EarlyReadPills read={early} mustHaves={prefs.mustHaves} candidate={profile ? candidateFacts(profile) : undefined} experienceLevel={prefs.experienceLevel} />}
           <div aria-live="polite">{step && <Spinner label={step} />}</div>
           {error && (
             <Notice kind="error">

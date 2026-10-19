@@ -1,6 +1,8 @@
 import { callJev, choice, noul, type JevOptions, type JevQuestion, type JevResult } from "../ai/jev";
 import type { CandidateFacts } from "../eligibility/candidate";
-import type { MustHaves } from "../types";
+import { DEGREE_LABEL, evaluateDegree } from "../eligibility/degree";
+import { evaluateExperience } from "../eligibility/experience";
+import type { ExperienceLevel, MustHaves } from "../types";
 
 // The "early read": a fast, optional first look at a posting from Jev (lib/ai/jev.ts), shown
 // while Claude's full check runs. It is a hint only:
@@ -26,16 +28,27 @@ export const SKIP_NOUL_MIN = 0.9;
  */
 export const CHOICE_CONFIDENCE_MIN = 0.7;
 
+/**
+ * A "senior" level read can offer a skip only at this higher bar (same as the noul ones): a
+ * wrong skip offer costs a click, but the early "not a fit" is the most consequential thing this
+ * feature says, and Jev reads titles and wording, never counts years.
+ */
+export const LEVEL_SKIP_MIN = 0.9;
+
 export const INTERVIEW_FOCUS = ["coding", "system_design", "behavioral", "mixed"] as const;
 export type InterviewFocus = (typeof INTERVIEW_FOCUS)[number];
 export const INTERVIEW_LABEL: Record<InterviewFocus, string> = { coding: "coding", system_design: "system design", behavioral: "behavioral", mixed: "a mix of coding, design and behavioral" };
+export const LEVELS = ["intern", "new_grad_entry", "mid", "senior"] as const;
+export type JobLevel = (typeof LEVELS)[number];
+export const JEV_DEGREES = ["bachelors", "masters", "phd"] as const;
+export type JevDegree = (typeof JEV_DEGREES)[number];
 type WorkStyle = "remote" | "hybrid" | "onsite";
 
 /** Longest text sent: Jev is documented to do worse with long, unfocused text. */
 export const EARLY_READ_MAX_CHARS = 5000;
 
 const RELEVANT =
-  /visa|sponsor|work authori[sz]|authori[sz]ed to work|eligib|citizen|clearance|green card|\bOPT\b|\bCPT\b|immigration|remote|hybrid|on-?site|in[- ]office|days (a|per) week|interview|coding|algorithm|system design|whiteboard|assessment|screen/i;
+  /visa|sponsor|work authori[sz]|authori[sz]ed to work|eligib|citizen|clearance|green card|\bOPT\b|\bCPT\b|immigration|remote|hybrid|on-?site|in[- ]office|days (a|per) week|bachelor|master|ph\.?d|degree|senior|staff|principal|junior|entry|new grad|graduate|intern|years of|interview|coding|algorithm|system design|whiteboard|assessment|screen/i;
 
 /**
  * Trims a posting to what the early questions need: whitespace collapsed, and if it is long, its
@@ -70,6 +83,21 @@ export const EARLY_QUESTIONS: Record<string, JevQuestion> = {
     hybrid: "Some days in an office and some days remote",
     onsite: "The job is done on site, in an office",
   }),
+  // Jev reads wording and titles; it is never asked for a number of years (it can't count).
+  level: choice("What level is the role, going by its title and wording?", {
+    not_stated: "The posting does not make the level clear",
+    intern: "An internship or co-op",
+    new_grad_entry: "New grad, entry level, early career, or 0-2 years",
+    mid: "Mid level",
+    senior: "Senior, staff, lead or principal",
+  }),
+  // Required vs preferred is easy to mix up, so this answer is only ever a warning (see degreeWarning).
+  degree: choice("What is the highest degree the posting mentions?", {
+    not_stated_or_none: "No degree is required, or it says a degree or equivalent experience",
+    bachelors: "A bachelor's degree",
+    masters: "A master's degree",
+    phd: "A PhD or doctorate",
+  }),
   interviewFocus: choice("What will the interview mainly test, according to the posting?", {
     not_stated: "The posting does not describe the interview",
     coding: "Writing code or solving algorithm problems",
@@ -85,6 +113,8 @@ export interface EarlyRead {
   noOpt: number;
   citizenOrClearance: number;
   workStyle: { value: WorkStyle; confidence: number } | null;
+  level: { value: JobLevel; confidence: number } | null;
+  degree: { value: JevDegree; confidence: number } | null;
   interviewFocus: { value: InterviewFocus; confidence: number } | null;
 }
 
@@ -104,6 +134,8 @@ export function toEarlyRead(r: JevResult): EarlyRead {
     noOpt: n("noOpt"),
     citizenOrClearance: n("citizenOrClearance"),
     workStyle: c<WorkStyle>("workStyle", ["remote", "hybrid", "onsite"]),
+    level: c<JobLevel>("level", LEVELS),
+    degree: c<JevDegree>("degree", JEV_DEGREES),
     interviewFocus: c<InterviewFocus>("interviewFocus", INTERVIEW_FOCUS),
   };
 }
@@ -118,6 +150,31 @@ export async function runEarlyRead(jevKey: string | undefined, jdText: string, o
   }
 }
 
+/**
+ * A confident level fail, by the same rules as the checklist (lib/eligibility/experience.ts).
+ * Only "senior" at LEVEL_SKIP_MIN counts: it is stated as a title word, so Jev's read is reliable.
+ * "Mid" is never a fail (the checklist calls it unclear), "new grad" and "intern" never skip here
+ * (internship wording can appear in a full-time posting), and years are never involved.
+ */
+export function levelFail(read: EarlyRead, mustHaves: MustHaves, level: ExperienceLevel | undefined): { reason: string } | null {
+  const l = read.level;
+  if (!mustHaves.experience || !level || !l || l.value !== "senior" || l.confidence < LEVEL_SKIP_MIN) return null;
+  const r = evaluateExperience({ role: "", seniority: "Senior", minYearsExperience: -1 }, level);
+  return r.status === "fail" ? { reason: "is a senior role, above your level" } : null;
+}
+
+/**
+ * A degree heads-up, never a fail or a skip. Jev can't reliably tell "required" from "preferred",
+ * and a preference must not turn into a rejection, so this only says "check the degree" when Jev
+ * reads a master's or PhD (confidence >= 0.7), her degree is known and lower, and the degree
+ * must-have is on.
+ */
+export function degreeWarning(read: EarlyRead, mustHaves: MustHaves, candidate: CandidateFacts): string | null {
+  const d = read.degree;
+  if (!mustHaves.degree || !d || d.confidence < CHOICE_CONFIDENCE_MIN || candidate.degreeLevel === "unknown") return null;
+  return evaluateDegree(d.value, candidate.degreeLevel).status === "fail" ? `It may ask for ${DEGREE_LABEL[d.value]}. Check whether that is required.` : null;
+}
+
 export interface SkipOffer {
   /** Short reason in plain words, for the prompt and the saved note. */
   reason: string;
@@ -129,7 +186,7 @@ export interface SkipOffer {
  * lib/scoring/criteria.ts), and only when Jev is at least SKIP_NOUL_MIN sure. It is an offer:
  * nothing is skipped without her click.
  */
-export function skipOffer(read: EarlyRead, mustHaves: MustHaves, candidate: CandidateFacts): SkipOffer | null {
+export function skipOffer(read: EarlyRead, mustHaves: MustHaves, candidate: CandidateFacts, prefs: { experienceLevel?: ExperienceLevel } = {}): SkipOffer | null {
   if (mustHaves.workAuth) {
     if (read.noSponsor >= SKIP_NOUL_MIN && candidate.needsSponsorship) return { reason: "won't sponsor" };
     if (read.noOpt >= SKIP_NOUL_MIN && candidate.onStudentVisa) return { reason: "excludes OPT or future sponsorship" };
@@ -138,6 +195,8 @@ export function skipOffer(read: EarlyRead, mustHaves: MustHaves, candidate: Cand
     if (mustHaves.clearance) return { reason: "needs citizenship or a security clearance" };
     if (mustHaves.workAuth && candidate.visaStatusSet && !candidate.isCitizen) return { reason: "needs U.S. citizenship" };
   }
+  const lf = levelFail(read, mustHaves, prefs.experienceLevel);
+  if (lf) return { reason: lf.reason };
   return null;
 }
 
@@ -154,7 +213,7 @@ export interface EarlyPill {
 }
 
 /** Muted pills for the must-haves she has on, while Claude's check runs. Never a green check. */
-export function earlyPills(read: EarlyRead, mustHaves: MustHaves): EarlyPill[] {
+export function earlyPills(read: EarlyRead, mustHaves: MustHaves, candidate?: CandidateFacts, prefs: { experienceLevel?: ExperienceLevel } = {}): EarlyPill[] {
   const pills: EarlyPill[] = [];
   if (mustHaves.workAuth) {
     const flags = [read.noSponsor >= SKIP_NOUL_MIN && "won't sponsor", read.noOpt >= SKIP_NOUL_MIN && "excludes OPT", read.citizenOrClearance >= SKIP_NOUL_MIN && "citizenship"].filter(Boolean);
@@ -165,6 +224,13 @@ export function earlyPills(read: EarlyRead, mustHaves: MustHaves): EarlyPill[] {
   }
   if (mustHaves.location && read.workStyle && read.workStyle.confidence >= CHOICE_CONFIDENCE_MIN) {
     pills.push({ label: `Work style: ${read.workStyle.value === "onsite" ? "on site" : read.workStyle.value}`, tone: "quiet" });
+  }
+  if (mustHaves.experience) {
+    pills.push(levelFail(read, mustHaves, prefs.experienceLevel) ? { label: "Level: senior role", tone: "flag" } : { label: "Level: nothing found yet", tone: "quiet" });
+  }
+  if (mustHaves.degree) {
+    const w = candidate ? degreeWarning(read, mustHaves, candidate) : null;
+    pills.push({ label: w ? "Degree: check the requirement" : "Degree: nothing found yet", tone: "quiet" });
   }
   return pills;
 }

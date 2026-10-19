@@ -10,7 +10,7 @@ import { EARLY_QUESTIONS, earlyPills, interviewFocusOf, runEarlyRead, skipOffer,
 const ON = { ...DEFAULT_PREFERENCES.mustHaves, workAuth: true, clearance: true };
 const OFF = { ...ON, workAuth: false, clearance: false };
 const NEEDS: CandidateFacts = { ...UNKNOWN_CANDIDATE, sponsorship: "yes", needsSponsorship: true, onStudentVisa: true, visaStatusSet: true };
-const read = (o: Partial<EarlyRead> = {}): EarlyRead => ({ noSponsor: 0, noOpt: 0, citizenOrClearance: 0, workStyle: null, interviewFocus: null, ...o });
+const read = (o: Partial<EarlyRead> = {}): EarlyRead => ({ noSponsor: 0, noOpt: 0, citizenOrClearance: 0, workStyle: null, level: null, degree: null, interviewFocus: null, ...o });
 
 describe("trimForEarlyRead", () => {
   it("keeps short text whole and caps long text, keeping the relevant paragraphs", () => {
@@ -27,7 +27,7 @@ describe("questions", () => {
   it("are short, positive and well-formed", () => {
     expect(EARLY_QUESTIONS.noSponsor.type).toBe("noul");
     expect(Object.keys((EARLY_QUESTIONS.workStyle as { criteria: object }).criteria)[0]).toBe("not_stated");
-    expect(Object.keys(EARLY_QUESTIONS)).toHaveLength(5);
+    expect(Object.keys(EARLY_QUESTIONS)).toHaveLength(7);
   });
 });
 
@@ -42,7 +42,7 @@ describe("toEarlyRead", () => {
         interviewFocus: { type: "choice", choice: "made_up", confidence: 0.9, probabilities: {} },
       },
     });
-    expect(r).toEqual({ noSponsor: 0.95, noOpt: 0, citizenOrClearance: 0, workStyle: { value: "hybrid", confidence: 0.8 }, interviewFocus: null });
+    expect(r).toEqual({ noSponsor: 0.95, noOpt: 0, citizenOrClearance: 0, workStyle: { value: "hybrid", confidence: 0.8 }, level: null, degree: null, interviewFocus: null });
   });
 });
 
@@ -77,7 +77,7 @@ describe("earlyPills", () => {
   it("never shows a pass: nothing found is quiet, a flag only at 0.9+", () => {
     expect(earlyPills(read(), ON).every((p) => p.tone === "quiet")).toBe(true);
     expect(earlyPills(read({ noSponsor: 0.95 }), ON)[0]).toMatchObject({ tone: "flag", label: expect.stringContaining("sponsor") });
-    expect(earlyPills(read(), OFF)).toEqual([]);
+    expect(earlyPills(read(), { ...OFF, experience: false, degree: false, location: false })).toEqual([]);
   });
 });
 
@@ -97,7 +97,7 @@ describe("runEarlyRead", () => {
     const f = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ model: "m", answers: { noSponsor: { type: "noul", noul: 0.2 } } })));
     const r = await runEarlyRead("k-123456789", "We offer hybrid work.", { fetch: f as unknown as typeof fetch, sleep: async () => {} });
     expect(f).toHaveBeenCalledTimes(1);
-    expect(Object.keys(JSON.parse(f.mock.calls[0][1].body).questions)).toHaveLength(5);
+    expect(Object.keys(JSON.parse(f.mock.calls[0][1].body).questions)).toHaveLength(7);
     expect(r?.noSponsor).toBe(0.2);
   });
 });
@@ -126,5 +126,44 @@ describe("saveEarlySkip", () => {
     const again = await saveEarlySkip({ url: "https://boards.greenhouse.io/acme/jobs/1?utm_source=x", jdText: "a", reason: "r2" });
     expect(again).toBe(id);
     expect(await db.applications.count()).toBe(1);
+  });
+});
+
+describe("level and degree questions", () => {
+  it("put the safe option first and never ask for years", () => {
+    const level = EARLY_QUESTIONS.level as { criteria: Record<string, string> };
+    const degree = EARLY_QUESTIONS.degree as { criteria: Record<string, string> };
+    expect(Object.keys(level.criteria)).toEqual(["not_stated", "intern", "new_grad_entry", "mid", "senior"]);
+    expect(Object.keys(degree.criteria)).toEqual(["not_stated_or_none", "bachelors", "masters", "phd"]);
+    expect(JSON.stringify(EARLY_QUESTIONS.level)).not.toMatch(/how many years/i);
+  });
+  it("parses typed answers, treating not_stated and unknown labels as no signal", () => {
+    const ans = (choice: string, confidence = 0.9) => ({ type: "choice" as const, choice, confidence, probabilities: {} });
+    const r = toEarlyRead({ model: "m", answers: { level: ans("senior", 0.95), degree: ans("masters", 0.8) } });
+    expect(r.level).toEqual({ value: "senior", confidence: 0.95 });
+    expect(r.degree).toEqual({ value: "masters", confidence: 0.8 });
+    const none = toEarlyRead({ model: "m", answers: { level: ans("not_stated"), degree: ans("not_stated_or_none") } });
+    expect(none.level).toBeNull();
+    expect(none.degree).toBeNull();
+  });
+});
+
+describe("level skip offer, degree warning and pills", () => {
+  const lv = (confidence: number) => read({ level: { value: "senior", confidence } });
+  const NEW_GRAD = { experienceLevel: "new-grad" as const };
+  it("offers a skip for a confident senior posting only", () => {
+    expect(skipOffer(lv(0.95), ON, UNKNOWN_CANDIDATE, NEW_GRAD)?.reason).toMatch(/senior/);
+    expect(skipOffer(lv(0.85), ON, UNKNOWN_CANDIDATE, NEW_GRAD)).toBeNull();
+    expect(skipOffer(lv(0.95), ON, UNKNOWN_CANDIDATE)).toBeNull();
+    expect(skipOffer(read({ level: { value: "mid", confidence: 1 } }), ON, UNKNOWN_CANDIDATE, NEW_GRAD)).toBeNull();
+  });
+  it("shows a level flag and a degree note without ever offering a skip for degree", () => {
+    const bachelors = { ...UNKNOWN_CANDIDATE, degreeLevel: "bachelors" as const };
+    const r = read({ level: { value: "senior", confidence: 0.95 }, degree: { value: "phd", confidence: 0.99 } });
+    const pills = earlyPills(r, ON, bachelors, NEW_GRAD);
+    expect(pills.find((p) => p.label.startsWith("Level"))).toEqual({ label: "Level: senior role", tone: "flag" });
+    expect(pills.find((p) => p.label.startsWith("Degree"))?.tone).toBe("quiet");
+    expect(pills.find((p) => p.label.startsWith("Degree"))?.label).toMatch(/check/);
+    expect(skipOffer(read({ degree: { value: "phd", confidence: 1 } }), ON, bachelors, NEW_GRAD)).toBeNull();
   });
 });

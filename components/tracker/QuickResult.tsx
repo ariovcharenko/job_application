@@ -26,6 +26,11 @@ export default function QuickResult({ result }: { result: Quick | null }) {
           {result.headline.summary && <p className="mt-1 text-[13px] text-muted">{result.headline.summary}</p>}
         </>
       )}
+      {result.warnings.map((w) => (
+        <p key={w} className="mt-1 text-[13px] text-muted">
+          Degree: {w}
+        </p>
+      ))}
       <div className="mt-3 flex items-center gap-2 text-[13px] text-muted">
         <span className="relative h-1 w-16 overflow-hidden rounded-full bg-black/10" aria-hidden="true">
           <span className="absolute inset-y-0 w-1/3 animate-pulse rounded-full bg-black/30" />

@@ -1,13 +1,14 @@
 import { earlyPills } from "@/lib/intake/earlyRead";
 import type { EarlyRead } from "@/lib/intake/earlyRead";
-import type { MustHaves } from "@/lib/types";
+import type { CandidateFacts } from "@/lib/eligibility/candidate";
+import type { ExperienceLevel, MustHaves } from "@/lib/types";
 
 /**
  * The instant "Early read" from Jev, shown on the must-haves while Claude's check runs. Muted and
  * dashed on purpose: it is a hint, not a result, and it disappears when the real check arrives.
  */
-export default function EarlyReadPills({ read, mustHaves }: { read: EarlyRead; mustHaves: MustHaves }) {
-  const pills = earlyPills(read, mustHaves);
+export default function EarlyReadPills({ read, mustHaves, candidate, experienceLevel }: { read: EarlyRead; mustHaves: MustHaves; candidate?: CandidateFacts; experienceLevel?: ExperienceLevel }) {
+  const pills = earlyPills(read, mustHaves, candidate, { experienceLevel });
   if (!pills.length) return null;
   return (
     <div className="mt-4" role="status" aria-label="Early read">
