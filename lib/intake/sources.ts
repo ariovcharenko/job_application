@@ -26,7 +26,8 @@ export type LinkPlan =
   /** A site she should not scrape or that we can't read: no request is made. */
   | { kind: "paste"; site: string; message: string; url: string }
   | { kind: "direct"; source: DirectSource; url: string; org: string; id: string; eu?: boolean }
-  | { kind: "fetch"; url: string };
+  /** scriptOnly: a career site whose page is built with JavaScript (Workday, Apple); only the posting reader can get anything from it. */
+  | { kind: "fetch"; url: string; scriptOnly?: string };
 
 const PASTE = " Paste the description instead.";
 
@@ -85,11 +86,24 @@ export function isBlockedBoardHost(host: string): boolean {
   return BOARDS.some((b) => b.re.test(h));
 }
 
-/** Career sites that build the page with JavaScript, so no link reader can see the posting. */
+/** Career sites that build the page with JavaScript, so Claude's link reader sees only a shell. The posting reader (JSON-LD) is tried first. */
 const SCRIPT_ONLY: { re: RegExp; site: string }[] = [
   { re: /\.myworkdayjobs\.com$|\.myworkdaysite\.com$/, site: "Workday" },
   { re: /^jobs\.apple\.com$/, site: "Apple" },
 ];
+
+/** What she is told when a script-only site's posting could not be read from its page data either. */
+export function scriptOnlyMessage(site: string): string {
+  return `${site} pages load with JavaScript, so the app can't read them.${PASTE}`;
+}
+
+/** The posting was read and it is closed or filled: not something pasting would fix. */
+export class ClosedPostingError extends AIError {
+  constructor(message = "This posting looks closed or filled.") {
+    super("fetch_failed", message);
+    this.name = "ClosedPostingError";
+  }
+}
 
 const strip = (s: string) => s.replace(/\/+$/, "");
 
@@ -118,11 +132,7 @@ export function planLink(raw: string): LinkPlan {
       };
     }
   }
-  for (const s of SCRIPT_ONLY) {
-    if (s.re.test(host)) {
-      return { kind: "paste", site: s.site, url: href, message: `${s.site} pages load with JavaScript, so the app can't read them.${PASTE}` };
-    }
-  }
+  const scriptOnly = SCRIPT_ONLY.find((s) => s.re.test(host))?.site;
 
   // Greenhouse: boards.greenhouse.io/{board}/jobs/{id}, job-boards.greenhouse.io/..., and the embed form.
   if (/^(boards|job-boards)\.greenhouse\.io$/.test(host)) {
@@ -154,7 +164,7 @@ export function planLink(raw: string): LinkPlan {
     if (m) return { kind: "direct", source: "smartrecruiters", url: href, org: parts[0], id: m[1] };
   }
 
-  return { kind: "fetch", url: href };
+  return scriptOnly ? { kind: "fetch", url: href, scriptOnly } : { kind: "fetch", url: href };
 }
 
 /** A link in its canonical form for comparing postings: redirects unwrapped, /apply suffixes removed. */

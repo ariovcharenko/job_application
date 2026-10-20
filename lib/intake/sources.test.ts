@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { canonicalPostingUrl, DIRECT_API_HOSTS, htmlToText, planLink, postingText, readDirectPosting, unwrapRedirect, type LinkPlan } from "./sources";
+import { canonicalPostingUrl, DIRECT_API_HOSTS, htmlToText, planLink, postingText, readDirectPosting, scriptOnlyMessage, unwrapRedirect, type LinkPlan } from "./sources";
 
 // All postings here are made up (Brightloop is a fictional company).
 const BODY = "We are hiring a software engineer to build tools for teams. You will write code, review designs and ship features. ".repeat(4);
@@ -56,11 +56,11 @@ describe("planLink", () => {
     expect((planLink("https://www.linkedin.com/jobs/view/1") as { message: string }).message).toMatch(/company's own careers page/);
   });
 
-  it("says why Workday and Apple pages can't be read", () => {
-    expect((planLink("https://brightloop.wd5.myworkdayjobs.com/en-US/Careers/job/Remote/Engineer_R1") as { message: string }).message).toBe(
-      "Workday pages load with JavaScript, so the app can't read them. Paste the description instead.",
-    );
-    expect(planLink("https://jobs.apple.com/en-us/details/200000000/software-engineer")).toMatchObject({ kind: "paste", site: "Apple" });
+  it("marks Workday and Apple as script-only but still readable by the posting reader", () => {
+    expect(planLink("https://brightloop.wd5.myworkdayjobs.com/en-US/Careers/job/Remote/Engineer_R1")).toMatchObject({ kind: "fetch", scriptOnly: "Workday" });
+    expect(planLink("https://jobs.apple.com/en-us/details/200000000/software-engineer")).toMatchObject({ kind: "fetch", scriptOnly: "Apple" });
+    expect(planLink("https://brightloop.example/careers/1")).not.toHaveProperty("scriptOnly");
+    expect(scriptOnlyMessage("Workday")).toBe("Workday pages load with JavaScript, so the app can't read them. Paste the description instead.");
   });
 
   it("rejects text that is not a link", () => {

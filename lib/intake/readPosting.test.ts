@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { AIError, type AIProvider } from "../ai/provider";
 import { NOT_A_POSTING_MESSAGE, readJobPosting } from "./analyze";
+import { ClosedPostingError } from "./sources";
 
 // The fallback chain for a link, with every network and AI call mocked. Postings are made up.
 const POSTING = (
@@ -37,7 +38,7 @@ describe("readJobPosting chain", () => {
     });
     expect(text).toContain("Brightloop is hiring");
     expect(fetchUrl).toHaveBeenCalledWith(GH);
-    expect(steps).toEqual(["Reading the posting from Greenhouse...", "Reading the page with Claude..."]);
+    expect(steps).toEqual(["Reading the posting from Greenhouse...", "Reading the posting from the company's page...", "Reading the page with Claude..."]);
   });
 
   it("a closed posting (ATS 404) stops with an explanation and costs nothing", async () => {
@@ -107,16 +108,17 @@ describe("readJobPosting chain", () => {
   it("LinkedIn, Indeed and Workday: no request of any kind, a reason and what to do", async () => {
     const fetchUrl = vi.fn();
     const fetchImpl = vi.fn();
+    const readerImpl = vi.fn();
     const cases: [string, RegExp][] = [
       ["https://www.linkedin.com/jobs/view/3912345678/?trackingId=abc", /LinkedIn needs a login.*company's own careers page/],
       ["https://www.indeed.com/viewjob?jk=abc", /Indeed blocks automated reading/],
-      ["https://brightloop.wd1.myworkdayjobs.com/en-US/Careers/job/Remote/Engineer_R1", /^Workday pages load with JavaScript, so the app can't read them\. Paste the description instead\.$/],
     ];
     for (const [u, re] of cases) {
-      await expect(readJobPosting(provider(fetchUrl), u, { fetchImpl, wait })).rejects.toMatchObject({ kind: "fetch_failed", message: expect.stringMatching(re) });
+      await expect(readJobPosting(provider(fetchUrl), u, { fetchImpl, readerImpl, wait })).rejects.toMatchObject({ kind: "fetch_failed", message: expect.stringMatching(re) });
     }
     expect(fetchUrl).not.toHaveBeenCalled();
     expect(fetchImpl).not.toHaveBeenCalled();
+    expect(readerImpl).not.toHaveBeenCalled();
   });
 
   it("a provider that can't read links says to paste", async () => {
@@ -125,5 +127,86 @@ describe("readJobPosting chain", () => {
 
   it("an invalid link is explained", async () => {
     await expect(readJobPosting(provider(vi.fn()), "nonsense ::", { wait })).rejects.toThrow(/starting with https/);
+  });
+
+  describe("posting reader step", () => {
+    const WORDS = (n: number) => Array.from({ length: n }, (_, i) => `word${i}`).join(" ");
+    const posting = (words: number) => ({ title: "Software Engineer I", company: "Brightloop", locations: ["Springfield, IL"], employmentType: "Full time", datePosted: "2026-10-01", validThrough: "", salary: "", identifier: "", descriptionText: WORDS(words) });
+    const WD = "https://brightloop.wd5.myworkdayjobs.com/en-US/Careers/job/Remote/Engineer_R1";
+    const none = (closed = false) => vi.fn(async () => ({ kind: "none" as const, closed }));
+
+    it("a posting from the reader is used: no Claude call, built text, progress step", async () => {
+      const fetchUrl = vi.fn();
+      const readerImpl = vi.fn(async () => ({ kind: "posting" as const, posting: posting(120), closed: false }));
+      const steps: string[] = [];
+      const text = await readJobPosting(provider(fetchUrl), "https://careers.brightloop.example/job/1?utm_source=x", { readerImpl, onStep: (s) => steps.push(s), wait });
+      expect(text.split("\n").slice(0, 5)).toEqual(["Software Engineer I", "Brightloop", "Location: Springfield, IL", "Employment type: Full time", "Posted: 2026-10-01"]);
+      expect(text).toContain("word119");
+      expect(fetchUrl).not.toHaveBeenCalled();
+      expect(steps).toEqual(["Reading the posting from the company's page..."]);
+    });
+
+    it("needs at least 80 words of description, otherwise Claude's reader is tried", async () => {
+      const fetchUrl = vi.fn(async (_u: string) => page(POSTING));
+      await readJobPosting(provider(fetchUrl), "https://careers.brightloop.example/job/1", { readerImpl: vi.fn(async () => ({ kind: "posting" as const, posting: posting(79), closed: false })), wait });
+      expect(fetchUrl).toHaveBeenCalledTimes(1);
+      const ok = vi.fn(async () => ({ kind: "posting" as const, posting: posting(80), closed: false }));
+      await readJobPosting(provider(fetchUrl), "https://careers.brightloop.example/job/1", { readerImpl: ok, wait });
+      expect(fetchUrl).toHaveBeenCalledTimes(1);
+    });
+
+    it("a posting that is also marked closed is used, with a quiet note", async () => {
+      const notes: string[] = [];
+      await readJobPosting(provider(vi.fn()), "https://careers.brightloop.example/job/1", { readerImpl: async () => ({ kind: "posting", posting: posting(100), closed: true }), onNote: (n) => notes.push(n), wait });
+      expect(notes).toEqual(["The page also says this job may be filled. Check before applying."]);
+    });
+
+    it("no posting and a closed page: says so, no paste prompt, no AI call", async () => {
+      const fetchUrl = vi.fn();
+      const err = await readJobPosting(provider(fetchUrl), "https://careers.brightloop.example/job/1", { readerImpl: none(true), wait }).catch((e) => e);
+      expect(err).toBeInstanceOf(ClosedPostingError);
+      expect(err.message).toBe("This posting looks closed or filled.");
+      expect(fetchUrl).not.toHaveBeenCalled();
+    });
+
+    it("no posting and not closed: falls through to Claude, then the shell check", async () => {
+      const fetchUrl = vi.fn(async (_u: string) => page(SHELL));
+      await expect(readJobPosting(provider(fetchUrl), "https://careers.brightloop.example/job/1", { readerImpl: none(), wait })).rejects.toThrow(NOT_A_POSTING_MESSAGE);
+      expect(fetchUrl).toHaveBeenCalledTimes(1);
+    });
+
+    it("Workday is read by the reader first (no upfront refusal)", async () => {
+      const readerImpl = vi.fn(async () => ({ kind: "posting" as const, posting: posting(150), closed: false }));
+      const fetchUrl = vi.fn();
+      expect(await readJobPosting(provider(fetchUrl), WD, { readerImpl, wait })).toContain("Software Engineer I");
+      expect(readerImpl).toHaveBeenCalledWith(WD);
+      expect(fetchUrl).not.toHaveBeenCalled();
+    });
+
+    it("Workday and Apple with nothing from the reader: the plain message, Claude is not asked", async () => {
+      const fetchUrl = vi.fn();
+      await expect(readJobPosting(provider(fetchUrl), WD, { readerImpl: none(), wait })).rejects.toMatchObject({ kind: "fetch_failed", message: "Workday pages load with JavaScript, so the app can't read them. Paste the description instead." });
+      await expect(readJobPosting(provider(fetchUrl), "https://jobs.apple.com/en-us/details/200000000/x", { readerImpl: none(), wait })).rejects.toThrow(/^Apple pages load with JavaScript/);
+      expect(fetchUrl).not.toHaveBeenCalled();
+    });
+
+    it("LinkedIn and Indeed never reach the reader", async () => {
+      const readerImpl = vi.fn();
+      for (const u of ["https://www.linkedin.com/jobs/view/1", "https://www.indeed.com/viewjob?jk=1"]) await expect(readJobPosting(provider(vi.fn()), u, { readerImpl, wait })).rejects.toThrow();
+      expect(readerImpl).not.toHaveBeenCalled();
+    });
+
+    it("a Greenhouse link whose API is down tries the reader before Claude", async () => {
+      const order: string[] = [];
+      const fetchUrl = vi.fn(async (_u: string) => (order.push("claude"), page(POSTING)));
+      await readJobPosting(provider(fetchUrl), GH, {
+        fetchImpl: async () => {
+          throw new TypeError("Failed to fetch");
+        },
+        readerImpl: async () => (order.push("reader"), { kind: "none", closed: false }),
+        wait,
+      });
+      expect(order).toEqual(["reader", "claude"]);
+    });
   });
 });

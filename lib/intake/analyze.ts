@@ -8,7 +8,9 @@ import { extractJobSignals, type JobSignals } from "../scoring/signals";
 import { candidateFacts, UNKNOWN_CANDIDATE, type CandidateFacts } from "../eligibility/candidate";
 import { getGeo, loadGeo, type GeoIndex } from "../geo/index";
 import type { Preferences, Profile } from "../types";
-import { planLink, readDirectPosting, SOURCE_LABEL } from "./sources";
+import { postingToText } from "./jsonLd";
+import { readViaServer, type ReaderOutcome } from "./readerClient";
+import { ClosedPostingError, planLink, readDirectPosting, scriptOnlyMessage, SOURCE_LABEL } from "./sources";
 import { decideApply, skillsMatchPercent, type ApplyDecision, type SkillsMatch } from "./decision";
 
 // Job intake: a link (read server-side by the AI provider's web fetch) or pasted text, turned
@@ -83,17 +85,28 @@ export interface ReadOptions {
   onStep?: (label: string) => void;
   /** For tests: replaces fetch for the direct ATS readers. */
   fetchImpl?: Parameters<typeof readDirectPosting>[1];
+  /** For tests: replaces the call to the app's posting reader. */
+  readerImpl?: (url: string) => Promise<ReaderOutcome>;
+  /** A quiet remark to show with the result ("The page also says this job may be filled..."). */
+  onNote?: (note: string) => void;
   /** For tests: replaces the pause before the one retry. */
   wait?: (ms: number) => Promise<void>;
 }
 
 const RETRY_PAUSE_MS = 1500;
 
+/** Fewest words of description a posting read from a page's data must have. Looser than looksLikeJobPosting: the fields are already structured. */
+export const MIN_READER_WORDS = 80;
+export const MAYBE_FILLED_NOTE = "The page also says this job may be filled. Check before applying.";
+
 /**
  * Reads a posting from its link, cheapest and most reliable way first:
  *  1. LinkedIn, Indeed, Workday and similar: no request, a plain explanation (paste instead).
  *  2. Greenhouse, Lever, Ashby, SmartRecruiters: their public JSON, read here for free.
- *  3. Anything else: the AI provider's web fetch, with one retry on a transient failure.
+ *  3. The posting reader (this app's server downloads the page and returns its schema.org JobPosting,
+ *     free, no AI): Workday, iCIMS, Phenom, SuccessFactors, Apple and most career sites. Workday and
+ *     Apple stop here if it finds nothing, since Claude's web fetch only sees their empty shell.
+ *  4. Anything else: the AI provider's web fetch, with one retry on a transient failure.
  * Whatever comes back must read like a job description (looksLikeJobPosting) or it is refused.
  * Failures that mean "paste it instead" are AIError "fetch_failed".
  */
@@ -108,6 +121,20 @@ export async function readJobPosting(provider: AIProvider, url: string, opts: Re
     if (direct) return direct.text;
     // The ATS didn't answer: fall through to the AI reader.
   }
+
+  opts.onStep?.("Reading the posting from the company's page...");
+  const read = await (opts.readerImpl ?? readViaServer)(plan.url);
+  if (read.kind === "posting") {
+    const words = read.posting.descriptionText.split(/\s+/).filter(Boolean).length;
+    if (words >= MIN_READER_WORDS) {
+      if (read.closed) opts.onNote?.(MAYBE_FILLED_NOTE);
+      return postingToText(read.posting);
+    }
+  }
+  // The page says the job is gone and there is nothing to score: pasting would not help.
+  if (read.closed) throw new ClosedPostingError();
+  const scriptOnly = plan.kind === "fetch" ? plan.scriptOnly : undefined;
+  if (scriptOnly) throw new AIError("fetch_failed", scriptOnlyMessage(scriptOnly));
 
   if (!provider.fetchUrl) throw new AIError("fetch_failed", "This AI provider can't read links. Paste the job description instead.");
   opts.onStep?.("Reading the page with Claude...");

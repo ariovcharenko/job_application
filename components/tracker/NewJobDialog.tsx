@@ -14,7 +14,7 @@ import { loadGeo, type GeoIndex } from "@/lib/geo/index";
 import { analyzeJob, assessJob, looksLikeUrl, readJobPosting, toStoredBreakdown, type JobAnalysis } from "@/lib/intake/analyze";
 import { findExistingJob } from "@/lib/intake/dedupe";
 import { getPairingToken } from "@/lib/extension/session";
-import { planLink } from "@/lib/intake/sources";
+import { ClosedPostingError, planLink } from "@/lib/intake/sources";
 import { saveAnalyzedJob, saveEarlySkip, type SavedJob } from "@/lib/intake/save";
 import { headlineOf } from "@/lib/intake/stored";
 import { postedAge, postedLabel } from "@/lib/tracker/postedAge";
@@ -104,6 +104,8 @@ export default function NewJobDialog({
   const [url, setUrl] = useState(initialUrl);
   const [jdText, setJdText] = useState(initialJdText);
   const [step, setStep] = useState<string | null>(null);
+  /** A quiet remark from reading the posting (it may be filled). */
+  const [readNote, setReadNote] = useState<string | null>(null);
   const [error, setError] = useState<{ message: string; needsKey: boolean; extensionTip?: boolean } | null>(null);
   const [analysis, setAnalysis] = useState<JobAnalysis | null>(null);
   const [app, setApp] = useState<SavedJob | null>(null);
@@ -184,6 +186,7 @@ export default function NewJobDialog({
       }
     }
     setError(null);
+    setReadNote(null);
     setPrevious(null);
     setDuplicate(null);
     setSkipAsk(null);
@@ -209,7 +212,7 @@ export default function NewJobDialog({
       if (mode === "link") {
         setStep("Reading the job posting...");
         timer.start("read");
-        text = await readJobPosting(provider, link, { onStep: setStep });
+        text = await readJobPosting(provider, link, { onStep: setStep, onNote: setReadNote });
         timer.end("read");
       }
       // The moment the text is in hand, Claude's check and the optional Jev early read both
@@ -238,7 +241,9 @@ export default function NewJobDialog({
       // She chose Skip: the aborted check is not an error.
       if (e instanceof AIError && e.kind === "cancelled") return;
       const needsKey = e instanceof AIError && e.kind === "no_key";
-      const unreadable = e instanceof AIError && e.kind === "fetch_failed";
+      // A closed posting was read fine: pasting would not help, so stay on the link.
+      const closed = e instanceof ClosedPostingError;
+      const unreadable = e instanceof AIError && e.kind === "fetch_failed" && !closed;
       setError({ message: e instanceof Error ? e.message : String(e), needsKey, extensionTip: unreadable && extensionPaired() });
       // A page that can't be read automatically: switch to pasting, keeping the link.
       if (unreadable) setMode("paste");
@@ -450,7 +455,7 @@ export default function NewJobDialog({
             <Field label={mode === "link" ? "Job posting link" : "Job posting link (optional)"} value={url} onChange={setUrl} placeholder="https://..." />
             {mode === "paste" && <TextArea label="Job description" value={jdText} onChange={setJdText} rows={10} />}
             {mode === "link" && (
-              <p className="text-xs leading-relaxed text-muted">Greenhouse, Lever, Ashby and SmartRecruiters links are read for free. LinkedIn, Indeed and Workday pages can&apos;t be read: paste their text instead.</p>
+              <p className="text-xs leading-relaxed text-muted">Company career pages are read for free: Greenhouse, Lever, Ashby, SmartRecruiters, Workday, iCIMS, Phenom and most others. LinkedIn, Indeed and Glassdoor aren&apos;t read: use the company&apos;s own link, or paste the text.</p>
             )}
           </div>
 
@@ -480,6 +485,7 @@ export default function NewJobDialog({
           {quick && !skipAsk && step && <QuickResultCard result={quick} />}
           {early && !quick && !skipAsk && step && prefs && <EarlyReadPills read={early} mustHaves={prefs.mustHaves} candidate={profile ? candidateFacts(profile) : undefined} experienceLevel={prefs.experienceLevel} />}
           <div aria-live="polite">{step && <Spinner label={step} />}</div>
+          {readNote && <p className="mt-3 text-sm text-muted">{readNote}</p>}
           {error && (
             <Notice kind="error">
               {error.message}
