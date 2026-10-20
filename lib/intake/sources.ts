@@ -79,6 +79,12 @@ const BOARDS: { re: RegExp; site: string; tip: string }[] = [
   { re: /(^|\.)jobright\.ai$/, site: "Jobright", tip: "Jobright isn't read by the app." },
 ];
 
+/** Whether a hostname is a board the app never reads (LinkedIn, Indeed, Glassdoor, Jobright). */
+export function isBlockedBoardHost(host: string): boolean {
+  const h = host.toLowerCase().replace(/\.$/, "");
+  return BOARDS.some((b) => b.re.test(h));
+}
+
 /** Career sites that build the page with JavaScript, so no link reader can see the posting. */
 const SCRIPT_ONLY: { re: RegExp; site: string }[] = [
   { re: /\.myworkdayjobs\.com$|\.myworkdaysite\.com$/, site: "Workday" },
