@@ -187,7 +187,9 @@ function decodeEntities(s: string): string {
 /** Posting HTML as plain text with paragraph and list breaks kept. Never builds DOM, so nothing in it can run. */
 export function htmlToText(input: string): string {
   // Greenhouse sends its HTML entity-escaped ("&lt;p&gt;"): unescape first, so the tags can be removed.
-  const html = /<[a-z!/]/i.test(input) ? input : decodeEntities(input);
+  // JSON-LD descriptions are often escaped, or escaped twice inside real tags: if any escaped tag is
+  // present, decode first so every tag can be removed.
+  const html = /<[a-z!/]/i.test(input) && !/&lt;\/?[a-z!]/i.test(input) ? input : decodeEntities(input);
   return decodeEntities(
     html
       .replace(/<(script|style)[\s\S]*?<\/\1>/gi, "")
