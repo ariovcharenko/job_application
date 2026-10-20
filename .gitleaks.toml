@@ -1,0 +1,12 @@
+# Secrets scan config (used by .github/workflows/ci.yml). Default rules, plus an allowlist for
+# test files, which use obviously fake keys such as "sk-ant-SECRET" to prove keys never leak.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures with fake keys; the extension manifest's public key (it only fixes the extension ID, not a secret)"
+paths = [
+  '''(^|/)[^/]*\.test\.tsx?$''',
+  '''(^|/)__fixtures__/''',
+  '''^extension/manifest\.json$''',
+]
