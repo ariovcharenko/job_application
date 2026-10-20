@@ -192,7 +192,9 @@ const CLOSED_PHRASES = [
 
 /** Whether a page's visible text says the posting is gone. Pass the page's visible text, not its HTML. */
 export function closedSignal(visible: string): boolean {
-  return CLOSED_PHRASES.some((re) => re.test(visible));
+  // "This posting will remain open until the position is filled" is boilerplate in live postings.
+  const text = visible.replace(/\b(until|till|when|once|after|before|unless|if|whenever|as soon as|so long as)\b[^.\n]{0,60}\b(filled|closed|expired|removed|no longer)\b/gi, " ");
+  return CLOSED_PHRASES.some((re) => re.test(text));
 }
 
 /** The posting as plain text for scoring: heading lines, then the description. */

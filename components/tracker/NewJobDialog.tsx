@@ -455,7 +455,7 @@ export default function NewJobDialog({
             <Field label={mode === "link" ? "Job posting link" : "Job posting link (optional)"} value={url} onChange={setUrl} placeholder="https://..." />
             {mode === "paste" && <TextArea label="Job description" value={jdText} onChange={setJdText} rows={10} />}
             {mode === "link" && (
-              <p className="text-xs leading-relaxed text-muted">Company career pages are read for free: Greenhouse, Lever, Ashby, SmartRecruiters, Workday, iCIMS, Phenom and most others. LinkedIn, Indeed and Glassdoor aren&apos;t read: use the company&apos;s own link, or paste the text.</p>
+              <p className="text-xs leading-relaxed text-muted">Most company career pages are read for free, including Greenhouse, Lever, Ashby, SmartRecruiters, Workday, iCIMS and Phenom. LinkedIn, Indeed and Glassdoor aren&apos;t read: use the company&apos;s own link, or paste the text.</p>
             )}
           </div>
 

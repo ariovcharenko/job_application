@@ -107,7 +107,7 @@ export default function PrivacyPage() {
             public job listing APIs (the request contains only the posting&apos;s address and no key).
           </p>
           <p className="mt-2">
-            For other company career sites (Workday, iCIMS, Phenom, SuccessFactors and most others), the job link, and only the link, goes to
+            For other company career sites (Workday, iCIMS, Phenom and most others), the job link, and only the link, goes to
             this app&apos;s server, which downloads that public page and sends back just the job details found in it (title, company, place,
             description). Nothing is stored or logged, no key or cookie is involved, and the server never opens private or internal addresses.
             If that finds nothing, Anthropic&apos;s servers open the page (their web fetch tool) and read it.

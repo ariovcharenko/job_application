@@ -3,7 +3,12 @@ import https from "node:https";
 import net from "node:net";
 import { Readable } from "node:stream";
 import zlib from "node:zlib";
-import { closedSignal, extractJobPosting, visibleText, type JobPostingData } from "./jsonLd";
+import {
+  closedSignal,
+  extractJobPosting,
+  visibleText,
+  type JobPostingData,
+} from "./jsonLd";
 import { isBlockedBoardHost } from "./sources";
 
 // Server side of the posting reader (app/api/read-posting/route.ts). Fetches one public https page
@@ -11,7 +16,16 @@ import { isBlockedBoardHost } from "./sources";
 // downloads whatever address it is given, every step here exists to keep that from reaching
 // anything but the public internet. Server only: it imports node modules.
 
-export type ReaderErrorKind = "bad_url" | "blocked_host" | "private_address" | "not_html" | "too_large" | "timeout" | "network" | "http_error" | "no_posting";
+export type ReaderErrorKind =
+  | "bad_url"
+  | "blocked_host"
+  | "private_address"
+  | "not_html"
+  | "too_large"
+  | "timeout"
+  | "network"
+  | "http_error"
+  | "no_posting";
 
 export class ReaderError extends Error {
   constructor(
@@ -28,7 +42,8 @@ export const MAX_URL_LENGTH = 2048;
 export const MAX_REDIRECTS = 3;
 export const MAX_BYTES = 3 * 1024 * 1024;
 export const TOTAL_TIMEOUT_MS = 8000;
-export const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+export const USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
 // ---------------------------------------------------------------------------------------------
 // Addresses
@@ -65,7 +80,11 @@ function ipv6Groups(ip: string): number[] | null {
   if (tail) {
     const v4 = ipv4Parts(tail[1]);
     if (!v4) return null;
-    s = s.slice(0, s.length - tail[1].length) + ((v4[0] << 8) | v4[1]).toString(16) + ":" + ((v4[2] << 8) | v4[3]).toString(16);
+    s =
+      s.slice(0, s.length - tail[1].length) +
+      ((v4[0] << 8) | v4[1]).toString(16) +
+      ":" +
+      ((v4[2] << 8) | v4[3]).toString(16);
   }
   const halves = s.split("::");
   if (halves.length > 2) return null;
@@ -74,7 +93,8 @@ function ipv6Groups(ip: string): number[] | null {
   const fill = halves.length === 2 ? 8 - head.length - rest.length : 0;
   if (fill < 0 || (halves.length === 1 && head.length !== 8)) return null;
   const all = [...head, ...Array<string>(fill).fill("0"), ...rest];
-  if (all.length !== 8 || !all.every((g) => /^[0-9a-f]{1,4}$/.test(g))) return null;
+  if (all.length !== 8 || !all.every((g) => /^[0-9a-f]{1,4}$/.test(g)))
+    return null;
   return all.map((g) => parseInt(g, 16));
 }
 
@@ -84,12 +104,15 @@ export function isPrivateAddress(ip: string): boolean {
   if (v4) return privateIpv4(v4);
   const g = ipv6Groups(ip);
   if (!g) return true;
-  const embedded = (hi: number, lo: number) => privateIpv4([hi >> 8, hi & 255, lo >> 8, lo & 255]);
+  const embedded = (hi: number, lo: number) =>
+    privateIpv4([hi >> 8, hi & 255, lo >> 8, lo & 255]);
   if (g.every((x) => x === 0)) return true; // ::
   if (g.slice(0, 7).every((x) => x === 0) && g[7] === 1) return true; // ::1
-  if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) return embedded(g[6], g[7]); // ::ffff:a.b.c.d
+  if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff)
+    return embedded(g[6], g[7]); // ::ffff:a.b.c.d
   if (g.slice(0, 6).every((x) => x === 0)) return embedded(g[6], g[7]); // ::a.b.c.d (deprecated, compatible)
-  if (g[0] === 0x64 && g[1] === 0xff9b && g.slice(2, 6).every((x) => x === 0)) return embedded(g[6], g[7]); // NAT64
+  if (g[0] === 0x64 && g[1] === 0xff9b && g.slice(2, 6).every((x) => x === 0))
+    return embedded(g[6], g[7]); // NAT64
   if (g[0] === 0x2002) return embedded(g[1], g[2]); // 6to4
   if ((g[0] & 0xfe00) === 0xfc00) return true; // fc00::/7 unique local
   if ((g[0] & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
@@ -102,45 +125,76 @@ export function isPrivateAddress(ip: string): boolean {
 // ---------------------------------------------------------------------------------------------
 // URL checks
 
-const INTERNAL_SUFFIX = /\.(local|localhost|localdomain|internal|intranet|lan|home|corp|private)$/i;
+const INTERNAL_SUFFIX =
+  /\.(local|localhost|localdomain|internal|intranet|lan|home|corp|private)$/i;
 
 /** Syntax checks that need no network. Throws ReaderError, or returns the parsed URL. */
 export function validateUrl(raw: unknown): URL {
-  if (typeof raw !== "string" || raw.length === 0 || raw.length > MAX_URL_LENGTH) throw new ReaderError("bad_url", "That link is not usable.");
+  if (
+    typeof raw !== "string" ||
+    raw.length === 0 ||
+    raw.length > MAX_URL_LENGTH
+  )
+    throw new ReaderError("bad_url", "That link is not usable.");
   let url: URL;
   try {
     url = new URL(raw.trim());
   } catch {
     throw new ReaderError("bad_url", "That link is not usable.");
   }
-  if (url.protocol !== "https:") throw new ReaderError("bad_url", "Only https links can be read.");
-  if (url.username || url.password) throw new ReaderError("bad_url", "Links with a login in them can't be read.");
-  if (url.port !== "" && url.port !== "443") throw new ReaderError("bad_url", "Only the standard https port can be read.");
+  if (url.protocol !== "https:")
+    throw new ReaderError("bad_url", "Only https links can be read.");
+  if (url.username || url.password)
+    throw new ReaderError(
+      "bad_url",
+      "Links with a login in them can't be read.",
+    );
+  if (url.port !== "" && url.port !== "443")
+    throw new ReaderError(
+      "bad_url",
+      "Only the standard https port can be read.",
+    );
   const host = url.hostname.toLowerCase().replace(/\.$/, "");
   const bare = host.replace(/^\[|\]$/g, "");
   if (net.isIP(bare)) {
-    throw isPrivateAddress(bare) ? new ReaderError("private_address", "That address can't be read.") : new ReaderError("bad_url", "Use the posting's web address, not an IP number.");
+    throw isPrivateAddress(bare)
+      ? new ReaderError("private_address", "That address can't be read.")
+      : new ReaderError(
+          "bad_url",
+          "Use the posting's web address, not an IP number.",
+        );
   }
-  if (!host.includes(".")) throw new ReaderError("bad_url", "That link is not usable.");
-  if (INTERNAL_SUFFIX.test(host)) throw new ReaderError("private_address", "That address can't be read.");
-  if (isBlockedBoardHost(host)) throw new ReaderError("blocked_host", "The app doesn't read that site.");
+  if (!host.includes("."))
+    throw new ReaderError("bad_url", "That link is not usable.");
+  if (INTERNAL_SUFFIX.test(host))
+    throw new ReaderError("private_address", "That address can't be read.");
+  if (isBlockedBoardHost(host))
+    throw new ReaderError("blocked_host", "The app doesn't read that site.");
   return url;
 }
 
-export type Lookup = (hostname: string) => Promise<{ address: string; family: number }[]>;
+export type Lookup = (
+  hostname: string,
+) => Promise<{ address: string; family: number }[]>;
 
-const defaultLookup: Lookup = (hostname) => dns.lookup(hostname, { all: true, verbatim: true });
+const defaultLookup: Lookup = (hostname) =>
+  dns.lookup(hostname, { all: true, verbatim: true });
 
 /** Resolves the host and refuses if ANY of its addresses is not public. Returns the addresses. */
-export async function resolvePublic(host: string, lookup: Lookup): Promise<{ address: string; family: number }[]> {
+export async function resolvePublic(
+  host: string,
+  lookup: Lookup,
+): Promise<{ address: string; family: number }[]> {
   let addrs: { address: string; family: number }[];
   try {
     addrs = await lookup(host.replace(/^\[|\]$/g, ""));
   } catch {
     throw new ReaderError("network", "Could not find that site.");
   }
-  if (!addrs.length) throw new ReaderError("network", "Could not find that site.");
-  if (addrs.some((a) => isPrivateAddress(a.address))) throw new ReaderError("private_address", "That address can't be read.");
+  if (!addrs.length)
+    throw new ReaderError("network", "Could not find that site.");
+  if (addrs.some((a) => isPrivateAddress(a.address)))
+    throw new ReaderError("private_address", "That address can't be read.");
   return addrs;
 }
 
@@ -148,7 +202,11 @@ export async function resolvePublic(host: string, lookup: Lookup): Promise<{ add
 // Transport
 
 /** Does one GET with no redirects, connecting only to the already-checked addresses. Replaceable in tests. */
-export type Transport = (url: URL, addresses: { address: string; family: number }[], signal: AbortSignal) => Promise<Response>;
+export type Transport = (
+  url: URL,
+  addresses: { address: string; family: number }[],
+  signal: AbortSignal,
+) => Promise<Response>;
 
 /** The real transport: node https with the connection pinned to the addresses that passed the check (no second DNS lookup to swap). */
 export const httpsTransport: Transport = (url, addresses, signal) =>
@@ -162,10 +220,21 @@ export const httpsTransport: Transport = (url, addresses, signal) =>
         port: 443,
         path: url.pathname + url.search,
         method: "GET",
-        headers: { "User-Agent": USER_AGENT, Accept: "text/html,application/xhtml+xml", "Accept-Language": "en-US,en;q=0.9", "Accept-Encoding": "gzip, deflate, br" },
+        headers: {
+          "User-Agent": USER_AGENT,
+          Accept: "text/html,application/xhtml+xml",
+          "Accept-Language": "en-US,en;q=0.9",
+          "Accept-Encoding": "gzip, deflate, br",
+        },
         lookup: (_h, opts, cb) => {
           const o = opts as { all?: boolean };
-          if (o?.all) (cb as unknown as (e: null, a: { address: string; family: number }[]) => void)(null, [pinned]);
+          if (o?.all)
+            (
+              cb as unknown as (
+                e: null,
+                a: { address: string; family: number }[],
+              ) => void
+            )(null, [pinned]);
           else cb(null, pinned.address, pinned.family);
         },
         signal,
@@ -183,8 +252,16 @@ export const httpsTransport: Transport = (url, addresses, signal) =>
         else if (enc === "deflate") stream = res.pipe(zlib.createInflate());
         else if (enc === "br") stream = res.pipe(zlib.createBrotliDecompress());
         stream.on("error", () => {});
-        const noBody = status < 200 || status === 204 || status === 205 || status === 304;
-        resolve(new Response(noBody ? null : (Readable.toWeb(stream) as ReadableStream<Uint8Array>), { status: status < 200 ? 502 : status, headers }));
+        const noBody =
+          status < 200 || status === 204 || status === 205 || status === 304;
+        resolve(
+          new Response(
+            noBody
+              ? null
+              : (Readable.toWeb(stream) as ReadableStream<Uint8Array>),
+            { status: status < 200 ? 502 : status, headers },
+          ),
+        );
         if (noBody) res.resume();
       },
     );
@@ -195,7 +272,10 @@ export const httpsTransport: Transport = (url, addresses, signal) =>
 // ---------------------------------------------------------------------------------------------
 // Fetch and extract
 
-async function readCapped(res: Response, max: number): Promise<{ text: string; truncated: boolean }> {
+async function readCapped(
+  res: Response,
+  max: number,
+): Promise<{ text: string; truncated: boolean }> {
   if (!res.body) return { text: "", truncated: false };
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -214,7 +294,10 @@ async function readCapped(res: Response, max: number): Promise<{ text: string; t
     size += value.length;
   }
   const buf = Buffer.concat(chunks);
-  const charset = /charset\s*=\s*["']?([\w-]+)/i.exec(res.headers.get("content-type") ?? "")?.[1] ?? "utf-8";
+  const charset =
+    /charset\s*=\s*["']?([\w-]+)/i.exec(
+      res.headers.get("content-type") ?? "",
+    )?.[1] ?? "utf-8";
   let text: string;
   try {
     text = new TextDecoder(charset).decode(buf);
@@ -239,7 +322,10 @@ export interface ReaderResult {
  * Downloads a public posting page and returns the JobPosting embedded in it. Every hop (the first
  * address and each redirect) goes through the same checks. Never returns the page itself.
  */
-export async function readPostingPage(rawUrl: unknown, deps: ReaderDeps = {}): Promise<ReaderResult> {
+export async function readPostingPage(
+  rawUrl: unknown,
+  deps: ReaderDeps = {},
+): Promise<ReaderResult> {
   const lookup = deps.lookup ?? defaultLookup;
   const transport = deps.transport ?? httpsTransport;
   const timeoutMs = deps.timeoutMs ?? TOTAL_TIMEOUT_MS;
@@ -247,59 +333,112 @@ export async function readPostingPage(rawUrl: unknown, deps: ReaderDeps = {}): P
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const timedOut = () => controller.signal.aborted;
   try {
-    let url = validateUrl(rawUrl);
-    let res: Response | null = null;
-    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-      const addresses = await Promise.race([
-        resolvePublic(url.hostname, lookup),
-        new Promise<never>((_, rej) => controller.signal.addEventListener("abort", () => rej(new ReaderError("timeout", "The page took too long to answer.")))),
-      ]);
-      try {
-        res = await transport(url, addresses, controller.signal);
-      } catch (e) {
-        if (e instanceof ReaderError) throw e;
-        throw timedOut() ? new ReaderError("timeout", "The page took too long to answer.") : new ReaderError("network", "Could not reach that page.");
-      }
-      if ([301, 302, 303, 307, 308].includes(res.status)) {
-        const loc = res.headers.get("location");
-        await res.body?.cancel().catch(() => {});
-        if (!loc) throw new ReaderError("http_error", "The site sent a redirect with nowhere to go.");
-        if (hop === MAX_REDIRECTS) throw new ReaderError("http_error", "The link redirects too many times.");
-        let next: string;
-        try {
-          next = new URL(loc, url).toString();
-        } catch {
-          throw new ReaderError("bad_url", "The site redirected to an unusable address.");
-        }
-        url = validateUrl(next);
-        res = null;
-        continue;
-      }
-      break;
-    }
-    if (!res) throw new ReaderError("http_error", "The link redirects too many times.");
-    if (!res.ok) {
-      await res.body?.cancel().catch(() => {});
-      throw new ReaderError("http_error", `The site answered with an error (${res.status}).`);
-    }
-    const type = (res.headers.get("content-type") ?? "").toLowerCase();
-    if (!/^(text\/html|application\/xhtml\+xml)\b/.test(type)) {
-      await res.body?.cancel().catch(() => {});
-      throw new ReaderError("not_html", "That link is not a web page.");
-    }
-    let page: { text: string; truncated: boolean };
     try {
-      page = await readCapped(res, MAX_BYTES);
-    } catch {
-      throw timedOut() ? new ReaderError("timeout", "The page took too long to answer.") : new ReaderError("network", "The page stopped loading.");
+      return await fetchAndExtract(validateUrl(rawUrl));
+    } catch (e) {
+      // iCIMS serves the posting inside an iframe page (the same address with in_iframe=1) and the
+      // outer page has no data in it. Same checks apply: validateUrl and DNS run again.
+      if (e instanceof ReaderError && e.kind === "no_posting" && !e.closed) {
+        const first = validateUrl(rawUrl);
+        if (
+          /\.icims\.com$/i.test(first.hostname) &&
+          !first.searchParams.has("in_iframe")
+        ) {
+          first.searchParams.set("in_iframe", "1");
+          return await fetchAndExtract(validateUrl(first.toString()));
+        }
+      }
+      throw e;
     }
-    const posting = extractJobPosting(page.text);
-    const closed = closedSignal(visibleText(page.text));
-    if (!posting) {
-      if (page.truncated) throw new ReaderError("too_large", "That page is too large to read.");
-      throw new ReaderError("no_posting", "No job posting was found in that page.", closed);
+
+    async function fetchAndExtract(start: URL): Promise<ReaderResult> {
+      let url = start;
+      let res: Response | null = null;
+      for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+        const addresses = await Promise.race([
+          resolvePublic(url.hostname, lookup),
+          new Promise<never>((_, rej) =>
+            controller.signal.addEventListener("abort", () =>
+              rej(
+                new ReaderError("timeout", "The page took too long to answer."),
+              ),
+            ),
+          ),
+        ]);
+        try {
+          res = await transport(url, addresses, controller.signal);
+        } catch (e) {
+          if (e instanceof ReaderError) throw e;
+          throw timedOut()
+            ? new ReaderError("timeout", "The page took too long to answer.")
+            : new ReaderError("network", "Could not reach that page.");
+        }
+        if ([301, 302, 303, 307, 308].includes(res.status)) {
+          const loc = res.headers.get("location");
+          await res.body?.cancel().catch(() => {});
+          if (!loc)
+            throw new ReaderError(
+              "http_error",
+              "The site sent a redirect with nowhere to go.",
+            );
+          if (hop === MAX_REDIRECTS)
+            throw new ReaderError(
+              "http_error",
+              "The link redirects too many times.",
+            );
+          let next: string;
+          try {
+            next = new URL(loc, url).toString();
+          } catch {
+            throw new ReaderError(
+              "bad_url",
+              "The site redirected to an unusable address.",
+            );
+          }
+          url = validateUrl(next);
+          res = null;
+          continue;
+        }
+        break;
+      }
+      if (!res)
+        throw new ReaderError(
+          "http_error",
+          "The link redirects too many times.",
+        );
+      if (!res.ok) {
+        await res.body?.cancel().catch(() => {});
+        throw new ReaderError(
+          "http_error",
+          `The site answered with an error (${res.status}).`,
+        );
+      }
+      const type = (res.headers.get("content-type") ?? "").toLowerCase();
+      if (!/^(text\/html|application\/xhtml\+xml)\b/.test(type)) {
+        await res.body?.cancel().catch(() => {});
+        throw new ReaderError("not_html", "That link is not a web page.");
+      }
+      let page: { text: string; truncated: boolean };
+      try {
+        page = await readCapped(res, MAX_BYTES);
+      } catch {
+        throw timedOut()
+          ? new ReaderError("timeout", "The page took too long to answer.")
+          : new ReaderError("network", "The page stopped loading.");
+      }
+      const posting = extractJobPosting(page.text);
+      const closed = closedSignal(visibleText(page.text));
+      if (!posting) {
+        if (page.truncated)
+          throw new ReaderError("too_large", "That page is too large to read.");
+        throw new ReaderError(
+          "no_posting",
+          "No job posting was found in that page.",
+          closed,
+        );
+      }
+      return { posting, closed };
     }
-    return { posting, closed };
   } finally {
     clearTimeout(timer);
   }

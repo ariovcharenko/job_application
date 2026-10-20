@@ -123,7 +123,7 @@ describe("closedSignal", () => {
     }
   });
   it("does not fire on ordinary posting text", () => {
-    for (const t of ["You will be filled with curiosity and build great tools.", "Our offices are closed on holidays.", "Responsibilities: close tickets and fill gaps in tests."]) {
+    for (const t of ["You will be filled with curiosity and build great tools.", "Our offices are closed on holidays.", "Responsibilities: close tickets and fill gaps in tests.", "This job posting will remain open until the position is filled.", "We review applications until the role is filled or closed.", "Apply early: the posting may close when the position is filled."]) {
       expect(closedSignal(t), t).toBe(false);
     }
   });

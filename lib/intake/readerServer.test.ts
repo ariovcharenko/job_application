@@ -149,6 +149,23 @@ describe("readPostingPage", () => {
     }
   });
 
+  it("iCIMS: an outer page with no data is retried once as the in_iframe page, through the same checks", async () => {
+    const seen: string[] = [];
+    const lookup = vi.fn(okLookup);
+    const transport: Transport = async (url) => {
+      seen.push(url.toString());
+      return url.searchParams.has("in_iframe") ? html() : html("<html><body><iframe src='x'></iframe></body></html>");
+    };
+    const r = await readPostingPage("https://careers-brightloop.icims.com/jobs/1234/engineer/job", { lookup, transport });
+    expect(r.posting.title).toBe("Software Engineer I");
+    expect(seen).toEqual(["https://careers-brightloop.icims.com/jobs/1234/engineer/job", "https://careers-brightloop.icims.com/jobs/1234/engineer/job?in_iframe=1"]);
+    expect(lookup).toHaveBeenCalledTimes(2);
+    // Other sites are not retried.
+    seen.length = 0;
+    expect(await kind(readPostingPage("https://jobs.brightloop.example/j/1", { lookup, transport: async (u) => (seen.push(u.toString()), html("<p>x</p>")) }))).toBe("no_posting");
+    expect(seen).toHaveLength(1);
+  });
+
   it("a redirect with no Location is an error", async () => {
     expect(await kind(readPostingPage("https://jobs.brightloop.example/", { lookup: okLookup, transport: stub(() => new Response(null, { status: 302 })) }))).toBe("http_error");
   });
