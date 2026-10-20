@@ -104,9 +104,17 @@ export default function PrivacyPage() {
         <Section title="Pasting a job link">
           <p>
             Links to Greenhouse, Lever, Ashby and SmartRecruiters postings are read straight from your browser, from those companies&apos;
-            public job listing APIs (the request contains only the posting&apos;s address and no key). For any other link, Anthropic&apos;s
-            servers open the page (their web fetch tool) and read it. This site never fetches it. LinkedIn, Indeed and Workday links
-            are not read at all: you&apos;ll be asked to paste the description instead, as you will be for any page that can&apos;t be read.
+            public job listing APIs (the request contains only the posting&apos;s address and no key).
+          </p>
+          <p className="mt-2">
+            For other company career sites (Workday, iCIMS, Phenom, SuccessFactors and most others), the job link, and only the link, goes to
+            this app&apos;s server, which downloads that public page and sends back just the job details found in it (title, company, place,
+            description). Nothing is stored or logged, no key or cookie is involved, and the server never opens private or internal addresses.
+            If that finds nothing, Anthropic&apos;s servers open the page (their web fetch tool) and read it.
+          </p>
+          <p className="mt-2 text-muted">
+            LinkedIn, Indeed, Glassdoor and Jobright links are not read at all: you&apos;ll be asked to paste the description instead, as you
+            will be for any page that can&apos;t be read.
           </p>
         </Section>
 

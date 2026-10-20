@@ -40,7 +40,11 @@ npm run typecheck  # tsc --noEmit
 
 ## Deploying
 
-A static, client-only Next.js app: no server-side secrets, no API routes. On
+A client-only Next.js app: no server-side secrets and no database. Two small API routes exist
+because browsers can't call those sites directly: `/api/jev` (optional relay, carries only the
+user's own Jev key) and `/api/read-posting` (downloads one public job page for a link the user
+typed and returns only its schema.org JobPosting fields; https only, public addresses only, every
+redirect re-checked, nothing stored or logged; see `lib/intake/readerServer.ts`). On
 [Vercel](https://vercel.com), import the repo and deploy with the defaults. Security headers
 (including a CSP that allows only this site and `api.anthropic.com`) are set in `next.config.js`.
 Every visitor brings their own key, stored only in their own browser.
