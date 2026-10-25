@@ -341,7 +341,9 @@ export default function NewJobDialog({
     setMoving(true);
     try {
       const stored = await persist(next);
-      setApp({ ...app, ...stored });
+      // Set triage explicitly: a cleared triage is missing from the stored row, so spreading it
+      // alone would keep the old "checked" and the buttons would never change.
+      setApp({ ...app, ...stored, triage: stored.triage });
     } finally {
       setMoving(false);
     }
@@ -365,7 +367,8 @@ export default function NewJobDialog({
             <Notice kind="info">
               Checked before, on {new Date(app.checkedBefore).toLocaleDateString(undefined, { month: "short", day: "numeric" })}. Updated, not added twice.
             </Notice>
-          ) : app.triage === "checked" ? (
+          ) : null}
+          {app.triage === "checked" ? (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-paper px-5 py-4 text-sm">
               <p className="text-muted">
                 Saved under <span className="font-medium text-ink">Checked jobs</span>.
@@ -389,8 +392,18 @@ export default function NewJobDialog({
               </Notice>
             </div>
           ) : (
-            <div role="status">
-              <Notice kind="ok">In your applications.</Notice>
+            <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-good-soft px-5 py-4 text-sm text-good">
+              <p className="flex items-center gap-2 font-medium">
+                <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M5 12.5l4.5 4.5L19 7.5" />
+                </svg>
+                Added to your applications{app.stage ? `, stage ${app.stage}` : ""}.
+              </p>
+              {!app.tailoredResumeId && !app.checkedBefore && app.stage === "Saved" && (
+                <button type="button" disabled={moving} onClick={() => move({ ...app, triage: "checked" })} className="font-medium text-accent hover:underline">
+                  Undo
+                </button>
+              )}
             </div>
           )}
           <ScoreCard result={toStoredBreakdown(live)} posted={postedLabel(postedAge(live.signals, app.createdAt, Date.now()))} />
