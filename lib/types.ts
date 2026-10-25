@@ -171,6 +171,8 @@ export interface Preferences {
   applyThreshold: number; // score at or above this means "Apply"
   /** Optional: applications to send per week (Monday to Sunday). Missing or 0 = no goal shown. */
   weeklyGoal?: number;
+  /** Optional: applications to send per day. When set it replaces the weekly goal on the Tracker. */
+  dailyGoal?: number;
 }
 
 export interface AnswerBankEntry {

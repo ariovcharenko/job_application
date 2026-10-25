@@ -1,11 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { getPreferences, savePreferences } from "@/lib/db";
 import { EXPERIENCE_LEVEL_OPTIONS } from "@/lib/eligibility/experience";
 import { withLocations, withWorkModes } from "@/lib/eligibility/remoteSync";
 import { MUST_HAVE_FILTERS } from "@/lib/intake/decision";
 import { WORK_MODES, type WorkMode } from "@/lib/options";
 import { ROLE_TYPES, type ExperienceLevel, type Preferences } from "@/lib/types";
+import { activeGoal, withGoal, type GoalPeriod } from "@/lib/tracker/weeklyGoal";
 import { useAutosave } from "@/lib/useAutosave";
 import { Card, ChipSelect, Field, SelectField } from "@/components/ui";
 import LocationPicker from "@/components/LocationPicker";
@@ -15,7 +17,10 @@ const ROLE_CHOICES = ROLE_TYPES.filter((r) => r !== "Other");
 
 export default function PreferencesCard() {
   const { draft: p, setDraft: setP, status } = useAutosave(getPreferences, savePreferences);
+  // Remembers "Day"/"Week" while the number is still empty (nothing is stored until there's a number).
+  const [goalPer, setGoalPer] = useState<GoalPeriod>("day");
   if (!p) return null;
+  const goal = activeGoal(p);
 
   const update = (next: Preferences) => setP(next);
 
@@ -70,15 +75,29 @@ export default function PreferencesCard() {
           onChange={(v) => update(withWorkModes(p, v as WorkMode[]))}
         />
         {mustHaves}
-        <div className="max-w-xs">
-          <Field
-            label="Weekly goal (applications, optional)"
-            type="number"
-            placeholder="Off"
-            value={p.weeklyGoal ? String(p.weeklyGoal) : ""}
-            onChange={(v) => update({ ...p, weeklyGoal: Math.min(200, Math.max(0, Math.round(Number(v) || 0))) || undefined })}
-          />
-          <p className="mt-1.5 text-[13px] text-muted">Shows your progress on the Tracker, Monday to Sunday. Leave empty for no goal.</p>
+        <div className="max-w-sm">
+          <div className="grid grid-cols-[1fr_auto] items-end gap-2">
+            <Field
+              label="Application goal (optional)"
+              type="number"
+              placeholder="Off"
+              value={goal ? String(goal.count) : ""}
+              onChange={(v) => update(withGoal(p, Number(v), goal?.per ?? goalPer))}
+            />
+            <SelectField
+              label="Per"
+              value={goal?.per ?? goalPer}
+              onChange={(v) => {
+                setGoalPer(v as GoalPeriod);
+                if (goal) update(withGoal(p, goal.count, v as GoalPeriod));
+              }}
+              options={[
+                { value: "day", label: "Day" },
+                { value: "week", label: "Week" },
+              ]}
+            />
+          </div>
+          <p className="mt-1.5 text-[13px] text-muted">A reminder on the Tracker, never required. A week runs Monday to Sunday. Leave empty for no goal.</p>
         </div>
       </div>
 
