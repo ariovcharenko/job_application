@@ -45,7 +45,7 @@ function SampleResume() {
 
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-[22px] bg-white p-6 shadow-soft sm:p-8">
+    <section className="min-w-0 rounded-[22px] bg-white p-6 shadow-soft sm:p-8">
       <p className="text-[13px] font-medium text-muted">Step {n}</p>
       <h2 className="mt-1 text-[22px] font-semibold tracking-display">{title}</h2>
       <div className="mt-4">{children}</div>
@@ -63,7 +63,7 @@ export default function ExampleView() {
   }, []);
 
   return (
-    <div className="mx-auto grid max-w-3xl gap-5">
+    <div className="mx-auto grid max-w-3xl grid-cols-[minmax(0,1fr)] gap-5">
       <Step n={1} title="Paste a job">
         <p className="mb-3 text-[15px] text-muted">
           Jordan, a new grad in Austin who doesn&apos;t need visa sponsorship, pastes this posting. (Both are made up.)

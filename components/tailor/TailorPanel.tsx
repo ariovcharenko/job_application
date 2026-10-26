@@ -8,7 +8,9 @@ import { getMasterProfile, getProfile, getSettings, saveMasterProfile } from "@/
 import { checkWording } from "@/lib/resume/engine/honesty";
 import { saveJobWording } from "@/lib/resume/engine/save";
 import { buildHeader, type ResumeHeader } from "@/lib/resume/engine";
-import { linesShort } from "@/lib/resume/engine/budget";
+import { fillOffer } from "@/lib/resume/engine/fillable";
+import { withOpenFlags } from "@/lib/resume/engine/checks";
+import { addedSkillMessage, POLISH_FAILED_NOTE, polishFailed, updateDoneMessage } from "@/lib/resume/engine/runNotes";
 import { pageFill } from "@/lib/resume/engine/fit";
 import { PAGE_CSS, renderResumeHtml } from "@/lib/resume/engine/html";
 import { diffDocs } from "@/lib/resume/engine/changes";
@@ -24,7 +26,7 @@ import { createDebouncedSave } from "@/lib/resume/engine/autosave";
 import { fitResume, toPoolTarget, toVisibleSpot } from "@/lib/resume/engine/trim";
 import { verifyResume } from "@/lib/resume/engine/verify";
 import { assertUsable, type TailorProgress as Progress } from "@/lib/resume/engine/pipeline";
-import TailorProgress from "./TailorProgress";
+import TailorProgress, { SlowNote } from "./TailorProgress";
 import { explainTailoring } from "@/lib/resume/engine/tailored";
 import { addSkill, describeTarget, removeSpot, removeTarget, spotOn, targetFromElement, type Target } from "@/lib/resume/engine/edit";
 import { editTarget, textOfTarget } from "@/lib/resume/engine/editText";
@@ -204,7 +206,27 @@ export default function TailorPanel({
   // "Written with Claude: OpenAI was out of credit." when the last call moved to Claude on its own.
   const [fallbackNote, setFallbackNote] = useState<string | null>(null);
   const writerOpts = (override: ProviderId | undefined) => ({ override, onFallback: (f: WriterFallback) => setFallbackNote(f.message) });
-  const [history, setHistory] = useState<{ result: ValidationResult; approved: Set<string> }[]>([]);
+  // Undo stack. Each entry also keeps which review items were done at that point, so undoing one
+  // update doesn't bring back items applied by earlier updates.
+  const [history, setHistory] = useState<{ result: ValidationResult; approved: Set<string>; doneIds: Set<string> }[]>([]);
+  // A short confirmation near the preview ("Added Docker to your Skills line."), faded after a few seconds.
+  const [flash, setFlash] = useState<{ text: string; fading: boolean } | null>(null);
+  const flashTimers = useRef<number[]>([]);
+  const showFlash = (text: string) => {
+    flashTimers.current.forEach((t) => window.clearTimeout(t));
+    setFlash({ text, fading: false });
+    flashTimers.current = [
+      window.setTimeout(() => setFlash((f) => (f ? { ...f, fading: true } : f)), 3500),
+      window.setTimeout(() => setFlash(null), 4200),
+    ];
+  };
+  useEffect(() => () => flashTimers.current.forEach((t) => window.clearTimeout(t)), []);
+  // The automatic polish failed and the first draft was kept.
+  const [polishNote, setPolishNote] = useState<string | null>(null);
+  const skippedPolish = useRef(false);
+  // Set when an AI update finished, so the next render can say how many spots are marked.
+  const announceMarks = useRef(false);
+  const alertRef = useRef<HTMLDivElement>(null);
   // The running AI call, so "Cancel" can stop it.
   const abortRef = useRef<AbortController | null>(null);
   // Optional Jev wording check (honesty.ts): runs beside the other steps, never blocks the preview.
@@ -235,6 +257,10 @@ export default function TailorPanel({
     });
   };
   const [confirmStart, setConfirmStart] = useState(false);
+  // An error or notice appears at the top of the panel; bring it into view if she is scrolled away.
+  useEffect(() => {
+    if (error || aiError !== null) alertRef.current?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+  }, [error, aiError]);
   // Earlier saved versions of this job's resume (save.ts keeps the last 3), newest first.
   const [previousVersions, setPreviousVersions] = useState<PreviousVersion[]>([]);
   const previewBox = useRef<HTMLDivElement>(null);
@@ -290,7 +316,10 @@ export default function TailorPanel({
     abortRef.current = c;
     return c.signal;
   };
-  const cancelRun = () => abortRef.current?.abort();
+  const cancelRun = () => {
+    if (polishing) skippedPolish.current = true;
+    abortRef.current?.abort();
+  };
   const isCancel = (e: unknown) => e instanceof AIError && e.kind === "cancelled";
 
   /**
@@ -337,6 +366,8 @@ export default function TailorPanel({
     setProgress(null);
     setPhase("generating");
     setFallbackNote(null);
+    setPolishNote(null);
+    skippedPolish.current = false;
     const signal = newSignal();
     try {
       // One call writes the final page to a plan computed from the real layout; a second, short one
@@ -372,11 +403,12 @@ export default function TailorPanel({
         void refreshVersions();
       } else if (saveError) setError(`Couldn't save this resume to the job: ${saveError}`);
       // Tailor again keeps the version she had one Undo away.
-      setHistory((h) => historyAfterStartOver(h, result ? { result, approved } : null));
+      setHistory((h) => historyAfterStartOver(h, result ? { result, approved, doneIds } : null));
       wordingRef.current = [];
       setResult(out.result);
       setApproved(new Set());
       setChanges(out.notes);
+      if (polishFailed(out, skippedPolish.current)) setPolishNote(POLISH_FAILED_NOTE);
       runWording(out.result.doc, m);
       setPlacements([]);
       setChangedFrom(null);
@@ -417,6 +449,14 @@ export default function TailorPanel({
 
   // What the last update changed on the visible page (yellow marker). Empty before any update.
   const changeMarks = useMemo(() => (changedFrom && fitted ? diffDocs(changedFrom, fitted.doc) : []), [changedFrom, fitted]);
+
+  // After an AI update: say how many spots are marked in yellow.
+  useEffect(() => {
+    if (!announceMarks.current || phase !== "ready") return;
+    announceMarks.current = false;
+    showFlash(updateDoneMessage(changeMarks.length));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [changeMarks, phase]);
 
   // Flags on the visible page, and the ones still waiting for her decision.
   const visibleFlags = useMemo(() => {
@@ -595,27 +635,30 @@ export default function TailorPanel({
   }, [selection, popoverMode]);
 
   /** Apply a hand edit (no AI): re-check it against her experience, keep her decisions, allow undo. */
-  const commitDoc = (next: ResumeDoc, masterText = masterRef.current) => {
+  const commitDoc = (next: ResumeDoc, masterText = masterRef.current, message?: string) => {
     // While an update is running its answer would replace this edit, so edits wait for it.
     if (!result || !masterText || phase !== "ready") return;
     const checked = validateResume(next, masterText, vopts());
-    setHistory((h) => [...h, { result, approved }]);
+    setHistory((h) => [...h, { result, approved, doneIds }]);
+    // Hand edits and free adds are marked in yellow too; the base stays the page before the first one.
+    setChangedFrom((base) => base ?? fitted?.doc ?? result.doc);
     setResult(checked);
     setApproved(carryApprovals(result.flags, approved, checked.flags));
     setChanges([]);
     setSaved(null);
+    if (message) showFlash(message);
   };
 
   /** Remove and Edit act on what she clicked on the page, applied to the same spot in the document. */
-  const commitOnPool = (visible: Target, change: (pool: ResumeDoc, target: Target) => ResumeDoc) => {
+  const commitOnPool = (visible: Target, change: (pool: ResumeDoc, target: Target) => ResumeDoc, message?: string) => {
     if (!result || !fitted) return;
     const target = toPoolTarget(fitted.map, visible);
-    if (target) commitDoc(change(result.doc, target));
+    if (target) commitDoc(change(result.doc, target), undefined, message);
   };
 
   const keepFlag = (f: Flag) => setApproved((s) => new Set([...s, f.id]));
   const removeFlagged = (f: Flag) => {
-    if (result) commitDoc(removeSpot(result.doc, f.target));
+    if (result) commitDoc(removeSpot(result.doc, f.target), undefined, "Removed that line. Undo brings it back.");
   };
 
   // Roles and projects on the page she can place a skill in, as written in her experience. From the
@@ -650,8 +693,9 @@ export default function TailorPanel({
       // A model answer: the job's skills she has go back on the Skills lines if it dropped any.
       const next = validateResume(doc, m, vopts({ addJobSkills: true }));
       await persistNow(next, carryApprovals(result.flags, approved, next.flags), m);
-      setHistory((h) => [...h, { result, approved }]);
+      setHistory((h) => [...h, { result, approved, doneIds }]);
       setChangedFrom(fitted?.doc ?? result.doc);
+      announceMarks.current = true;
       // Her current decisions, including any made while the update was running.
       setApproved((current) => carryApprovals(result.flags, current, next.flags));
       setResult(next);
@@ -697,7 +741,7 @@ export default function TailorPanel({
       }
       setMaster(m);
     }
-    commitDoc(addSkill(result.doc, skill), m);
+    commitDoc(addSkill(result.doc, skill), m, place ? `${addedSkillMessage(skill)} Press Update to write it into ${place.label}.` : addedSkillMessage(skill));
     if (!place) setAddedToSkills((a) => (a.includes(skill) ? a : [...a, skill]));
     if (place) setPlacements((ps) => [...ps.filter((p) => !(p.skill === skill && p.label === place.label)), { skill, how, role: place.role, label: place.label }]);
   };
@@ -891,8 +935,8 @@ export default function TailorPanel({
     setHistory((h) => h.slice(0, -1));
     setChanges([]);
     setChangedFrom(null);
-    // Review items applied in the update she undid can be applied again.
-    setDoneIds(new Set());
+    // Only the review items applied in the update she undid can be applied again.
+    setDoneIds(prev.doneIds);
   };
 
   /** Brings back an earlier saved version (free). The one on screen stays one Undo away and is kept as a version too. */
@@ -901,7 +945,7 @@ export default function TailorPanel({
     const m = masterRef.current;
     const restored = validateResume(v.doc, m, vopts());
     const ticked = new Set(v.approved.map(normalizeFlagMessage));
-    setHistory((h) => [...h, { result, approved }]);
+    setHistory((h) => [...h, { result, approved, doneIds }]);
     setResult(restored);
     setApproved(new Set(restored.flags.filter((f) => ticked.has(f.message)).map((f) => f.id)));
     setChanges([]);
@@ -966,10 +1010,16 @@ export default function TailorPanel({
   const flagsHere = selection?.target ? openFlags.filter((v) => spotOn(v.spot, selection.target!)) : [];
   const fillPercent = Math.round(fitted.fill * 100);
   const blocked = openFlags.filter((v) => v.flag.severity === "block").length;
-  const short = fitted.fits ? linesShort(fitted.baseFill) : 0;
+  // Short of a full page at the FINAL fill (after the type grew). The paid fill update is offered
+  // only when her experience still has bullets for these roles that the page doesn't say.
+  const offer = fillOffer(fitted.doc, master, fitted.fill, fitted.fits);
+  const short = offer.canFill ? offer.short : 0;
 
   // Her final check of the finished page (lib/resume/engine/verify.ts), plus what code fixed.
-  const verified = verifyResume({ header, doc: finalDoc, fits: fitted.fits, fill: fitted.fill, master });
+  const verified = withOpenFlags(
+    verifyResume({ header, doc: finalDoc, fits: fitted.fits, fill: fitted.fill, master }),
+    openFlags.map((v) => v.flag).filter((f) => f.kind !== "wording"),
+  );
   const qualityFixes = quality?.issues.filter((i) => i.severity === "fix") ?? [];
   const checks = [
     ...verified.filter((c) => c.id !== "one-page" && c.id !== "fill").map((c) => ({ ok: c.ok, text: c.label })),
@@ -1014,6 +1064,7 @@ export default function TailorPanel({
           </li>
         ))}
       </ul>
+      {offer.note && fitted.underfilled && <p className="mt-2 text-xs text-muted">{offer.note}</p>}
       {autoFixed.length > 0 && <p className="mt-2 text-xs text-muted">Fixed automatically: {autoFixed.join(" ")}</p>}
       {fixList.length > 0 && (
         <div className="mt-3">
@@ -1030,8 +1081,52 @@ export default function TailorPanel({
     </>
   );
 
+  const errorBlock =
+    error || aiError !== null ? (
+      <div ref={alertRef} className="grid gap-3">
+        {error && <Notice kind="error">{error}</Notice>}
+        {aiError !== null && aiNotice}
+        {aiError !== null && !canFallBackToClaude(aiError) && retryRef.current && describeAIError(aiError).retryable && (
+          <div>
+            <Button
+              variant="secondary"
+              disabled={busy}
+              onClick={() => {
+                setAiError(null);
+                retryRef.current?.(undefined);
+              }}
+            >
+              Try again
+            </Button>
+          </div>
+        )}
+      </div>
+    ) : null;
+
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
+      {phase === "revising" && (
+        // Sticky under the dialog title, so a rewrite far down the page is never silent.
+        <div className="sticky top-[4.5rem] z-30 rounded-xl bg-white p-3 shadow-card ring-1 ring-black/[0.06]" role="status">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Spinner label={polishing ? "Your draft is ready. Polishing it: naming the job's key skills in your bullets..." : "Updating your resume. This takes about 30 seconds..."} />
+            <Button size="sm" variant="secondary" onClick={cancelRun}>
+              {polishing ? "Skip polishing" : "Cancel"}
+            </Button>
+          </div>
+          <SlowNote />
+        </div>
+      )}
+      {flash && phase !== "revising" && (
+        <p
+          role="status"
+          className={`sticky top-[4.5rem] z-30 rounded-xl bg-accent-soft px-3 py-2 text-[13px] font-medium text-accent-deep shadow-card transition-opacity duration-500 ${flash.fading ? "opacity-0" : "opacity-100"}`}
+        >
+          {flash.text}
+        </p>
+      )}
+      {errorBlock}
+      {polishNote && !errorBlock && <p className="text-[13px] text-muted">{polishNote}</p>}
       <TailoredForCard lines={tailoredFor} />
 
       {openFlags.length > 0 && (
@@ -1057,7 +1152,7 @@ export default function TailorPanel({
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-paper px-3 py-2 text-xs text-muted">
             <span className="flex items-center gap-2">
               <span className="inline-block h-3 w-5 rounded-sm bg-marker" aria-hidden="true" />
-              Yellow marks what the last update changed. Select any of it to ask for more changes. The marker isn&apos;t in the download.
+              {changeMarks.length} spot{changeMarks.length === 1 ? "" : "s"} changed since the last version, marked in yellow. Select any of it to ask for more changes. The marker isn&apos;t in the download.
             </span>
             <button type="button" className="font-medium text-accent hover:underline" onClick={() => setChangedFrom(null)}>
               Hide highlights
@@ -1065,16 +1160,6 @@ export default function TailorPanel({
           </div>
         )}
         <div ref={previewBox} className="relative min-w-0 rounded-2xl bg-paper p-3" onMouseUp={onPreviewMouseUp} onKeyDown={onPreviewKeyDown}>
-          {phase === "revising" && (
-            <div className="absolute inset-x-3 top-3 z-10 rounded-xl bg-white/90 p-3 shadow-card">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <Spinner label={polishing ? "Your draft is ready. Polishing it: naming the job's key skills in your bullets..." : "Updating your resume. This takes about 30 seconds..."} />
-                <Button size="sm" variant="secondary" onClick={cancelRun}>
-                  {polishing ? "Skip polishing" : "Cancel"}
-                </Button>
-              </div>
-            </div>
-          )}
           <div className="mx-auto shadow-lift" style={{ width: `${8.5 * scale}in`, height: `${11 * scale}in`, overflow: "hidden" }}>
             <div ref={pageRef} style={{ transform: `scale(${scale})`, transformOrigin: "top left", width: "8.5in" }}>
               <style dangerouslySetInnerHTML={{ __html: PAGE_CSS }} />
@@ -1142,7 +1227,7 @@ export default function TailorPanel({
                     <PopoverAction
                       danger
                       onClick={() => {
-                        commitOnPool(selection.target!, removeTarget);
+                        commitOnPool(selection.target!, removeTarget, "Removed. Undo brings it back.");
                         closePopover();
                       }}
                       label={selection.target.bullet === undefined && selection.target.section !== "leadership" ? "Remove this whole section" : "Remove"}
@@ -1188,7 +1273,7 @@ export default function TailorPanel({
                     onChange={(e) => setEditText(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                        commitOnPool(selection.target!, (pool, t) => editTarget(pool, t, editText));
+                        commitOnPool(selection.target!, (pool, t) => editTarget(pool, t, editText), "Saved your edit.");
                         closePopover();
                       }
                     }}
@@ -1204,7 +1289,7 @@ export default function TailorPanel({
                     </Button>
                     <Button
                       onClick={() => {
-                        commitOnPool(selection.target!, (pool, t) => editTarget(pool, t, editText));
+                        commitOnPool(selection.target!, (pool, t) => editTarget(pool, t, editText), "Saved your edit.");
                         closePopover();
                       }}
                       disabled={!editText.trim() || editText.trim() === editable}
@@ -1312,23 +1397,6 @@ export default function TailorPanel({
           {saved.folderWarning && ` ${saved.folderWarning}`}
         </Notice>
       )}
-      {error && <Notice kind="error">{error}</Notice>}
-      {aiError !== null && aiNotice}
-      {aiError !== null && !canFallBackToClaude(aiError) && retryRef.current && describeAIError(aiError).retryable && (
-        <div>
-          <Button
-            variant="secondary"
-            disabled={busy}
-            onClick={() => {
-              setAiError(null);
-              retryRef.current?.(undefined);
-            }}
-          >
-            Try again
-          </Button>
-        </div>
-      )}
-
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={() => setConfirmStart(true)} disabled={busy}>

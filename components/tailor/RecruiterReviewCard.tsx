@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button, compactInputClass, inputClass, outlinedClass } from "@/components/ui";
 import type { ReviewItem, ReviewPriority } from "@/lib/resume/engine/review";
+import { possessive } from "@/lib/possessive";
 import { factSaveTarget, type ReadinessCounts } from "@/lib/resume/engine/reviewState";
 
 export type { ReadinessCounts };
@@ -389,7 +390,7 @@ export default function RecruiterReviewCard({
   disabled?: boolean;
 }) {
   const pending = queuedIds.size + pendingPlacements.length;
-  const who = company.trim() ? `${company.trim()}'s recruiter` : "the recruiter";
+  const who = company.trim() ? `${possessive(company)} recruiter` : "the recruiter";
 
   return (
     <section className={`${outlinedClass} p-5`} aria-labelledby="review-heading">
@@ -415,8 +416,24 @@ export default function RecruiterReviewCard({
       {reviewing && <p className="mt-4 text-[13px] text-muted">Reading your page as {who}. This takes about 20 seconds...</p>}
       {summary && !reviewing && <p className="mt-4 text-[14px] leading-relaxed">{summary}</p>}
 
-      {items.length > 0 ? (
+      {items.length > 0 || pendingPlacements.length > 0 ? (
         <ul className="mt-4 grid gap-2">
+          {pendingPlacements.map((p, i) => (
+            <li key={`queued-${p.skill}-${p.placeLabel}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-paper p-3 text-[14px]">
+              <span className="inline-flex min-w-0 items-center gap-1.5">
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent-soft px-2.5 py-1 text-xs font-medium text-accent-deep">
+                  <CheckIcon />
+                  Queued
+                </span>
+                <span className="min-w-0">
+                  Write {p.skill} into {p.placeLabel}
+                </span>
+              </span>
+              <button type="button" onClick={() => onCancelPlacement(i)} disabled={disabled} className="text-xs text-muted hover:text-ink">
+                Undo
+              </button>
+            </li>
+          ))}
           {items.map((item) => (
             <ItemRow
               key={item.id}
@@ -458,20 +475,6 @@ export default function RecruiterReviewCard({
       {pending > 0 && (
         // Sticky, so the one button that writes the queued changes is always in view.
         <div className="sticky bottom-3 z-10 mt-4 rounded-xl bg-accent-soft p-3 shadow-lift" role="status">
-          {pendingPlacements.length > 0 && (
-            <ul className="mb-2 grid gap-1 text-[13px]">
-              {pendingPlacements.map((p, i) => (
-                <li key={`${p.skill}-${p.placeLabel}`} className="flex items-center justify-between gap-2">
-                  <span>
-                    Write {p.skill} into {p.placeLabel}
-                  </span>
-                  <button type="button" onClick={() => onCancelPlacement(i)} className="text-xs text-muted hover:text-bad" disabled={disabled}>
-                    Cancel
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-[13px]">
               {pending} change{pending === 1 ? "" : "s"} waiting. Nothing is rewritten until you press Update. Changes are marked in yellow.

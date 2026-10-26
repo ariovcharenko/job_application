@@ -2,9 +2,21 @@
 
 import { useEffect, useState } from "react";
 import type { TailorProgress as Progress } from "@/lib/resume/engine/pipeline";
+import { isSlow, SLOW_NOTE } from "@/lib/resume/engine/runNotes";
 
 /** About how long a one-page resume's JSON is, to turn characters received into a rough share. */
 const TYPICAL_CHARS = 7000;
+
+/** "Taking longer than usual" once a run passes 60 seconds. Mount it when the run starts. */
+export function SlowNote() {
+  const [started] = useState(() => Date.now());
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const id = window.setInterval(() => setSlow(isSlow((Date.now() - started) / 1000)), 1000);
+    return () => window.clearInterval(id);
+  }, [started]);
+  return slow ? <p className="mt-2 text-xs text-muted">{SLOW_NOTE}</p> : null;
+}
 
 /**
  * The waiting screen while a resume is written: the current step, how much of the page has
@@ -46,6 +58,7 @@ export default function TailorProgress({ progress, onCancel, writer }: { progres
           </button>
         )}
       </div>
+      {isSlow(seconds) && <p className="mt-2 text-xs text-muted">{SLOW_NOTE}</p>}
     </div>
   );
 }
