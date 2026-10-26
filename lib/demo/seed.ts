@@ -115,7 +115,7 @@ export function demoPool(master: string, jobSkills: string[], focus?: JobFocus):
     ],
     meta: { matchedKeywords: jobSkills, gaps: [], valuesReflected: [] },
   };
-  return backfillFromExperience(base, master, relevance).doc;
+  return backfillFromExperience(base, master, relevance, { perRole: Infinity, total: Infinity, metricsFirst: false }).doc;
 }
 
 export interface DemoReport {
