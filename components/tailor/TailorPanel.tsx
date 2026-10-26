@@ -439,7 +439,12 @@ export default function TailorPanel({
   }, [fitted, visibleFlags, approved]);
 
   // In plain words, what was done differently for this job.
-  const tailoredFor = useMemo(() => (fitted && focus ? explainTailoring(focus, fitted) : []), [fitted, focus]);
+  // Lines still waiting for her OK aren't credited ("showing Go" for a bullet flagged as not that role).
+  const tailoredFor = useMemo(() => {
+    if (!fitted || !focus) return [];
+    const unsure = openFlags.map((v) => ({ ...v.flag, severity: "block" as const, target: v.spot }));
+    return explainTailoring(focus, { ...fitted, doc: applyApprovals(fitted.doc, unsure, new Set()) });
+  }, [fitted, focus, openFlags]);
 
   // Share of the job's skills the page shows, vs. how many of them the full master profile has.
   const coverage = useMemo(() => {
