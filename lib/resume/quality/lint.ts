@@ -13,6 +13,7 @@ import {
   WEAK_OPENERS,
 } from "./lexicon";
 import { segments, wrapBullet } from "./measure";
+import { droppedMessage, droppedMetrics } from "./metrics";
 import type { LintContext, QualityIssue, QualityRule, Severity } from "./types";
 
 export type { LintContext, QualityIssue, QualityRule, Severity } from "./types";
@@ -544,6 +545,18 @@ export function lintResume(doc: ResumeDoc, ctx: LintContext = {}): QualityIssue[
       add("keywords-not-top", "consider", "top", {
         message: `The job's top required skill${buried.length > 1 ? "s" : ""} ${buried.join(", ")} ${buried.length > 1 ? "are" : "is"} on the page but not in the top third, where a recruiter looks first.`,
         fixHint: `Surface ${buried.join(", ")} in the first role's first bullets or the first skills line, where it is true to your experience.`,
+      });
+    }
+  }
+
+  // Numbers a model rewrite dropped from her own bullets (only when the master profile is known).
+  if (ctx.master) {
+    for (const d of droppedMetrics(doc, ctx.master)) {
+      add("metric-dropped", "consider", d.metric, {
+        target: d.target,
+        quote: d.quote,
+        message: droppedMessage(d),
+        fixHint: `Put the number ${d.metric} from my experience back into this bullet.`,
       });
     }
   }

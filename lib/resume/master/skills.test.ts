@@ -132,6 +132,19 @@ describe("appendSkillToMaster", () => {
     expect(twice).toContain("- **Additional:** Kubernetes, Terraform");
     expect(parseSkillInventory(twice)).toEqual(expect.arrayContaining(["Kubernetes", "Terraform"]));
   });
+  it("puts a confirmed skill on the line that shares its tech family, not Additional", () => {
+    const m = "### Skills\n- **Languages:** Python, Go\n- **Cloud & DevOps:** AWS, Docker\n- **Additional:** Figma\n\n### Leadership\n- Club";
+    const out = appendSkillToMaster(m, "Kubernetes");
+    expect(out).toContain("- **Cloud & DevOps:** AWS, Docker, Kubernetes\n");
+    expect(out).toContain("- **Additional:** Figma\n");
+    expect(appendSkillToMaster(m, "Rust")).toContain("- **Languages:** Python, Go, Rust\n");
+    expect(parseSkillInventory(out)).toContain("Kubernetes");
+  });
+  it("falls back to Additional when no line shares the family or the skill is unknown", () => {
+    const m = "### Skills\n- **Languages:** Python\n\n### Leadership\n- Club";
+    expect(appendSkillToMaster(m, "Docker")).toContain("- **Additional:** Docker");
+    expect(appendSkillToMaster(m, "Basket Weaving")).toContain("- **Additional:** Basket Weaving");
+  });
   it("does nothing for a skill already listed, and creates a section if there is none", () => {
     expect(appendSkillToMaster(master, "python")).toBe(master);
     expect(appendSkillToMaster("### Experience", "Go")).toContain("### Skills inventory\n- **Additional:** Go");

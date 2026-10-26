@@ -98,7 +98,7 @@ export function buildProvider(id: ProviderId, s: AppSettings, task: AITask | "ot
 }
 
 /** Why a call moved to Claude on its own. */
-export type FallbackReason = "billing" | "unavailable";
+export type FallbackReason = "billing" | "unavailable" | "unreadable";
 
 export interface WriterFallback {
   reason: FallbackReason;
@@ -108,13 +108,15 @@ export interface WriterFallback {
 
 /**
  * Whether an OpenAI failure is one Claude should simply take over: out of credit, OpenAI down or
- * overloaded (5xx), rate-limited (429), or OpenAI unreachable. Never for a bad key, permission, an unknown model or a
+ * overloaded (5xx), rate-limited (429), OpenAI unreachable, or an answer that is not the JSON that
+ * was asked for (malformed or the wrong shape: another try on Claude usually works). Never for a bad key, permission, an unknown model or a
  * rejected request (those need her to fix something, and keep the "fix key / use Claude" notice),
  * and never for her own Cancel.
  */
 export function autoFallbackReason(err: unknown): FallbackReason | null {
   if (!(err instanceof AIError) || err.provider !== "openai") return null;
   if (err.kind === "billing") return "billing";
+  if (err.kind === "invalid_output") return "unreadable";
   // A plain rate limit (429 without the quota code) is fixed by switching providers too.
   if (err.kind === "overloaded" || err.kind === "network" || err.kind === "rate_limit") return "unavailable";
   return null;
@@ -123,6 +125,7 @@ export function autoFallbackReason(err: unknown): FallbackReason | null {
 /** The quiet notice. `kind` (the OpenAI error) picks "busy" for a rate limit. */
 export function fallbackMessage(reason: FallbackReason, kind?: AIErrorKind): string {
   if (reason === "billing") return "Written with Claude: OpenAI was out of credit.";
+  if (reason === "unreadable") return "Written with Claude: OpenAI's answer could not be read.";
   return kind === "rate_limit" ? "Written with Claude: OpenAI was busy." : "Written with Claude: OpenAI was unavailable.";
 }
 

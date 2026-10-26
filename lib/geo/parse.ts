@@ -184,6 +184,45 @@ function splitCommaPairs(geo: GeoIndex, seg: string): string[] {
   return out;
 }
 
+/** A bare city or metro name (no state): one place a comma list can name. */
+function isKnownBare(geo: GeoIndex, part: string): boolean {
+  const k = parseSingle(geo, part, part).kind;
+  return k === "city" || k === "metro";
+}
+
+/** "Seattle, Boston, Austin": a comma list of places where every part is a known city or metro. */
+function splitCommaList(geo: GeoIndex, seg: string): string[] {
+  const parts = seg.split(",").map((p) => p.trim());
+  if (parts.length < 2 || parts.some((p) => !p || !isKnownBare(geo, p))) return [seg];
+  // "Irvine, Orange County" is one place (a city and the metro around it), not two.
+  if (parts.length === 2) {
+    const metro = singleMetro(geo, parts[1]);
+    const m = metro ? geo.metroBySlug.get(metro) : null;
+    const city = geo.citiesByName.get(normPlace(parts[0]))?.[0];
+    if (m && city && m.states.includes(city.state)) return [seg];
+  }
+  return parts;
+}
+
+/**
+ * "A and B", "A & B": several places in one segment, kept apart only when the whole text did not
+ * already read as one place and at least one side is a place we know. Each side is then read on its
+ * own, so only the part we can't place is "unknown" instead of the whole list.
+ */
+function splitAnd(geo: GeoIndex, seg: string): string[] {
+  const parts = seg.split(/\s+and\s+|\s*&\s*/).map((p) => p.trim()).filter(Boolean);
+  if (parts.length < 2) return [seg];
+  const whole = parseSegment(geo, seg);
+  const weak = whole.kind === "unknown" || (whole.kind === "city" && !whole.known) || (whole.kind === "remote" && whole.country === null);
+  if (!weak) return [seg];
+  return parts.some((p) => parseSegment(geo, p).kind !== "unknown") ? parts : [seg];
+}
+
+/** Several places in one segment (see splitAnd, splitCommaList), or the segment itself. */
+function splitMulti(geo: GeoIndex, seg: string): string[] {
+  return splitAnd(geo, seg).flatMap((s) => splitCommaList(geo, s));
+}
+
 /** Every place a posting's location text names, in order. Empty text gives an empty list. */
 export function parseLocation(raw: string, geo: GeoIndex): PlaceSegment[] {
   const text = (raw ?? "")
@@ -196,6 +235,7 @@ export function parseLocation(raw: string, geo: GeoIndex): PlaceSegment[] {
     // Lowercase " or " only: ", OR" is Oregon.
     .flatMap((s) => s.split(/\s+or\s+/))
     .flatMap((s) => splitCommaPairs(geo, s))
+    .flatMap((s) => splitMulti(geo, s))
     .map((s) => s.trim())
     .filter((s) => cleanup(s) !== "")
     .map((s) => parseSegment(geo, s));

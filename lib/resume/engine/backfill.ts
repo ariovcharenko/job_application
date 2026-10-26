@@ -71,7 +71,7 @@ export function autoBold(text: string, inventory: string[], master: string): str
 }
 
 /** A role's own bullet lines in the master profile, without their "- " markers. */
-function sourceBullets(entry: MasterEntry): string[] {
+export function sourceBullets(entry: MasterEntry): string[] {
   return entry.block
     .split("\n")
     .map((l) => l.trim())
@@ -106,29 +106,60 @@ function entryFor(entries: MasterEntry[], company: string): MasterEntry | undefi
   return entries.find((m) => m.company.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() === c);
 }
 
+/** Most source bullets restored to one role or project, so counts stay even (not 8/5/4/2). */
+export const MAX_BACKFILL_PER_ROLE = 4;
+/** A role is never filled past this many bullets in total (the model's own count is left alone). */
+export const MAX_BULLETS_PER_ROLE = 6;
+
+const plainText = (s: string) => s.replace(/\*\*/g, "");
+const hasMetric = (s: string) => metricsIn(s).length > 0;
+
 /**
- * The document with each role's unused source bullets appended (most relevant first by
- * `relevance`, highest first), plus how many were added.
+ * The page's bullets of ONE role already carry this source bullet when either most of its words
+ * are there, or every number and tool it names appears together in a single bullet of that role
+ * (a merged or reworded bullet that kept the facts). A similar bullet in another role says nothing.
+ */
+function coveredInRole(pageBullets: string[], source: string): boolean {
+  if (pageBullets.some((b) => covers(b, source) >= ALREADY_SAID)) return true;
+  const metrics = metricsIn(source);
+  const tools = TECH_TERMS.filter((t) => mentionsTerm(source, t));
+  if (metrics.length + tools.length === 0) return false;
+  return pageBullets.some((b) => {
+    const text = plainText(b);
+    return metrics.every((m) => text.includes(m)) && tools.every((t) => mentionsTerm(text, t));
+  });
+}
+
+/**
+ * The document with each role's and project's unused source bullets appended, word for word:
+ * judged per role, bullets with a metric first and then the most relevant by `relevance` (highest
+ * first), at most MAX_BACKFILL_PER_ROLE per entry and MAX_BULLETS_PER_ROLE in all. Also returns how
+ * many were added. `limits` overrides both caps and the metrics-first order (the demo builds a deliberately long, purely relevance-ordered pool).
  */
 export function backfillFromExperience(
   doc: ResumeDoc,
   master: string,
   relevance: (text: string) => number = () => 0,
+  limits: { perRole?: number; total?: number; metricsFirst?: boolean } = {},
 ): { doc: ResumeDoc; added: number } {
   const entries = parseMasterExperiences(master);
   const inventory = parseSkillInventory(master);
   let added = 0;
-  const experience = doc.experience.map((e) => {
+  const fill = (e: ResumeDoc["experience"][number]) => {
     const entry = entryFor(entries, e.company);
     if (!entry) return e;
-    const source = sourceBullets(entry);
-    const everything = doc.experience.flatMap((x) => x.bullets);
-    const unused = source
-      .filter((s) => !everything.some((b) => covers(b, s) >= ALREADY_SAID))
-      .sort((a, b) => relevance(b) - relevance(a))
-      .map((s) => autoBold(s, inventory, master));
+    const room = Math.min(limits.perRole ?? MAX_BACKFILL_PER_ROLE, (limits.total ?? MAX_BULLETS_PER_ROLE) - e.bullets.length);
+    if (room <= 0) return e;
+    const unused = sourceBullets(entry)
+      .filter((src) => !coveredInRole(e.bullets, src))
+      .map((src, i) => ({ src, i, metric: hasMetric(src), rel: relevance(src) }))
+      .sort((a, b) => (limits.metricsFirst === false ? 0 : Number(b.metric) - Number(a.metric)) || b.rel - a.rel || a.i - b.i)
+      .slice(0, room)
+      .map((x) => autoBold(x.src, inventory, master));
     added += unused.length;
     return unused.length ? { ...e, bullets: [...e.bullets, ...unused] } : e;
-  });
-  return { doc: { ...doc, experience }, added };
+  };
+  const experience = doc.experience.map(fill);
+  const projects = doc.projects?.map(fill);
+  return { doc: { ...doc, experience, ...(projects ? { projects } : {}) }, added };
 }

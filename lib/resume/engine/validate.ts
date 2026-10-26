@@ -264,6 +264,21 @@ export function splitPair(span: string): string[] {
   return parts.every((p) => p.length > 0 && p.length <= 30) ? parts : [span];
 }
 
+/**
+ * Whether a role's text (its master block, or its bullets on the page) shows a skill, by the
+ * validator's own rule: its text names it, or a skill listed in `inventory` that this text names
+ * implies it (synonyms too). The tailoring pipeline asks "does a bullet already name X?" with this
+ * same matcher, so it never asks the model for something the checks already accept.
+ */
+export function skillInBlock(name: string, block: string, inventory: string[]): boolean {
+  const key = normalizeSkill(name);
+  return (
+    mentionsTerm(block, name) ||
+    hasSkill(name, inventory.filter((i) => mentionsTerm(block, i)), block) ||
+    (!TECH_KEYS.has(key) && containsLoose(block, name))
+  );
+}
+
 export function classifyTools(bullet: string, block: string, inventory: string[], master: string): { missing: string[]; elsewhere: string[] } {
   const text = plain(bullet);
   const spans = [...bullet.matchAll(/\*\*(.+?)\*\*/g)].map((m) => m[1].trim()).flatMap(splitPair).filter(looksLikeTool);
@@ -278,11 +293,7 @@ export function classifyTools(bullet: string, block: string, inventory: string[]
     if (seen.has(key)) continue;
     seen.add(key);
     // In this role: its own text names it, or a skill this role names implies it (synonyms too).
-    const inRole =
-      mentionsTerm(block, name) ||
-      hasSkill(name, inventory.filter((i) => mentionsTerm(block, i)), block) ||
-      (!TECH_KEYS.has(key) && containsLoose(block, name));
-    if (inRole) continue;
+    if (skillInBlock(name, block, inventory)) continue;
     const anywhere = hasSkill(name, inventory, master) || (!TECH_KEYS.has(key) && containsLoose(master, name));
     (anywhere ? elsewhere : missing).push(name);
   }

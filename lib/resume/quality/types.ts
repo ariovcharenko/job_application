@@ -33,7 +33,8 @@ export type QualityRule =
   | "skills-line-count"
   | "skills-duplicate"
   | "skills-soft"
-  | "skills-filler";
+  | "skills-filler"
+  | "metric-dropped";
 
 export interface QualityIssue {
   /** Deterministic for the same document: rule plus position plus a short key. */
@@ -55,4 +56,9 @@ export interface LintContext {
   jobSkills?: string[];
   /** The job's required skills, most important first. */
   requiredSkills?: string[];
+  /**
+   * Her master profile. With it, a number from a source bullet that the page lost is reported
+   * ("Dropped '40%' from a Brightloop bullet."). Without it that check is skipped.
+   */
+  master?: string;
 }

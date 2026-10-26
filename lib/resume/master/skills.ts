@@ -207,7 +207,7 @@ export function parseSkillInventory(masterText: string): string[] {
   });
 }
 
-import { mentionsTerm } from "./techTerms";
+import { mentionsTerm, TECH_TERM_FAMILIES, type TechFamily } from "./techTerms";
 
 const SQL_DATABASES = ["postgresql", "mysql", "sqlite", "sql server", "t-sql", "oracle database", "oracle db", "mariadb"];
 const WAREHOUSES = ["snowflake", "bigquery", "redshift", "databricks"];
@@ -388,10 +388,22 @@ export function dropSoftSkills(m: SkillMatch): SkillMatch {
   return { have, gap: m.gap.filter((s) => !isSoftSkill(s)), ...(evidence && Object.keys(evidence).length ? { evidence } : {}) };
 }
 
+/** The tech family a skill name belongs to (techTerms.ts), or null when it is in none. */
+export function techFamilyOf(skill: string): TechFamily | null {
+  const n = normalizeSkill(skill);
+  if (!n) return null;
+  for (const [family, terms] of Object.entries(TECH_TERM_FAMILIES) as [TechFamily, readonly string[]][]) {
+    if (terms.some((t) => normalizeSkill(t) === n)) return family;
+  }
+  return null;
+}
+
 /**
- * Adds a skill she confirmed she has to the master profile's skills inventory, on an
- * "- **Additional:**" line (created if needed), so future tailoring can use it. Returns the text
- * unchanged if the inventory already lists it.
+ * Adds a skill she confirmed she has to the master profile's skills inventory so future tailoring
+ * can use it. It goes on the existing skills line whose items share the skill's tech family
+ * (Kubernetes joins the line that already lists Docker and AWS). Only when no line matches does it
+ * go on an "- **Additional:**" line (created if needed). Returns the text unchanged if the
+ * inventory already lists it.
  */
 export function appendSkillToMaster(master: string, skill: string): string {
   const name = skill.trim();
@@ -401,7 +413,28 @@ export function appendSkillToMaster(master: string, skill: string): string {
   if (heading < 0) return `${master.trimEnd()}\n\n### Skills inventory\n- **Additional:** ${name}\n`;
   let end = heading + 1;
   while (end < lines.length && !/^#{1,6}\s/.test(lines[end].trim())) end++;
-  const extra = lines.slice(heading + 1, end).findIndex((l) => /^[-*•]?\s*\**additional:?\**:?/i.test(l.trim()));
+  const isAdditional = (l: string) => /^[-*•]?\s*\**additional:?\**:?/i.test(l.trim());
+  const family = techFamilyOf(name);
+  if (family) {
+    let best = -1;
+    let bestCount = 0;
+    for (let i = heading + 1; i < end; i++) {
+      if (isAdditional(lines[i])) continue;
+      const m = lines[i].replace(/\*\*/g, "").match(/^\s*[-*•]?\s*([^:]{1,60}):\s*(.+)$/);
+      if (!m) continue;
+      const count = splitTopLevel(m[2]).filter((it) => techFamilyOf(it) === family).length;
+      if (count > bestCount) {
+        best = i;
+        bestCount = count;
+      }
+    }
+    if (best >= 0) {
+      const trailing = lines[best].match(/[.\s]*$/)![0];
+      lines[best] = `${lines[best].slice(0, lines[best].length - trailing.length)}, ${name}${trailing.includes(".") ? "." : ""}`;
+      return lines.join("\n");
+    }
+  }
+  const extra = lines.slice(heading + 1, end).findIndex(isAdditional);
   if (extra >= 0) {
     const i = heading + 1 + extra;
     lines[i] = `${lines[i].trimEnd()}, ${name}`;
