@@ -264,15 +264,23 @@ describe("models and connection test", () => {
     expect(isChatModel("gpt-4o-mini-tts")).toBe(false);
   });
 
-  it("tests the connection for free by reading the chosen model, never spending tokens", async () => {
-    const ok = fakeFetch(json({ id: "gpt-5" }));
-    expect(await provider(ok.fetch).testConnection()).toEqual({ ok: true, message: "Connected. The key works with gpt-5." });
+  it("tests the connection with the model listing and one tiny request", async () => {
+    const ok = fakeFetch(json({ id: "gpt-5" }), json({ choices: [{ message: { content: "OK" } }] }));
+    expect(await provider(ok.fetch).testConnection()).toEqual({ ok: true, message: "Connected. The key works with gpt-5 and the account can run requests." });
     expect(ok.calls[0].url).toBe("https://api.openai.com/v1/models/gpt-5");
-    expect(ok.calls[0].init.method).toBeUndefined();
+    expect(ok.calls[1].url).toBe("https://api.openai.com/v1/chat/completions");
+    expect(ok.body(1).max_completion_tokens).toBe(16);
     const bad = fakeFetch(json({ error: { message: "Incorrect API key" } }, 401));
     const r = await provider(bad.fetch).testConnection();
     expect(r.ok).toBe(false);
     expect(r.message).toMatch(/OpenAI rejected this API key/);
+  });
+
+  it("reports an account with no credit, which the free model listing can't see", async () => {
+    const f = fakeFetch(json({ id: "gpt-5" }), json({ error: { message: "You exceeded your current quota", type: "insufficient_quota", code: "insufficient_quota" } }, 429));
+    const r = await provider(f.fetch).testConnection();
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/out of credit/);
   });
 });
 

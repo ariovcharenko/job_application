@@ -287,11 +287,28 @@ export function createOpenAIProvider(cfg: OpenAIConfig): AIProvider {
         .map((m) => ({ id: m.id, label: m.id }));
     },
 
-    // Free: reads the model's listing, no tokens spent. Checks the key and that it can use the model.
+    // Reads the model's listing (free), then sends one tiny request (a fraction of a cent): the
+    // listing works even on an account with no credit, which said "Connected" while every real
+    // call failed with 429 insufficient_quota (found live 2026-10-25).
     async testConnection() {
       try {
         await getJson(`/models/${encodeURIComponent(cfg.model)}`);
-        return { ok: true, message: `Connected. The key works with ${cfg.model}.` };
+        let res: Response;
+        try {
+          res = await doFetch(`${base}/chat/completions`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ model: cfg.model, messages: [{ role: "user", content: "Reply with OK." }], max_completion_tokens: 16 }),
+          });
+        } catch (err) {
+          throw toOpenAIError(err);
+        }
+        if (!res.ok) {
+          const e = toOpenAIError(await readError(res));
+          // A parameter this model refuses still proves the key and the account work.
+          if (e.kind === "auth" || e.kind === "billing" || e.kind === "rate_limit" || e.kind === "permission") throw e;
+        }
+        return { ok: true, message: `Connected. The key works with ${cfg.model} and the account can run requests.` };
       } catch (err) {
         const e = err instanceof AIError ? err : toOpenAIError(err);
         return { ok: false, message: e.message };
