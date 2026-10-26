@@ -106,6 +106,24 @@ describe("parseLocation", () => {
     expect(kinds(text)).toEqual(expected);
   });
 
+  it.each([
+    ["San Francisco, New York City, Seattle", ["city:san-francisco-ca", "city:new-york-ny", "city:seattle-wa"]],
+    ["Seattle, Boston and Austin", ["city:seattle-wa", "city:boston-ma", "city:austin-tx"]],
+    ["Seattle and Boston", ["city:seattle-wa", "city:boston-ma"]],
+    ["Seattle & Austin", ["city:seattle-wa", "city:austin-tx"]],
+    ["San Francisco, CA and New York, NY", ["city:san-francisco-ca", "city:new-york-ny"]],
+    ["Seattle and Nowheresville", ["city:seattle-wa", "unknown"]],
+    ["Seattle, Boston and Nowheresville", ["city:seattle-wa", "city:boston-ma", "unknown"]],
+  ])("multi-city: %s", (text, expected) => {
+    expect(kinds(text)).toEqual(expected);
+  });
+
+  it("keeps a city and its metro as one place, and a plain unknown list whole", () => {
+    expect(parseLocation("Irvine, Orange County", geo)).toHaveLength(1);
+    expect(parseLocation("Foo and Bar", geo)).toHaveLength(1);
+    expect(kinds("Foo and Bar")).toEqual(["unknown"]);
+  });
+
   it("marks a city the data doesn't list as unknown to the data", () => {
     const [seg] = parseLocation("Smalltown, ID", geo);
     expect(seg).toMatchObject({ kind: "city", known: false, state: "ID", metro: null });
