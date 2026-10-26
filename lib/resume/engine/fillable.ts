@@ -1,36 +1,16 @@
-import { parseMasterExperiences } from "../master/experiences";
-import { ALREADY_SAID, covers } from "./backfill";
+import { backfillFromExperience } from "./backfill";
 import { linesShort } from "./budget";
 import type { ResumeDoc } from "./schema";
 
 // Whether a paid "add content to fill the page" update can actually help: only when her experience
 // still has bullets, for roles that are on the page, that the page doesn't already say.
 
-const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-
-function sourceBullets(block: string): string[] {
-  return block
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => /^[-*•]\s+/.test(l))
-    .map((l) => l.replace(/^[-*•]\s+/, "").trim())
-    .filter(Boolean);
-}
-
-/** How many source bullets of the roles on `doc` the page doesn't already say. */
+/**
+ * How many of her own bullets code could still add to `doc`: the same per-role check and caps the
+ * pipeline's backfill uses, so the offer never promises lines backfill would refuse.
+ */
 export function unusedSourceBullets(doc: ResumeDoc, master: string): number {
-  const entries = parseMasterExperiences(master);
-  const onPage = [...doc.experience, ...(doc.projects ?? [])];
-  const everything = onPage.flatMap((e) => e.bullets);
-  let count = 0;
-  for (const e of onPage) {
-    const entry = entries.find((m) => norm(m.company) === norm(e.company));
-    if (!entry) continue;
-    for (const s of sourceBullets(entry.block)) {
-      if (!everything.some((b) => covers(b, s) >= ALREADY_SAID)) count++;
-    }
-  }
-  return count;
+  return backfillFromExperience(doc, master).added;
 }
 
 export interface FillOffer {

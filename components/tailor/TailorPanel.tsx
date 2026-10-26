@@ -33,6 +33,8 @@ import { editTarget, textOfTarget } from "@/lib/resume/engine/editText";
 import { popoverPlacement, PREVIEW_SCALE, previewScale } from "@/lib/resume/engine/preview";
 import type { ResumeDoc } from "@/lib/resume/engine/schema";
 import { cleanTitle, entriesNotOnPage } from "@/lib/resume/master/experiences";
+import SkillsBeforeTailor from "./SkillsBeforeTailor";
+import { NO_ANSWERS, applyConfirmations, confirmedForPrompt, confirmedFrom, placeChoices, preTailorGaps, type ConfirmedSkill, type SkillAnswers } from "@/lib/resume/gaps";
 import { appendSkillToMaster, appendUsageNote, hasSkill, parseSkillInventory, type RoleKey } from "@/lib/resume/master/skills";
 import { carryApprovals, fillComment, placementComment, reviseResume, type ResumeComment } from "@/lib/resume/engine/revise";
 import { applyApprovals, normalizeFlagMessage, resumeText, validateResume, withWording, type Flag, type ValidationResult, type WordingHit } from "@/lib/resume/engine/validate";
@@ -268,6 +270,10 @@ export default function TailorPanel({
 
   // The job's skills and what the job is about (must-haves, domains, responsibilities, role family).
   const { fitBreakdown, jdText, role } = application;
+  // Asked next to the Tailor button, optional: the job's skills her experience doesn't show.
+  const [preAnswers, setPreAnswers] = useState<SkillAnswers>(NO_ANSWERS);
+  const preGaps = useMemo(() => (master ? preTailorGaps({ fitBreakdown, jdText }, master).slice(0, 6) : []), [fitBreakdown, jdText, master]);
+  const prePlaces = useMemo(() => (master ? placeChoices(master) : []), [master]);
   const skillsForJob = useMemo(() => (master ? jobSkills({ fitBreakdown, jdText }, master) : []), [fitBreakdown, jdText, master]);
   const focus = useMemo(() => (master ? jobFocusFor({ fitBreakdown, jdText, role }, master) : null), [fitBreakdown, jdText, role, master]);
   const checkOpts = useMemo(() => ({ jobSkills: skillsForJob, focus: focus ?? undefined }), [skillsForJob, focus]);
@@ -357,9 +363,24 @@ export default function TailorPanel({
   };
 
   /** One tailoring run. */
-  const generate = async (override: ProviderId | undefined = writerOverride) => {
-    const m = masterRef.current;
+  const generate = async (override: ProviderId | undefined = writerOverride, confirmed: ConfirmedSkill[] = []) => {
+    let m = masterRef.current;
     if (!m.trim() || !header) return;
+    // Skills she ticked before tailoring go into her experience first (her tick is the
+    // confirmation, decision #6), so the one call can write them in where she used them.
+    if (confirmed.length) {
+      const next = applyConfirmations(m, confirmed);
+      if (next !== m) {
+        try {
+          await saveMasterProfile(next);
+        } catch (e) {
+          setError(`Couldn't save your skills to Your experience: ${e instanceof Error ? e.message : String(e)}`);
+          return;
+        }
+        setMaster(next);
+        m = next;
+      }
+    }
     setError(null);
     setAiError(null);
     setSaved(null);
@@ -383,6 +404,7 @@ export default function TailorPanel({
           jobSkills: skillsForJob,
           requiredSkills,
           focus: focus ?? undefined,
+          confirmed: confirmedForPrompt(confirmed),
           measure: (d) => pageFill(header, d),
           onProgress: setProgress,
           // Show the checked draft at once; the polish pass finishes behind a small banner.
@@ -415,7 +437,7 @@ export default function TailorPanel({
       resetReview();
       setPhase("ready");
     } catch (e) {
-      retryRef.current = (o) => void generate(o);
+      retryRef.current = (o) => void generate(o, confirmed);
       if (!isCancel(e)) setAiError(e);
       // A failed or cancelled "Tailor again" keeps the resume she had, still editable.
       setPhase(result ? "ready" : "idle");
@@ -760,7 +782,7 @@ export default function TailorPanel({
     if (!finalDoc || !master) return null;
     const inventory = parseSkillInventory(master);
     const have = skillsForJob.filter((x) => hasSkill(x, inventory, master));
-    const issues = lintResume(finalDoc, { jobSkills: have, requiredSkills });
+    const issues = lintResume(finalDoc, { jobSkills: have, requiredSkills, master });
     return { issues, ...qualityScore(issues) };
   }, [finalDoc, master, skillsForJob, requiredSkills]);
 
@@ -992,10 +1014,16 @@ export default function TailorPanel({
   );
 
   if (!result || !fitted || !finalDoc) {
+    const ticked = confirmedFrom(preGaps, prePlaces, preAnswers);
     return (
       <div className="rounded-2xl bg-paper p-4">
         {notStartedReason && <p className="mb-3 text-sm text-muted">{notStartedReason}</p>}
-        <Button onClick={() => void generate()}>Tailor resume</Button>
+        {preGaps.length > 0 && phase === "idle" && (
+          <SkillsBeforeTailor gaps={preGaps} places={prePlaces} answers={preAnswers} onChange={setPreAnswers} />
+        )}
+        <Button onClick={() => void generate(undefined, ticked)}>
+          {ticked.length ? `Tailor resume with ${ticked.length} added skill${ticked.length === 1 ? "" : "s"}` : "Tailor resume"}
+        </Button>
         {error && <Notice kind="error">{error}</Notice>}
         {aiError !== null && aiNotice}
       </div>

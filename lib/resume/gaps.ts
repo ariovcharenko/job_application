@@ -81,3 +81,23 @@ export function applyConfirmations(master: string, confirmed: ConfirmedSkill[]):
 export function confirmedForPrompt(confirmed: ConfirmedSkill[]): { skill: string; where: string | null; how: string }[] {
   return confirmed.map((c) => ({ skill: c.skill, where: c.place?.label ?? null, how: c.how.trim() }));
 }
+
+/** Her answers next to the Tailor button, keyed by skill. Only `have: true` confirms (decision #6). */
+export interface SkillAnswers {
+  have: Record<string, boolean>;
+  place: Record<string, string>;
+  how: Record<string, string>;
+}
+
+export const NO_ANSWERS: SkillAnswers = { have: {}, place: {}, how: {} };
+
+/** The ticked skills, in the order shown, with where (a place key, "" = Skills only) and how. */
+export function confirmedFrom(gaps: PreTailorGap[], places: PlaceChoice[], a: SkillAnswers): ConfirmedSkill[] {
+  return gaps
+    .filter((g) => a.have[g.skill])
+    .map((g) => ({
+      skill: g.skill,
+      place: places.find((p) => p.key === (a.place[g.skill] ?? "")) ?? null,
+      how: a.how[g.skill] ?? "",
+    }));
+}

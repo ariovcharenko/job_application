@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEMO_EXPERIENCE } from "../demo/data";
 import { skillsMatchPercent } from "../intake/decision";
-import { applyConfirmations, confirmedForPrompt, placeChoices, preTailorGaps } from "./gaps";
+import { NO_ANSWERS, applyConfirmations, confirmedForPrompt, confirmedFrom, placeChoices, preTailorGaps } from "./gaps";
 import { hasSkill, parseSkillInventory, parseUsageNotes } from "./master/skills";
 import { validateResume } from "./engine/validate";
 import type { ResumeDoc } from "./engine/schema";
@@ -98,5 +98,23 @@ describe("confirmedForPrompt", () => {
       { skill: "Rust", where: null, how: "" },
       { skill: "Firebase", where: "ShelfLife", how: "stored scans" },
     ]);
+  });
+});
+
+describe("confirmedFrom", () => {
+  const gaps = [{ skill: "Go", required: true }, { skill: "Kafka", required: false }, { skill: "Rust", required: false }];
+  const places = placeChoices(DEMO_EXPERIENCE);
+
+  it("confirms nothing until she ticks", () => {
+    expect(confirmedFrom(gaps, places, NO_ANSWERS)).toEqual([]);
+    expect(confirmedFrom(gaps, places, { have: { Go: false }, place: { Go: places[0].key }, how: {} })).toEqual([]);
+  });
+
+  it("keeps her order, place and note; no place means Skills only", () => {
+    const out = confirmedFrom(gaps, places, { have: { Rust: true, Go: true }, place: { Go: places[0].key }, how: { Go: "a CLI" } });
+    expect(out.map((c) => c.skill)).toEqual(["Go", "Rust"]);
+    expect(out[0].place?.key).toBe(places[0].key);
+    expect(out[0].how).toBe("a CLI");
+    expect(out[1].place).toBeNull();
   });
 });
