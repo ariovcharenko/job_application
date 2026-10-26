@@ -367,7 +367,17 @@ const SOFT_SKILL = /\b(communication|attention to detail|detail[- ]oriented|team
 /** Words that make a phrase technical even when it contains a soft word ("inter-process communication"). */
 const TECHNICAL_CONTEXT = /inter-?process|protocol|network|system|serial|socket|api|bus\b|data|machine|real-?time|async/i;
 
+/**
+ * A bare area of work ("frontend", "backend", "infrastructure", "full stack"): postings list these
+ * next to real skills, but no resume can prove or lack "infrastructure" by name. Treated like a soft
+ * skill, so it's never asked about, added to Skills or counted in the match (found live 2026-10-25:
+ * "infrastructure" landed in a Skills line).
+ */
+const AREA_ONLY = /^(?:front[- ]?end|back[- ]?end|infrastructure|full[- ]?stack|web|mobile|cloud|systems?|platform|product|server[- ]?side|client[- ]?side)(?: (?:development|engineering|work|systems|side))?$/i;
+
+/** Not a skill a resume can show or lack: a soft trait, or a bare area of work. */
 export function isSoftSkill(skill: string): boolean {
+  if (AREA_ONLY.test(skill.trim())) return true;
   return SOFT_SKILL.test(skill) && !TECHNICAL_CONTEXT.test(skill);
 }
 

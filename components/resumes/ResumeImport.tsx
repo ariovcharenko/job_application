@@ -7,7 +7,6 @@ import { pastedSource, readResumeUpload, ResumeFileError, type ResumeSource } fr
 import {
   checkImport,
   contactOffers,
-  IMPORT_COST_HINT,
   importResume,
   saveImport,
   type ContactField,
@@ -84,7 +83,7 @@ export default function ResumeImport({ current, onImported }: { current: string;
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-paper p-4">
         <div className="min-w-0 flex-1 basis-60">
           <p className="text-[15px] font-medium">Start from your resume</p>
-          <p className="text-sm text-muted">Upload a PDF, Word or text file and it&apos;s typed in below for you to check. Costs {IMPORT_COST_HINT}.</p>
+          <p className="text-sm text-muted">Upload a PDF, Word or text file and it&apos;s typed in below for you to check.</p>
         </div>
         <Button variant="secondary" onClick={() => setStage("pick")}>
           Import from my resume
@@ -180,7 +179,7 @@ export default function ResumeImport({ current, onImported }: { current: string;
             Cancel
           </Button>
           <Button onClick={read} disabled={!canRead}>
-            Read my resume ({IMPORT_COST_HINT})
+            Read my resume
           </Button>
         </div>
       </div>

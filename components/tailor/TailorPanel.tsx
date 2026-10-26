@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { canFallBackToClaude, providerFor, RESUME_WRITING_TASKS, type WriterFallback } from "@/lib/ai/route";
-import { formatRunCost, spendSince } from "@/lib/ai/usage";
+import { canFallBackToClaude, providerFor, type WriterFallback } from "@/lib/ai/route";
 import type { ProviderId } from "@/lib/ai/provider";
 import { getMasterProfile, getProfile, getSettings, saveMasterProfile } from "@/lib/db";
 import { checkWording } from "@/lib/resume/engine/honesty";
@@ -17,6 +16,7 @@ import { exportResume, getJobResume, saveJobReview, storeJobResume, type ExportR
 import { docFingerprint, restoreReview, type StoredReview } from "@/lib/resume/engine/reviewState";
 import { saveRoleFact } from "@/lib/resume/master/saveFact";
 import { persistVersion, tailorAndSave } from "@/lib/resume/engine/persist";
+import { placeOptions, placeTarget } from "@/lib/resume/engine/places";
 import { historyAfterStartOver } from "@/lib/resume/engine/history";
 import { AIError } from "@/lib/ai/provider";
 import { describeAIError } from "@/lib/ai/errors";
@@ -30,7 +30,7 @@ import { addSkill, describeTarget, removeSpot, removeTarget, spotOn, targetFromE
 import { editTarget, textOfTarget } from "@/lib/resume/engine/editText";
 import { popoverPlacement, PREVIEW_SCALE, previewScale } from "@/lib/resume/engine/preview";
 import type { ResumeDoc } from "@/lib/resume/engine/schema";
-import { cleanTitle, entriesNotOnPage, parseMasterExperiences } from "@/lib/resume/master/experiences";
+import { cleanTitle, entriesNotOnPage } from "@/lib/resume/master/experiences";
 import { appendSkillToMaster, appendUsageNote, hasSkill, parseSkillInventory, type RoleKey } from "@/lib/resume/master/skills";
 import { carryApprovals, fillComment, placementComment, reviseResume, type ResumeComment } from "@/lib/resume/engine/revise";
 import { applyApprovals, normalizeFlagMessage, resumeText, validateResume, withWording, type Flag, type ValidationResult, type WordingHit } from "@/lib/resume/engine/validate";
@@ -39,11 +39,11 @@ import { tailoredFileName } from "@/lib/resume/fileName";
 import type { Application } from "@/lib/types";
 import { Button, ConfirmDialog, inputClass, Notice, Spinner } from "@/components/ui";
 import AIErrorNotice from "@/components/resumes/AIErrorNotice";
-import RecruiterReviewCard, { type PlaceOption, type ReadinessCounts } from "./RecruiterReviewCard";
+import RecruiterReviewCard, { type ReadinessCounts } from "./RecruiterReviewCard";
 import { answerComment, codeReviewItems, mergeReviewItems, planReviewItems, relocateTarget, reviewResume, type ReviewItem } from "@/lib/resume/engine/review";
 import { isSoftSkill, normalizeSkill } from "@/lib/resume/master/skills";
 import WriterFallbackNotice from "./WriterFallbackNotice";
-import { useResumeWriter } from "./useResumeWriter";
+import { useWriterLabel } from "./useResumeWriter";
 import AskForChanges from "./AskForChanges";
 import QualityCard from "./QualityCard";
 import TailoredForCard from "./TailoredForCard";
@@ -51,22 +51,8 @@ import { lintResume } from "@/lib/resume/quality/lint";
 import { issuesToComments, qualityScore } from "@/lib/resume/quality/summary";
 import { readBreakdown } from "@/lib/intake/stored";
 
-/**
- * Rough cost of one tailoring run on Sonnet-class pricing, shown before she spends it: one call at
- * medium effort, plus one short follow-up when the page ends short, needs a writing fix or leaves
- * a key skill out of the bullets.
- */
-import { TAILOR_COST_HINT, tailorCostHint } from "@/lib/resume/costHint";
-export { TAILOR_COST_HINT, tailorCostHint };
-/** A revision reuses the cached system prompt (rules + master profile), so it's a bit cheaper. */
-export const REVISE_COST_HINT = "about 4¢";
-/**
- * One recruiter review: the same cached system prompt plus the page and the job (~6-8k input
- * tokens, mostly a cache read) and a short JSON answer with thinking at medium effort.
- */
-export const REVIEW_COST_HINT = "about 3¢";
-/** The one place cost and time are shown once a resume exists (not on each button). */
-const COST_LINE = `Each update takes about 30 seconds and costs ${REVISE_COST_HINT}. A recruiter review takes about 20 seconds and costs ${REVIEW_COST_HINT}.`;
+/** How long updates take, shown once a resume exists. */
+const TIME_LINE = "Each update takes about 30 seconds. A recruiter review takes about 20 seconds.";
 
 function PopoverAction({ label, hint, onClick, danger }: { label: string; hint: string; onClick: () => void; danger?: boolean }) {
   return (
@@ -156,6 +142,8 @@ export default function TailorPanel({
   const [header, setHeader] = useState<ResumeHeader | null>(null);
   const [fullName, setFullName] = useState("");
   const [phase, setPhase] = useState<"idle" | "generating" | "ready" | "saving" | "revising">("idle");
+  // The first draft is on screen while the automatic polish runs (phase "revising" meanwhile).
+  const [polishing, setPolishing] = useState(false);
   const [progress, setProgress] = useState<Progress | null>(null);
   // The page as it was before the last update, so what the update changed shows in yellow.
   const [changedFrom, setChangedFrom] = useState<ResumeDoc | null>(null);
@@ -167,7 +155,9 @@ export default function TailorPanel({
   const [writerOverride, setWriterOverride] = useState<ProviderId | undefined>(undefined);
   // The AI action that last failed, so the OpenAI fallback can run it again.
   const retryRef = useRef<((override?: ProviderId) => void) | null>(null);
-  const writer = useResumeWriter();
+  const writerLabel = useWriterLabel(writerOverride);
+  // Skills added to the Skills line from the review card in this session, to confirm them there.
+  const [addedToSkills, setAddedToSkills] = useState<string[]>([]);
   const [result, setResult] = useState<ValidationResult | null>(null);
   // Flags she decided to keep: a blocked line she confirmed, or a note she looked at.
   const [approved, setApproved] = useState<Set<string>>(new Set());
@@ -211,13 +201,9 @@ export default function TailorPanel({
   const openedFrom = useRef<HTMLElement | null>(null);
   const [note, setNote] = useState("");
   const [changes, setChanges] = useState<string[]>([]);
-  // What the last generation or update cost, from the local spend meter ("This update: about 4¢").
-  const [runCost, setRunCost] = useState<{ label: string; usd: number; estimated: boolean } | null>(null);
   // "Written with Claude: OpenAI was out of credit." when the last call moved to Claude on its own.
   const [fallbackNote, setFallbackNote] = useState<string | null>(null);
   const writerOpts = (override: ProviderId | undefined) => ({ override, onFallback: (f: WriterFallback) => setFallbackNote(f.message) });
-  const showRunCost = (label: string, from: number) =>
-    void spendSince(from, RESUME_WRITING_TASKS).then((s) => setRunCost(s.calls ? { label, usd: s.usd, estimated: s.estimated } : null));
   const [history, setHistory] = useState<{ result: ValidationResult; approved: Set<string> }[]>([]);
   // The running AI call, so "Cancel" can stop it.
   const abortRef = useRef<AbortController | null>(null);
@@ -331,6 +317,7 @@ export default function TailorPanel({
 
   /** Forget the last review: a new draft gets a fresh one. */
   const resetReview = () => {
+    setAddedToSkills([]);
     setReviewItems([]);
     setReviewSummary(null);
     setQueued(new Map());
@@ -351,8 +338,6 @@ export default function TailorPanel({
     setPhase("generating");
     setFallbackNote(null);
     const signal = newSignal();
-    setRunCost(null);
-    const runStart = Date.now();
     try {
       // One call writes the final page to a plan computed from the real layout; a second, short one
       // only when the measured page ends short or code found a writing fix (pipeline.ts).
@@ -369,6 +354,13 @@ export default function TailorPanel({
           focus: focus ?? undefined,
           measure: (d) => pageFill(header, d),
           onProgress: setProgress,
+          // Show the checked draft at once; the polish pass finishes behind a small banner.
+          onDraft: (draft) => {
+            setResult(draft);
+            setApproved(new Set());
+            setPolishing(true);
+            setPhase("revising");
+          },
           signal,
         },
         { applicationId: application.id, header, fitOpts },
@@ -386,7 +378,6 @@ export default function TailorPanel({
       setApproved(new Set());
       setChanges(out.notes);
       runWording(out.result.doc, m);
-      showRunCost("This resume", runStart);
       setPlacements([]);
       setChangedFrom(null);
       resetReview();
@@ -397,6 +388,7 @@ export default function TailorPanel({
       // A failed or cancelled "Tailor again" keeps the resume she had, still editable.
       setPhase(result ? "ready" : "idle");
     } finally {
+      setPolishing(false);
       if (abortRef.current?.signal === signal) abortRef.current = null;
     }
   };
@@ -621,31 +613,13 @@ export default function TailorPanel({
     if (result) commitDoc(removeSpot(result.doc, f.target));
   };
 
-  // Roles and projects on the page she can place a skill in, as written in her experience.
-  const places = useMemo(() => {
-    if (!finalDoc || !master) return [] as (PlaceOption & { role: RoleKey; section: "experience" | "projects" })[];
-    const entries = parseMasterExperiences(master);
-    const out: (PlaceOption & { role: RoleKey; section: "experience" | "projects" })[] = [];
-    (["experience", "projects"] as const).forEach((section) =>
-      (finalDoc[section] ?? []).forEach((e) => {
-        const m = entries.find((x) => norm(x.company) === norm(e.company));
-        if (!m) return;
-        const role = { company: m.company, title: cleanTitle(m.title) };
-        out.push({ key: `${section}:${norm(m.company)}:${norm(role.title)}`, label: section === "projects" ? m.company : `${m.company} (${role.title})`, role, section });
-      }),
-    );
-    return out;
-  }, [finalDoc, master]);
+  // Roles and projects on the page she can place a skill in, as written in her experience. From the
+  // whole page (fitted), struck-through roles included, so a role waiting for her OK isn't hidden.
+  const places = useMemo(() => (fitted && master ? placeOptions(fitted.doc, master) : []), [fitted, master]);
 
   /** One comment per skill she placed in a role, on that role's spot in the document. */
   const placementComments = (doc: ResumeDoc): ResumeComment[] =>
-    placements.map((p) => {
-      const find = (section: "experience" | "projects") => (doc[section] ?? []).findIndex((e) => norm(e.company) === norm(p.role.company));
-      const exp = find("experience");
-      const proj = exp < 0 ? find("projects") : -1;
-      const target: Target | undefined = exp >= 0 ? { section: "experience", entry: exp } : proj >= 0 ? { section: "projects", entry: proj } : undefined;
-      return placementComment(p.skill, p.how, target, p.label);
-    });
+    placements.map((p) => placementComment(p.skill, p.how, placeTarget(doc, p.role.company), p.label));
 
   /**
    * One revision call with everything she asked for, plus any skills waiting to be placed. Runs
@@ -663,8 +637,6 @@ export default function TailorPanel({
     setPhase("revising");
     setFallbackNote(null);
     const signal = newSignal();
-    setRunCost(null);
-    const runStart = Date.now();
     try {
       const out = await reviseResume(await providerFor("revise_resume", writerOpts(override)), m, application.company, application.jdText, result.doc, all, undefined, undefined, signal);
       const { changes: done, ...doc } = out;
@@ -680,7 +652,6 @@ export default function TailorPanel({
       setResult(next);
       setChanges(done);
       runWording(next.doc, m);
-      showRunCost("This update", runStart);
       setPlacements([]);
       return true;
     } catch (e) {
@@ -722,6 +693,7 @@ export default function TailorPanel({
       setMaster(m);
     }
     commitDoc(addSkill(result.doc, skill), m);
+    if (!place) setAddedToSkills((a) => (a.includes(skill) ? a : [...a, skill]));
     if (place) setPlacements((ps) => [...ps.filter((p) => !(p.skill === skill && p.label === place.label)), { skill, how, role: place.role, label: place.label }]);
   };
 
@@ -947,10 +919,9 @@ export default function TailorPanel({
   }
 
   if (phase === "generating") {
-    return <TailorProgress progress={progress} onCancel={cancelRun} />;
+    return <TailorProgress progress={progress} onCancel={cancelRun} writer={writerLabel} />;
   }
 
-  const costHint = tailorCostHint(writerOverride ?? writer);
 
   // OpenAI can't write right now (no key, rejected, no credit, model): offer to fix it or use Claude.
   const aiNotice = canFallBackToClaude(aiError) ? (
@@ -975,7 +946,7 @@ export default function TailorPanel({
     return (
       <div className="rounded-2xl bg-paper p-4">
         {notStartedReason && <p className="mb-3 text-sm text-muted">{notStartedReason}</p>}
-        <Button onClick={() => void generate()}>Tailor resume ({costHint})</Button>
+        <Button onClick={() => void generate()}>Tailor resume</Button>
         {error && <Notice kind="error">{error}</Notice>}
         {aiError !== null && aiNotice}
       </div>
@@ -1075,7 +1046,7 @@ export default function TailorPanel({
       <div>
         <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
           <p className="text-[15px] font-semibold tracking-display">Your resume</p>
-          <p className="text-xs text-muted">Click a line, or select any text, to change it. {COST_LINE}</p>
+          <p className="text-xs text-muted">Click a line, or select any text, to change it. {TIME_LINE}</p>
         </div>
         {changeMarks.length > 0 && (
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-paper px-3 py-2 text-xs text-muted">
@@ -1092,9 +1063,9 @@ export default function TailorPanel({
           {phase === "revising" && (
             <div className="absolute inset-x-3 top-3 z-10 rounded-xl bg-white/90 p-3 shadow-card">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <Spinner label="Updating your resume. This takes about 30 seconds..." />
+                <Spinner label={polishing ? "Your draft is ready. Polishing it: naming the job's key skills in your bullets..." : "Updating your resume. This takes about 30 seconds..."} />
                 <Button size="sm" variant="secondary" onClick={cancelRun}>
-                  Cancel
+                  {polishing ? "Skip polishing" : "Cancel"}
                 </Button>
               </div>
             </div>
@@ -1278,6 +1249,7 @@ export default function TailorPanel({
           ignoredCount={ignored.size}
           places={places}
           pendingPlacements={placements.map((p) => ({ skill: p.skill, placeLabel: p.label }))}
+          addedToSkills={addedToSkills}
           onQueue={(item) => {
             if (item.action.type === "revise") queueComment(item.id, item.action.comment, item.quote);
           }}
@@ -1327,13 +1299,7 @@ export default function TailorPanel({
         )}
       </section>
 
-      {fallbackNote && <p className="text-[13px] text-muted">{fallbackNote}</p>}
-      {runCost && (
-        <p className="text-[13px] text-muted">
-          {runCost.label}: {formatRunCost(runCost.usd)}
-          {runCost.estimated ? " (estimate, this model's price isn't known)" : ""}.
-        </p>
-      )}
+      {fallbackNote ? <p className="text-[13px] text-muted">{fallbackNote}</p> : writerLabel && <p className="text-[13px] text-muted">New versions and updates are written with {writerLabel}. Change it in Settings.</p>}
       {saved && (
         <Notice kind="ok">
           Downloaded {saved.fileName}
@@ -1401,7 +1367,7 @@ export default function TailorPanel({
       {confirmStart && (
         <ConfirmDialog
           title="Tailor again?"
-          message={`This writes a new resume for this job from scratch (${TAILOR_COST_HINT}, about a minute). The one you have now stays one Undo away and under Earlier versions.`}
+          message={`This writes a new resume for this job from scratch (about a minute). The one you have now stays one Undo away and under Earlier versions.`}
           confirmLabel="Tailor again"
           onCancel={() => setConfirmStart(false)}
           onConfirm={() => {

@@ -363,6 +363,40 @@ describe("role headers are corrected, not dropped, when they only reword her own
   });
 });
 
+describe("a team moved from the company line into the title", () => {
+  const master = `### Experience
+
+**Software Engineer Intern | Northwind, Search Team | Remote | May 2026 - Aug 2026**
+- Built a ranking service for 2M queries a day.
+
+### Skills
+- Languages: TypeScript`;
+  const page = (title: string, company: string) => ({
+    education: [],
+    experience: [{ title, company, location: "Remote", dates: "May 2026 - Aug 2026", bullets: ["Built a ranking service for **2M queries** a day."] }],
+    skills: [{ category: "Languages", items: ["TypeScript"] }],
+    leadership: [],
+    meta: { matchedKeywords: [], gaps: [], valuesReflected: [] },
+  });
+
+  it("isn't flagged, and the header goes back to how she wrote it", () => {
+    for (const [title, company] of [
+      ["Software Engineer Intern, Search Team", "Northwind"],
+      ["Software Engineer Intern (Search Team)", "Northwind"],
+      ["Software Engineer Intern, Search Team", "Northwind, Search Team"],
+    ]) {
+      const r = validateResume(page(title, company), master);
+      expect(r.flags).toEqual([]);
+      expect(r.doc.experience[0]).toMatchObject({ title: "Software Engineer Intern", company: "Northwind, Search Team" });
+    }
+  });
+
+  it("still flags a title piece that is neither her title nor her team", () => {
+    const r = validateResume(page("Software Engineer Intern, Ads Team", "Northwind"), master);
+    expect(r.flags.some((f) => f.kind === "employer")).toBe(true);
+  });
+});
+
 describe("validateResume: confirmed skills with usage notes", () => {
   const bullet = "Built an onboarding screen in **Kotlin** for the checkout flow";
   const withRole = (master: string) => {

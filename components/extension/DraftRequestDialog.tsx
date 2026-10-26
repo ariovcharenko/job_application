@@ -60,7 +60,7 @@ export default function DraftRequestDialog() {
               <Button onClick={draft} disabled={busy}>
                 {busy ? "Writing..." : "Write a draft"}
               </Button>
-              <p className="mt-2 text-xs text-muted">Uses your saved AI key (a few cents at most). Nothing goes back to the form until you send it.</p>
+              <p className="mt-2 text-xs text-muted">Uses your saved AI key. Nothing goes back to the form until you send it.</p>
               {busy && <Spinner label="Writing from your experience..." />}
             </div>
           )}

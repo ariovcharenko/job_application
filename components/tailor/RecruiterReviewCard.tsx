@@ -347,6 +347,7 @@ export default function RecruiterReviewCard({
   places,
   placeForItem,
   pendingPlacements,
+  addedToSkills = [],
   onQueue,
   onUnqueue,
   onIgnore,
@@ -372,6 +373,8 @@ export default function RecruiterReviewCard({
   /** The role on the page a fact question is about, as a place key. */
   placeForItem?: (item: ReviewItem) => string | undefined;
   pendingPlacements: { skill: string; placeLabel: string }[];
+  /** Skills she added to the Skills line from this card (done at once, free), to confirm it. */
+  addedToSkills?: string[];
   onQueue: (item: ReviewItem) => void;
   onUnqueue: (id: string) => void;
   onIgnore: (id: string) => void;
@@ -447,8 +450,14 @@ export default function RecruiterReviewCard({
         </button>
       )}
 
+      {addedToSkills.length > 0 && (
+        <p className="mt-3 text-[13px] text-muted" role="status">
+          Added to your Skills line: {addedToSkills.join(", ")}.
+        </p>
+      )}
       {pending > 0 && (
-        <div className="mt-4 rounded-xl bg-accent-soft/50 p-3">
+        // Sticky, so the one button that writes the queued changes is always in view.
+        <div className="sticky bottom-3 z-10 mt-4 rounded-xl bg-accent-soft p-3 shadow-lift" role="status">
           {pendingPlacements.length > 0 && (
             <ul className="mb-2 grid gap-1 text-[13px]">
               {pendingPlacements.map((p, i) => (
@@ -465,7 +474,7 @@ export default function RecruiterReviewCard({
           )}
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-[13px]">
-              {pending} change{pending === 1 ? "" : "s"} ready. They are made in one update and marked in yellow.
+              {pending} change{pending === 1 ? "" : "s"} waiting. Nothing is rewritten until you press Update. Changes are marked in yellow.
             </p>
             <Button onClick={onApply} disabled={disabled}>
               Update resume with {pending} change{pending === 1 ? "" : "s"}

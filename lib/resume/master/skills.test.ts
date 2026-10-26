@@ -216,3 +216,11 @@ describe("usage notes tied to a role", () => {
     ]);
   });
 });
+
+describe("bare areas of work aren't skills", () => {
+  it("drops frontend, backend, infrastructure, full stack; keeps real names", async () => {
+    const { isSoftSkill } = await import("./skills");
+    for (const w of ["frontend", "Front-end", "backend", "infrastructure", "full stack", "web development", "mobile development"]) expect(isSoftSkill(w)).toBe(true);
+    for (const w of ["React", "distributed systems", "Infrastructure as Code", "AWS", "Go", "frontend testing"]) expect(isSoftSkill(w)).toBe(false);
+  });
+});

@@ -415,7 +415,6 @@ export default function TrackerView() {
             <button type="button" onClick={() => withKey(() => setPastingJob(true))} className="font-medium text-accent hover:underline">
               Paste a description instead
             </button>
-            <span aria-hidden="true"> · </span>about 1 to 2¢ a job
           </p>
         </div>
       </section>

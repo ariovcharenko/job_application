@@ -1,9 +1,11 @@
 import { z } from "zod";
 import { AIError, type AIProvider, type JsonSchema } from "../../ai/provider";
 import type { SkillReadiness } from "../coverage";
+import { cleanTitle, parseMasterExperiences, type MasterEntry } from "../master/experiences";
 import { hasSkill, normalizeSkill, parseSkillInventory } from "../master/skills";
 import { describeTarget, type Section, type Target } from "./edit";
 import { keywordComments } from "./pipeline";
+import { masterEntryFor } from "./places";
 import { buildSystemPrompt } from "./prompt";
 import type { ResumeComment } from "./revise";
 import type { ResumeDoc } from "./schema";
@@ -334,6 +336,13 @@ const SKILL_KINDS: ReviewKind[] = ["missing_skill", "skill_unproven", "keyword"]
 const revisionNote = (change: string) =>
   `${change} Use only facts in the MASTER PROFILE; if this can't be done truthfully, leave it unchanged and say why. Change nothing else and keep the page the same length.`;
 
+/** The first role or project in her experience that shows `skill` in its own lines and isn't on the page. */
+export function entryShowingOffPage(doc: ResumeDoc, master: string, skill: string): MasterEntry | undefined {
+  const onPage = [...doc.experience, ...(doc.projects ?? [])].map((e) => e.company);
+  const entries = parseMasterExperiences(master);
+  return entries.find((m) => !onPage.some((c) => masterEntryFor([m], c)) && hasSkill(skill, [], m.block.split("\n").slice(1).join("\n")));
+}
+
 /** The free, code-found items: the job's skills the page doesn't show, or shows only in Skills. */
 export function codeReviewItems(ctx: PlanContext): ReviewItem[] {
   const inventory = parseSkillInventory(ctx.master);
@@ -359,7 +368,30 @@ export function codeReviewItems(ctx: PlanContext): ReviewItem[] {
     }
     if (ctx.keySkills.includes(skill) && !hasSkill(skill, [], bullets)) {
       const [comment] = keywordComments(ctx.doc, ctx.master, [skill]);
-      if (!comment) {
+      const offPage = !comment ? entryShowingOffPage(ctx.doc, ctx.master, skill) : undefined;
+      if (offPage) {
+        // Her experience shows it in a role or project that isn't on this page: bring that one in
+        // (true and specific) instead of asking where she used it among roles that didn't.
+        const project = /project/i.test(offPage.section);
+        const label = `${cleanTitle(offPage.title)} | ${offPage.company} | ${offPage.dates}`;
+        items.push({
+          id: `code:bring:${key}`,
+          kind: "skill_unproven",
+          priority,
+          title: `Show ${skill}: add ${offPage.company}`,
+          why: `Your experience shows ${skill} in ${offPage.company}, which isn't on this page.`,
+          detail: `Adds ${offPage.company} to ${project ? "Projects" : "Experience"} with the bullets that show ${skill}, and trims the least relevant bullets to stay on one page.`,
+          fromCode: true,
+          action: {
+            type: "revise",
+            comment: {
+              id: `code:bring:${key}`,
+              quote: "",
+              note: `Add my "${label}" entry from the MASTER PROFILE to the page under ${project ? "Projects" : "Experience"}, with 2 bullets taken from its own lines that show where ${skill} was used. To keep the page one page, drop the least relevant bullets elsewhere (never below 2 per role). Change nothing else.`,
+            },
+          },
+        });
+      } else if (!comment) {
         // No role on the page shows it in her experience, so a bullet naming it would be invented.
         items.push({ id: `code:place:${key}`, kind: "skill_unproven", priority, title: `Show ${skill} in a bullet`, why: "Listed only in Skills, and no role on the page shows where you used it.", detail: "", fromCode: true, action: { type: "place_skill", skill, question: `Where did you use ${skill}?` } });
       } else {

@@ -59,7 +59,7 @@ const run = (provider: AIProvider, measure: (d: ResumeDoc) => number) =>
   tailorResume({ provider, master: DEMO_EXPERIENCE, company: job.signals.company, jdText: job.jd, jobSkills, requiredSkills: job.signals.mustHaveSkills, focus, measure });
 
 describe("tailorResume", () => {
-  it("makes one call at medium effort with the page plan when the page comes back full", async () => {
+  it("makes one call at low effort with the page plan when the page comes back full", async () => {
     const { provider, calls } = fakeProvider(plannedPage());
     const out = await run(provider, () => 0.965);
     const fixes = followUpComments(out.result, { jobSkills, requiredSkills: job.signals.mustHaveSkills, measure: () => 0.965, master: DEMO_EXPERIENCE });
@@ -68,7 +68,7 @@ describe("tailorResume", () => {
     expect(out.calls).toBe(1);
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ tier: "smart", effort: GENERATE_EFFORT, cacheSystem: true });
-    expect(GENERATE_EFFORT).toBe("medium");
+    expect(GENERATE_EFFORT).toBe("low");
     expect(calls[0].prompt).toMatch(/PAGE PLAN/);
     expect(calls[0].prompt).toMatch(/JOB FOCUS/);
     expect(out.result.flags).toEqual([]);
@@ -94,6 +94,38 @@ describe("tailorResume", () => {
     expect(out.calls).toBe(2);
     expect(out.notes).toEqual([]);
     expect(out.result.doc.experience[0].bullets).toHaveLength(2);
+  });
+
+  it("hands over the draft before polishing, and only when a polish follows", async () => {
+    const drafts: number[] = [];
+    const onDraft = (r: { doc: ResumeDoc }) => drafts.push(r.doc.experience[0].bullets.length);
+    const base = { master: DEMO_EXPERIENCE, company: job.signals.company, jdText: job.jd, jobSkills, requiredSkills: job.signals.mustHaveSkills, focus, onDraft };
+    await tailorResume({ ...base, provider: fakeProvider(plannedPage()).provider, measure: () => 0.965 });
+    expect(drafts).toEqual([]);
+    const out = await tailorResume({ ...base, provider: fakeProvider(plannedPage({ bulletsPerRole: 2 }), plannedPage()).provider, measure: estimatePageFill });
+    expect(drafts).toEqual([2]);
+    expect(out.result.doc.experience[0].bullets.length).toBeGreaterThan(2);
+  });
+
+  it("Cancel during the polish keeps the draft that is already on screen", async () => {
+    const ctrl = new AbortController();
+    const cancelled = new Error("cancelled");
+    const { provider } = fakeProvider(plannedPage({ bulletsPerRole: 2 }), cancelled);
+    const out = await tailorResume({
+      provider, master: DEMO_EXPERIENCE, company: job.signals.company, jdText: job.jd, jobSkills, focus, measure: estimatePageFill, signal: ctrl.signal,
+      onDraft: () => ctrl.abort(),
+    });
+    expect(out.result.doc.experience[0].bullets).toHaveLength(2);
+    // Without a draft on screen, Cancel still stops the whole run.
+    const ctrl2 = new AbortController();
+    const p2 = fakeProvider(plannedPage({ bulletsPerRole: 2 }), cancelled);
+    const origin = p2.provider.completeJson;
+    let n = 0;
+    p2.provider.completeJson = (async (o: JsonOptions<unknown>) => {
+      if (++n === 2) ctrl2.abort();
+      return origin(o);
+    }) as AIProvider["completeJson"];
+    await expect(tailorResume({ provider: p2.provider, master: DEMO_EXPERIENCE, company: job.signals.company, jdText: job.jd, jobSkills, focus, measure: estimatePageFill, signal: ctrl2.signal })).rejects.toThrow("cancelled");
   });
 
   it("puts back a job skill the model left off the skills lines (code never loses a skill)", async () => {

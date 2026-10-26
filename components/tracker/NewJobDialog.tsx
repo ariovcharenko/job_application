@@ -43,7 +43,7 @@ function AlreadyChecked({
   app,
   onOpen,
   onCheckAgain,
-  againLabel = "Check it again (1 to 2¢)",
+  againLabel = "Check it again",
 }: {
   app: Application & { id: number };
   onOpen?: (app: Application & { id: number }) => void;
@@ -377,7 +377,7 @@ export default function NewJobDialog({
                 <Button disabled={moving} onClick={() => move(trackJob(app))}>
                   Add to applications
                 </Button>
-                <Button variant="secondary" disabled={moving} onClick={() => move(skipJob(app))}>
+                <Button variant="secondary" disabled={moving} onClick={() => void move(skipJob(app)).then(onClose)}>
                   Not applying
                 </Button>
               </div>
@@ -516,7 +516,6 @@ export default function NewJobDialog({
           )}
 
           <div className="mt-5 flex flex-wrap items-center justify-end gap-3 border-t border-black/[0.06] pt-5">
-            <span className="mr-auto text-[13px] text-muted">About 1 to 2¢</span>
             <Button variant="secondary" onClick={onClose}>
               Cancel
             </Button>

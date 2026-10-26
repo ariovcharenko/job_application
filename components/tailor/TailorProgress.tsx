@@ -10,7 +10,7 @@ const TYPICAL_CHARS = 7000;
  * The waiting screen while a resume is written: the current step, how much of the page has
  * arrived, and the seconds so far, so a long call never looks frozen.
  */
-export default function TailorProgress({ progress, onCancel }: { progress: Progress | null; onCancel?: () => void }) {
+export default function TailorProgress({ progress, onCancel, writer }: { progress: Progress | null; onCancel?: () => void; writer?: string | null }) {
   const [started] = useState(() => Date.now());
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -18,17 +18,11 @@ export default function TailorProgress({ progress, onCancel }: { progress: Progr
     return () => window.clearInterval(id);
   }, []);
   const seconds = Math.max(0, Math.round((now - started) / 1000));
-  const step = progress?.step ?? "writing";
   const chars = progress?.chars ?? 0;
   const share = Math.min(95, Math.round((chars / TYPICAL_CHARS) * 100));
-  const label =
-    step === "polishing"
-      ? chars
-        ? "Polishing: working the job's key skills into your bullets and fixing what the checks found."
-        : "Checking the page. One short polishing pass is on its way."
-      : chars
-        ? "Writing your resume for this job."
-        : "Reading the job and planning your page.";
+  // The polish pass runs with the draft already on screen, so this screen is only ever the writing.
+  // Before the first character arrives the model is choosing what from her experience fits the job.
+  const label = chars ? "Writing your resume for this job." : "Choosing your most relevant experience for this job.";
 
   return (
     <div className="rounded-2xl bg-accent-soft/50 p-5" role="status" aria-live="polite">
@@ -44,7 +38,7 @@ export default function TailorProgress({ progress, onCancel }: { progress: Progr
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-muted">
-          {step === "polishing" ? "Step 2 of 2" : "Step 1 of 2"} · {seconds}s. Usually under a minute.
+          {seconds}s{writer ? ` · ${writer}` : ""}. Your page shows as soon as it&apos;s written.
         </p>
         {onCancel && (
           <button type="button" onClick={onCancel} className="text-xs font-medium text-muted hover:text-ink">

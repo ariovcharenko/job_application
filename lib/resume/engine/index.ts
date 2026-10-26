@@ -39,12 +39,13 @@ export function buildHeader(p: Profile): ResumeHeader {
 }
 
 /**
- * How hard the model thinks when writing the page. "medium": "high" took about 3 minutes per resume
- * (measured live 2026-09-28) and made tailoring feel broken, while medium came back in about 25
- * seconds with the same checks passing. Quality comes from the page plan, the job focus and the
- * code checks, plus the one follow-up call (pipeline.ts) that fixes exactly what code finds.
+ * How hard the model thinks when writing the page. "low": "high" took about 3 minutes per resume
+ * (measured live 2026-09-28), and medium still spent 15 to 20 silent seconds thinking before the
+ * first word (2026-10-25), which read as a stuck "planning" step. Quality comes from the page plan,
+ * the job focus and the code checks, plus the one follow-up call (pipeline.ts) that fixes exactly
+ * what code finds, which now runs while the draft is already on screen.
  */
-export const GENERATE_EFFORT = "medium" as const;
+export const GENERATE_EFFORT = "low" as const;
 
 /**
  * One call to the smart model writes the final one-page resume. The system prompt (rules + master

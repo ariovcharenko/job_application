@@ -4,10 +4,12 @@
 //
 //   npx vite-node scripts/eval-tailoring.ts --dry-run          # estimate only, no API call
 //   ANTHROPIC_API_KEY=sk-... npx vite-node scripts/eval-tailoring.ts [--model claude-sonnet-5] [--jobs 2]
+//   OPENAI_API_KEY=sk-... npx vite-node scripts/eval-tailoring.ts --provider openai [--model gpt-5] [--jobs 2]
 //
 // Optional: ANTHROPIC_WORKSPACE_ID for keys that need the workspace header.
 
 import { createAnthropicProvider } from "../lib/ai/anthropic";
+import { createOpenAIProvider } from "../lib/ai/openai";
 import { formatUsd } from "../lib/ai/usage";
 import { estimateEvalCost, evalJobs, formatRow, HEADER_ROW, runBaseline, runOurs, type EvalResult } from "../lib/resume/eval/run";
 
@@ -16,21 +18,25 @@ const flag = (name: string) => {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : undefined;
 };
-const model = flag("--model") ?? "claude-sonnet-5";
+const openai = flag("--provider") === "openai";
+const model = flag("--model") ?? (openai ? "gpt-5" : "claude-sonnet-5");
 const jobs = evalJobs().slice(0, Number(flag("--jobs") ?? 5));
 const dryRun = args.includes("--dry-run");
-const key = process.env.ANTHROPIC_API_KEY?.trim();
+const keyName = openai ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY";
+const key = process.env[keyName]?.trim();
 
 async function main() {
   const est = estimateEvalCost(model, jobs);
   console.log(`Eval: ${jobs.length} job(s), ours vs a plain prompt, on ${model}.`);
   console.log(`Estimated cost: ${formatUsd(est.lowUsd)} to ${formatUsd(est.highUsd)}${est.known ? "" : " (model not in the price table; a high price was assumed)"}.`);
   if (dryRun || !key) {
-    console.log(dryRun ? "Dry run: no API calls made." : "No ANTHROPIC_API_KEY set: no API calls made.");
+    console.log(dryRun ? "Dry run: no API calls made." : `No ${keyName} set: no API calls made.`);
     return;
   }
 
-  const provider = createAnthropicProvider({ apiKey: key, smartModel: model, fastModel: "claude-haiku-4-5", workspaceId: process.env.ANTHROPIC_WORKSPACE_ID });
+  const provider = openai
+    ? createOpenAIProvider({ apiKey: key, model })
+    : createAnthropicProvider({ apiKey: key, smartModel: model, fastModel: "claude-haiku-4-5", workspaceId: process.env.ANTHROPIC_WORKSPACE_ID });
   const totals = { ours: 0, base: 0 };
   console.log(HEADER_ROW);
   for (const job of jobs) {

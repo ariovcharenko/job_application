@@ -242,6 +242,33 @@ describe("codeReviewItems", () => {
     expect(items[0].action).toEqual({ type: "place_skill", skill: "Go", question: "Where did you use Go?" });
   });
 
+  it("offers to bring in the project that used a key skill, instead of asking which page role used it", () => {
+    const master = `### Experience
+
+**Software Engineer Intern | Northwind | Remote | May 2026 - Aug 2026**
+- Built React screens for the checkout.
+
+### Projects
+
+**Personal project | InterviewPrep | Jan 2025**
+- Built a Spring Boot (Java 17) REST API and deployed it with Docker.
+
+### Skills
+- **Languages:** Java, TypeScript`;
+    const page: ResumeDoc = {
+      ...doc,
+      experience: [{ title: "Software Engineer Intern", company: "Northwind", location: "Remote", dates: "May 2026 - Aug 2026", bullets: ["Built React screens for the checkout."] }],
+      projects: [],
+      skills: [{ category: "Languages", items: ["Java", "TypeScript"] }],
+    };
+    const items = codeReviewItems(ctx({ doc: page, master, keySkills: ["Java"], jobSkills: ["Java"], isRequired: () => true }));
+    expect(items).toHaveLength(1);
+    expect(items[0].id).toBe("code:bring:java");
+    expect(items[0].title).toBe("Show Java: add InterviewPrep");
+    if (items[0].action.type === "revise") expect(items[0].action.comment.note).toMatch(/InterviewPrep.*Projects/);
+    else throw new Error("expected a revise action");
+  });
+
   it("doesn't ask again about a skill she confirmed (it's in her experience now)", () => {
     const master = appendUsageNote(appendSkillToMaster(MASTER, "Kubernetes"), "Kubernetes", "ran the staging cluster", { company: "Taskwise", title: "Founding Software Engineer" });
     const again = codeReviewItems(ctx({ master }));

@@ -8,6 +8,7 @@ import {
   preferredTitle,
   relevanceParts,
   showsDomain,
+  isPageCode,
   teachingPenalty,
   titleFamily,
   topResponsibilities,
@@ -122,5 +123,21 @@ describe("roles", () => {
     const lumen = { title: "Frontend Engineer Intern", company: "Lumen Health", dates: "Jun 2024 - Sep 2024", bullets: ["Shipped a **React** and **TypeScript** scheduling page"] };
     const ta = { title: "Teaching Assistant", company: "University", dates: "Sep 2024 - Jun 2026", bullets: ["Led weekly sections for 30 students"] };
     expect(entryRelevance(fe, lumen, [lumen, ta], now)).toBeGreaterThan(entryRelevance(fe, ta, [lumen, ta], now));
+  });
+});
+
+describe("page code saved with a posting", () => {
+  it("doesn't count toward what the job is about", () => {
+    const jd = [
+      "About the role",
+      "You'll build payment APIs and ledgers for merchants.",
+      "meta-experiment-treatments: wpp_acquisition_mobile_sticky_hamburger.control.ursula.7db412e4-14f3-481b-98cc-9e9ee5693105.m.s,wpp_curator_h2",
+    ].join("\n");
+    expect(isPageCode(jd.split("\n")[2])).toBe(true);
+    expect(isPageCode("Apply at https://stripe.com/jobs/listing/software-engineer-new-grad/1234567890 today")).toBe(false);
+    const f = buildJobFocus({ role: "Software Engineer", jdText: jd, must: [] });
+    expect(f.domains.map((d) => d.id)).not.toContain("mobile");
+    expect(showsDomain("wpp_mobile_sticky", "mobile")).toBe(false);
+    expect(showsDomain("Ship our mobile app", "mobile")).toBe(true);
   });
 });

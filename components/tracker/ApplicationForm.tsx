@@ -21,8 +21,6 @@ import { applyStageChange } from "@/lib/tracker/stage";
 import { ROLE_TYPES, STAGES, VISA_SIGNALS, type Application, type RoleType, type Stage, type VisaSignal } from "@/lib/types";
 import { Button, ConfirmDialog, ExternalLinkIcon, Field, Modal, Notice, outlinedClass, SelectField, TextArea, textButtonClass } from "@/components/ui";
 import ResumePreview from "../resumes/ResumePreview";
-import { tailorCostHint } from "@/lib/resume/costHint";
-import { useResumeWriter } from "../tailor/useResumeWriter";
 import ScoreCard from "./ScoreCard";
 import DeleteJobMessage from "./DeleteJobMessage";
 import { CompanyMark, STAGE_STYLE } from "./StageBadge";
@@ -56,7 +54,6 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tailoring, setTailoring] = useState(false);
-  const writer = useResumeWriter();
   const [outreach, setOutreach] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [downloadNote, setDownloadNote] = useState<string | null>(null);
@@ -297,7 +294,7 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
                       </Button>
                     </>
                   ) : (
-                    app.jdText.trim() && <Button onClick={() => setTailoring(true)}>Tailor resume ({tailorCostHint(writer)})</Button>
+                    app.jdText.trim() && <Button onClick={() => setTailoring(true)}>Tailor resume</Button>
                   )}
                   {/* The alternative path is a quiet text action, so the row reads primary, secondary, link
                       instead of three equal pills. */}

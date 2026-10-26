@@ -45,6 +45,11 @@ export interface TailorInput {
    * (gaps.ts applyConfirmations), so they count as hers and their placement passes the checks.
    */
   confirmed?: ConfirmedForPrompt[];
+  /**
+   * The checked first draft, the moment it exists, when a follow-up call is about to polish it: the
+   * screen shows it right away instead of waiting for the polish. Not called when there's no follow-up.
+   */
+  onDraft?: (result: ValidationResult) => void;
   /** Where the run is, for the waiting screen: which step, and how much of that answer has arrived. */
   onProgress?: (p: TailorProgress) => void;
   /** Her "Cancel": stops whichever call is running. */
@@ -178,6 +183,8 @@ export async function tailorResume(input: TailorInput): Promise<TailorOutput> {
   if (comments.length === 0) return { result, notes: [], calls: 1 };
 
   let notes: string[] = [];
+  const draft = result;
+  input.onDraft?.(draft);
   try {
     input.onProgress?.({ step: "polishing", chars: 0 });
     const out = await reviseResume(input.polishProvider ?? provider, master, company, jdText, result.doc as ResumeDoc, comments, progress("polishing"), FOLLOW_UP_EFFORT, input.signal);
@@ -199,8 +206,10 @@ export async function tailorResume(input: TailorInput): Promise<TailorOutput> {
     result = revised;
     notes = [`Polished automatically: ${what} in one extra pass.`, ...changes];
   } catch (e) {
-    // Her Cancel stops the whole run; any other failure leaves the first draft standing.
-    if (input.signal?.aborted) throw e;
+    // Her Cancel stops the whole run, unless the draft is already on screen: then Cancel only skips
+    // the polish and the draft stays. Any other failure leaves the first draft standing too.
+    if (input.signal?.aborted && !input.onDraft) throw e;
+    return { result: draft, notes: [], calls: 2 };
   }
   return { result, notes, calls: 2 };
 }

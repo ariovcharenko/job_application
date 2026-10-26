@@ -13,9 +13,7 @@ import { parseSkillInventory } from "./skills";
 // Cost: the prompt is ~1.2k tokens; a 1 to 2 page resume is ~1.5k to 3k tokens as text, or ~3k to
 // 6k as a PDF (text plus page images). The answer re-types the whole resume as JSON, ~2k to 4k
 // output tokens, plus some thinking at medium effort. At Sonnet-class prices ($2-3 in, $10-15 out
-// per million) that is roughly 3.5 to 8 cents, shown as "about 4 to 8¢".
-
-export const IMPORT_COST_HINT = "about 4 to 8¢, one call";
+// per million) that is roughly 3.5 to 8 cents. Not shown on the button (her call, 2026-10-25).
 
 /** Resume text beyond this is cut; a real resume is far shorter. */
 const SOURCE_CHAR_LIMIT = 60000;

@@ -167,21 +167,28 @@ export function findEntry(entries: MasterEntry[], e: ResumeDoc["experience"][num
   return pool.find((m) => titleMatches(e.title, m)) ?? pool.find((m) => normDates(m.dates) === normDates(e.dates)) ?? pool[0];
 }
 
+/** "Acme, AdTech Team" -> ["Acme", "AdTech Team"]: the pieces of a company line. */
+const HEADER_SPLIT = /\s*[()/,|]\s*|\s+-\s+/;
+
 /**
  * The allowed title a page title stands for, or null. Accepts the main or alt title exactly, or a
  * combination of only those ("Main (Alt)", "Main / Alt", "Main, Alt"): then the first part wins.
+ * A piece of the role's own company line also counts ("Intern, AdTech Team" when her company is
+ * "Acme, AdTech Team"): the model often moves the team into the title, which invents nothing.
  */
 export function resolveTitle(title: string, m: MasterEntry): string | null {
   const allowed = [cleanTitle(m.title), altTitle(m.title)].filter(Boolean);
   const exact = allowed.find((x) => normalizeLoose(x) === normalizeLoose(cleanTitle(title)));
   if (exact) return exact;
   const parts = title
-    .split(/\s*[()/,|]\s*|\s+-\s+/)
+    .split(HEADER_SPLIT)
     .map((p) => p.replace(/^alt\.?\s*title:?\s*/i, "").trim())
     .filter(Boolean);
   if (parts.length < 2) return null;
-  const matched = parts.map((p) => allowed.find((x) => normalizeLoose(x) === normalizeLoose(p)));
-  return matched.every(Boolean) ? matched[0]! : null;
+  const companyParts = new Set(m.company.split(HEADER_SPLIT).map(normalizeLoose).filter(Boolean));
+  const titles = parts.map((p) => allowed.find((x) => normalizeLoose(x) === normalizeLoose(p)));
+  const ok = parts.every((p, i) => titles[i] || companyParts.has(normalizeLoose(p)));
+  return ok ? (titles.find(Boolean) ?? null) : null;
 }
 
 /** The page's title is the entry's main title or its "(alt. title: X)", with any such note ignored. */
@@ -475,11 +482,15 @@ export function validateResume(raw: ResumeDoc, masterProfile: string, opts: Vali
       // experience, and a title made only of her main/alt titles ("Main (Alt)", "Main / Alt") becomes
       // the one the model led with. A title that isn't hers is still flagged below.
       const resolved = resolveTitle(e.title, entry);
-      const before = `${e.title}|${e.dates}|${e.location}`;
-      if (resolved) e.title = resolved;
+      const before = `${e.title}|${e.dates}|${e.location}|${e.company}`;
+      if (resolved) {
+        // A team moved out of the company line into the title goes back where she wrote it.
+        if (normalizeLoose(cleanTitle(e.title)) !== normalizeLoose(resolved) && containsLoose(entry.company, e.company)) e.company = entry.company;
+        e.title = resolved;
+      }
       if (entry.dates) e.dates = spaceDateDashes(entry.dates);
       if (entry.location) e.location = entry.location;
-      if (`${e.title}|${e.dates}|${e.location}` !== before) headersCorrected++;
+      if (`${e.title}|${e.dates}|${e.location}|${e.company}` !== before) headersCorrected++;
       problems = [
         !titleMatches(e.title, entry) && `title "${e.title}"`,
         e.dates && normDates(e.dates) !== normDates(entry.dates) && `dates "${e.dates}"`,
@@ -523,7 +534,7 @@ export function validateResume(raw: ResumeDoc, masterProfile: string, opts: Vali
       if (resolved) e.title = resolved;
       if (entry.dates) e.dates = spaceDateDashes(entry.dates);
       e.location = entry.location;
-      if (`${e.title}|${e.dates}|${e.location}` !== before) headersCorrected++;
+      if (`${e.title}|${e.dates}|${e.location}|${e.company}` !== before) headersCorrected++;
       if (!titleMatches(e.title, entry)) {
         flags.push({ id: `proj-${pi}`, kind: "employer", severity: "block", message: `title "${e.title}" doesn't match your ${entry.company} project in your experience.`, target: { section: "projects", entry: pi } });
       }

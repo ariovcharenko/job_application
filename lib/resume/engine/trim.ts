@@ -1,6 +1,7 @@
 import type { FlagSpot, Target } from "./edit";
 import { BODY_STEP_PT, DEFAULT_LAYOUT, MAX_BODY_PT, MAX_SPACING, PAGE, SPACING_STEP, type Layout } from "./layout";
 import { entryRelevance, focusRelevance, type JobFocus } from "./focus";
+import { hasSkill } from "../master/skills";
 import { bulletScore, type RelevanceFn } from "./relevance";
 import type { ResumeDoc } from "./schema";
 
@@ -144,6 +145,25 @@ interface Ranking {
   relevance?: number[][];
   /** With a job focus: the mean relevance of each project's two most relevant bullets. */
   projectRelevance?: number[];
+  /**
+   * Projects that are the page's only bullet proof of one of the job's must-have skills (her Java
+   * project for a Java job). They go last, after role bullets down to two per role: dropping one
+   * left the skill listed but unproven (found live 2026-10-25).
+   */
+  soleProof?: Set<number>;
+}
+
+/** Projects whose bullets are the only ones on the page that show some must-have skill. */
+export function soleProofProjects(pool: ResumeDoc, must: string[]): Set<number> {
+  const out = new Set<number>();
+  const roleText = pool.experience.flatMap((e) => e.bullets).join("\n");
+  const projects = pool.projects ?? [];
+  for (const skill of must) {
+    if (hasSkill(skill, [], roleText)) continue;
+    const showing = projects.map((p, i) => (hasSkill(skill, [], p.bullets.join("\n")) ? i : -1)).filter((i) => i >= 0);
+    if (showing.length === 1) out.add(showing[0]);
+  }
+  return out;
 }
 
 function rank(pool: ResumeDoc, opts: Pick<FitOptions, "relevance" | "focus">): Ranking {
@@ -162,6 +182,7 @@ function rank(pool: ResumeDoc, opts: Pick<FitOptions, "relevance" | "focus">): R
   const target = new Array<number>(pool.experience.length).fill(TARGET_BY_RANK[TARGET_BY_RANK.length - 1]);
   order.forEach(({ i }, r) => (target[i] = TARGET_BY_RANK[Math.min(r, TARGET_BY_RANK.length - 1)]));
   if (!focus || !relevance) return { score, target, entryScore };
+  const soleProof = soleProofProjects(pool, focus.must);
   const top2 = (xs: number[]) => {
     const t = [...xs].sort((a, b) => b - a).slice(0, 2);
     return t.length ? t.reduce((a, b) => a + b, 0) / t.length : 0;
@@ -173,6 +194,7 @@ function rank(pool: ResumeDoc, opts: Pick<FitOptions, "relevance" | "focus">): R
     projectScore,
     relevance: pool.experience.map((e) => e.bullets.map((b) => relevance(b))),
     projectRelevance: (pool.projects ?? []).map((p) => top2(p.bullets.map((b) => relevance(b)))),
+    ...(soleProof.size ? { soleProof } : {}),
   };
 }
 
@@ -242,9 +264,10 @@ function nextCut(pool: ResumeDoc, off: Set<Key>, rk: Ranking): Key | null {
   //     least relevant first, and a fourth role less relevant than every project still shown goes
   //     before them (a teaching role gives way to a project that shows the job's stack).
   const projects = pool.projects ?? [];
+  const guarded = (i: number) => rk.soleProof?.has(i) ?? false;
   if (rk.projectScore) {
     const ps = rk.projectScore;
-    const live = projects.map((_, i) => i).filter((i) => !off.has(`P:${i}`)).sort((a, b) => ps[a] - ps[b] || b - a);
+    const live = projects.map((_, i) => i).filter((i) => !off.has(`P:${i}`) && !guarded(i)).sort((a, b) => ps[a] - ps[b] || b - a);
     const weakRole = droppableRole(pool, off, rk);
     if (weakRole !== undefined && live.length && rk.entryScore[weakRole] < ps[live[0]]) return `X:${weakRole}`;
     // A role's bullet that shows clearly less of this job than the weakest project still shown
@@ -260,11 +283,11 @@ function nextCut(pool: ResumeDoc, off: Set<Key>, rk: Ranking): Key | null {
     }
   }
   for (let i = projects.length - 1; i >= 0; i--) {
-    if (off.has(`P:${i}`)) continue;
+    if (off.has(`P:${i}`) || guarded(i)) continue;
     const vis = projects[i].bullets.map((_, j) => j).filter((j) => !off.has(`p:${i}:${j}`));
     if (vis.length > 1) return `p:${i}:${vis[vis.length - 1]}`;
   }
-  for (let i = projects.length - 1; i >= 0; i--) if (!off.has(`P:${i}`)) return `P:${i}`;
+  for (let i = projects.length - 1; i >= 0; i--) if (!off.has(`P:${i}`) && !guarded(i)) return `P:${i}`;
 
   // 2. Bullets beyond each role's aim, least relevant first.
   const aboveTarget = bulletCut(pool, off, rk, (i) => rk.target[i]);
@@ -276,7 +299,16 @@ function nextCut(pool: ResumeDoc, off: Set<Key>, rk: Ranking): Key | null {
   if (drop !== undefined) return `X:${drop}`;
 
   // 4. Bullets down to two per role. Skills, education and the header are never cut.
-  return bulletCut(pool, off, rk, () => MIN_BULLETS_PER_ENTRY);
+  const down = bulletCut(pool, off, rk, () => MIN_BULLETS_PER_ENTRY);
+  if (down) return down;
+
+  // 5. Last: a project that is the only proof of a must-have skill, its second bullet first.
+  for (let i = projects.length - 1; i >= 0; i--) {
+    if (off.has(`P:${i}`)) continue;
+    const vis = projects[i].bullets.map((_, j) => j).filter((j) => !off.has(`p:${i}:${j}`));
+    return vis.length > 1 ? `p:${i}:${vis[vis.length - 1]}` : `P:${i}`;
+  }
+  return null;
 }
 
 /** The least relevant role that may go whole: only beyond MIN_ROLES, and never the first (most recent). */

@@ -87,3 +87,27 @@ describe("fitToPage with a job focus", () => {
     expect(r.leftOffEntries[0]).toEqual({ kind: "project", title: "Project", company: "P" });
   });
 });
+
+describe("a project that is the page's only proof of a must-have skill", () => {
+  const javaFocus = buildJobFocus({ role: "Software Engineer, New Grad", jdText: "About the role\nBuild services in Java.", must: ["Java"] });
+  const d = doc({
+    experience: [
+      role("A", "Intern", "May 2026 - Aug 2026", ["Built React screens", "Wrote Jest tests", "Fixed a timezone bug", "Led a UI migration"]),
+      role("B", "Engineer", "Jan 2026 - Jul 2026", ["Built a SwiftUI app", "Integrated a REST API", "Designed the website", "Ran sprints"]),
+      role("C", "Founding Engineer", "Oct 2025 - Feb 2026", ["Built a task platform", "Architected a Next.js backend", "Designed a dashboard", "Deployed on Railway"]),
+    ],
+    projects: [role("PitchPal", "Project", "2025", ["Built a Spring Boot (**Java** 17) REST API", "Built a React frontend"])],
+  }); // 2 + (1 + 3 x 6) + (1 + 4) = 26 lines
+
+  it("stays while role bullets are trimmed, instead of going first", () => {
+    const r = fitToPage(d, page(23), { ...exact, focus: javaFocus });
+    expect(r.doc.projects?.map((p) => p.company)).toEqual(["PitchPal"]);
+    expect(r.doc.projects?.[0].bullets[0]).toMatch(/Java/);
+  });
+
+  it("still goes once every role is down to two bullets", () => {
+    const r = fitToPage(d, page(16), { ...exact, focus: javaFocus });
+    expect(r.doc.experience.every((e) => e.bullets.length >= 2)).toBe(true);
+    expect(r.fits).toBe(true);
+  });
+});

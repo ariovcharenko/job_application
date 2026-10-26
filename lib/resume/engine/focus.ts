@@ -38,7 +38,9 @@ export const DOMAINS: Domain[] = [
   { id: "design", label: "design", terms: ["user research", "usability", "designers?", "prototyp\\w*", "figma", "ux"] },
 ];
 
-const domainRe = new Map(DOMAINS.map((d) => [d.id, new RegExp(`(^|[^a-z0-9])(?:${d.terms.join("|")})(?![a-z0-9])`, "i")]));
+// "_" counts as part of a word: page code saved with a posting ("wpp_acquisition_mobile_sticky")
+// must not read as the job being about mobile.
+const domainRe = new Map(DOMAINS.map((d) => [d.id, new RegExp(`(^|[^a-z0-9_])(?:${d.terms.join("|")})(?![a-z0-9_])`, "i")]));
 
 /** Whether a piece of text shows this domain. */
 export const showsDomain = (text: string, id: string) => domainRe.get(id)?.test(text.replace(/\*\*/g, "")) ?? false;
@@ -89,6 +91,15 @@ interface WeightedLine {
   weight: number;
 }
 
+/**
+ * Leftovers of the web page saved with a posting (tracking ids, "meta-experiment-treatments: ...",
+ * JSON, CSS): a long token with no spaces made of ids, dots, underscores or equals signs. Real
+ * posting text never has one ("https://..." links are left alone).
+ */
+export function isPageCode(line: string): boolean {
+  return line.split(/\s+/).some((t) => t.length >= 40 && !/^https?:\/\//i.test(t) && /[_=.{};]/.test(t) && !/^[A-Za-z][a-z]+[.,;:!?]?$/.test(t));
+}
+
 /** The posting split into lines, each with how much it speaks about this job's own work. */
 export function weightedLines(jdText: string): WeightedLine[] {
   const out: WeightedLine[] = [];
@@ -100,6 +111,7 @@ export function weightedLines(jdText: string): WeightedLine[] {
       weight = sectionWeight(line) ?? weight;
       continue;
     }
+    if (isPageCode(line)) continue;
     out.push({ text: line, weight: GENERIC_LINE.test(line) ? 0 : weight });
   }
   return out;
