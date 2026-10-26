@@ -65,8 +65,13 @@ describe("which OpenAI failures move to Claude on their own", () => {
     expect(autoFallbackReason(new AIError("rate_limit", "x", "openai"))).toBe("unavailable");
   });
 
+  it("a malformed or wrong-shaped JSON answer does too", () => {
+    expect(autoFallbackReason(new AIError("invalid_output", "x", "openai"))).toBe("unreadable");
+    expect(autoFallbackReason(new AIError("invalid_output", "x"))).toBeNull();
+  });
+
   it("key, permission, model and request problems don't (she has to fix those), nor her Cancel", () => {
-    for (const kind of ["no_key", "auth", "permission", "bad_request", "cancelled", "refusal", "truncated", "invalid_output", "unknown"] as AIErrorKind[]) {
+    for (const kind of ["no_key", "auth", "permission", "bad_request", "cancelled", "refusal", "truncated", "unknown"] as AIErrorKind[]) {
       expect(autoFallbackReason(new AIError(kind, "x", "openai"))).toBeNull();
     }
     // The manual "fix key / use Claude" notice still covers the ones that need her.
@@ -85,6 +90,7 @@ describe("which OpenAI failures move to Claude on their own", () => {
     expect(fallbackMessage("billing")).toBe("Written with Claude: OpenAI was out of credit.");
     expect(fallbackMessage("unavailable")).toBe("Written with Claude: OpenAI was unavailable.");
     expect(fallbackMessage("unavailable", "rate_limit")).toBe("Written with Claude: OpenAI was busy.");
+    expect(fallbackMessage("unreadable")).toBe("Written with Claude: OpenAI's answer could not be read.");
   });
 });
 
@@ -94,6 +100,7 @@ describe("withWriterFallback", () => {
     ["overloaded", "Written with Claude: OpenAI was unavailable."],
     ["network", "Written with Claude: OpenAI was unavailable."],
     ["rate_limit", "Written with Claude: OpenAI was busy."],
+    ["invalid_output", "Written with Claude: OpenAI's answer could not be read."],
   ] as const)("retries once on Claude after %s and says so", async (kind, message) => {
     const openai = fake("openai", failing(kind));
     const claude = fake("anthropic", async () => '"claude"');
@@ -103,7 +110,7 @@ describe("withWriterFallback", () => {
     expect(await p.completeJson({ prompt: "x", schema: { type: "string" } })).toBe("claude");
     expect(openai.calls).toBe(2);
     expect(claude.calls).toBe(2);
-    expect(onFallback).toHaveBeenCalledWith({ reason: kind === "billing" ? "billing" : "unavailable", message });
+    expect(onFallback).toHaveBeenCalledWith({ reason: kind === "billing" ? "billing" : kind === "invalid_output" ? "unreadable" : "unavailable", message });
   });
 
   it.each(["auth", "permission", "bad_request", "no_key", "cancelled"] as const)("does not fall back on %s", async (kind) => {
