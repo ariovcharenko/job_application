@@ -2,6 +2,7 @@ import type { AIProvider } from "../../ai/provider";
 import { CHARS_PER_LINE } from "./budget";
 import { describeTarget, type Target } from "./edit";
 import { ENGINE_MAX_TOKENS } from "./index";
+import { droppedMessage, metricsDroppedBy } from "../quality/metrics";
 import { buildSystemPrompt } from "./prompt";
 import { RESUME_REVISION_JSON_SCHEMA, ResumeRevisionSchema, type ResumeDoc, type ResumeRevision } from "./schema";
 import type { Flag } from "./validate";
@@ -103,7 +104,7 @@ export async function reviseResume(
   effort: "low" | "medium" | "high" = REVISE_EFFORT,
   signal?: AbortSignal,
 ): Promise<ResumeRevision> {
-  return provider.completeJson<ResumeRevision>({
+  const out = await provider.completeJson<ResumeRevision>({
     tier: "smart",
     effort,
     maxTokens: ENGINE_MAX_TOKENS,
@@ -115,6 +116,10 @@ export async function reviseResume(
     onProgress,
     signal,
   });
+  // Metric guard: a number from her own bullets that this call removed is reported in "What
+  // changed" (the quality check lists it too), so a rewrite can't squeeze a metric out silently.
+  const dropped = metricsDroppedBy(doc, out, masterProfile).map(droppedMessage);
+  return dropped.length ? { ...out, changes: [...out.changes, ...dropped] } : out;
 }
 
 /**
