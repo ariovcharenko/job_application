@@ -3,11 +3,11 @@ import { parseMasterExperiences } from "../master/experiences";
 import { hasSkill, parseSkillInventory, parseUsageNotes } from "../master/skills";
 import { lintResume } from "../quality/lint";
 import { issuesToComments } from "../quality/summary";
-import { linesShort } from "./budget";
-import type { JobFocus } from "./focus";
+import { backfillFromExperience } from "./backfill";
+import { focusRelevance, type JobFocus } from "./focus";
 import { generateResume, type ConfirmedForPrompt } from "./index";
 import { DEFAULT_LAYOUT } from "./layout";
-import { fillComment, FOLLOW_UP_EFFORT, reviseResume, type ResumeComment } from "./revise";
+import { FOLLOW_UP_EFFORT, reviseResume, type ResumeComment } from "./revise";
 import type { ResumeDoc } from "./schema";
 import { fitToPage, toPoolTarget, type MeasureFn } from "./trim";
 import { notesForRole, validateResume, type ValidationResult } from "./validate";
@@ -17,14 +17,12 @@ import type { Target } from "./edit";
 //  1. The model writes the final one-page resume to a page plan computed from the real layout
 //     (budget.ts), and code checks it (validate.ts: honesty, dashes, bold, skills kept and
 //     completed with the job's skills she has).
-//  2. Code measures the page. Only when it ends short by a few lines, or code's writing checks
-//     found something only the model can fix (a repeated verb, a buzzword, an overlong bullet),
-//     ONE follow-up call asks for exactly that. If that call fails, the first draft stands.
+//  2. A short page is filled by code with her own unused bullets, word for word (backfill.ts).
+//     Only when code's writing checks found something only the model can fix (a repeated verb, a
+//     buzzword, an overlong bullet, a key skill not named where it was used), ONE follow-up call
+//     asks for exactly that, while the draft is already on screen. If it fails, the draft stands.
 // Overflow is never sent back: the display step (trim.ts fitResume) drops the lowest-relevance
 // bullet if the page runs over, and raises the type within 10 to 11pt as the last resort.
-
-/** A short page by fewer lines than this is left to the type size, not worth a call. */
-export const MIN_SHORT_LINES = 3;
 
 export interface TailorInput {
   provider: AIProvider;
@@ -124,8 +122,8 @@ export function keywordComments(doc: ResumeDoc, master: string, skills: string[]
 }
 
 /**
- * The follow-up comments for a checked draft: one per writing fix code found, plus "add N lines"
- * when the page (at 10pt) ends MIN_SHORT_LINES or more short. Empty = no call.
+ * The follow-up comments for a checked draft: one per writing fix code found, plus the job's key
+ * skills to name in the bullets of the roles that used them. Empty = no call.
  */
 export function followUpComments(result: ValidationResult, input: Pick<TailorInput, "jobSkills" | "requiredSkills" | "measure" | "master">): ResumeComment[] {
   const inventory = parseSkillInventory(input.master);
@@ -146,8 +144,8 @@ export function followUpComments(result: ValidationResult, input: Pick<TailorInp
     const target = c.target ? toPoolTarget(fit.map, c.target) : null;
     if (target) comments.push({ ...c, target });
   }
-  const short = fit.fits ? linesShort(fit.fill) : 0;
-  if (short >= MIN_SHORT_LINES) comments.push({ id: "fill", quote: "", note: fillComment(short) });
+  // A short page is no longer sent back: code fills it from her own bullets (tailorResume), and the
+  // display step raises the type a little for the rest.
   return comments;
 }
 
@@ -179,10 +177,17 @@ export async function tailorResume(input: TailorInput): Promise<TailorOutput> {
   const raw = await generateResume(provider, master, company, jdText, { have, gaps }, focus, input.confirmed ?? [], progress("writing"), input.signal);
   assertUsable(raw);
   let result = validateResume(raw, master, checkOpts);
+  // A page that comes back short is filled by code with her own unused bullets of the roles on it,
+  // word for word (true by construction, free, instant); the fit step keeps the most relevant that
+  // fit. Asking the model to "add N lines" split good bullets in half and repeated content (live
+  // gpt-5 run, 2026-10-25), and was the slowest call of the run.
+  const fill = backfillFromExperience(result.doc as ResumeDoc, master, focus ? focusRelevance(focus) : undefined);
+  const filledNote = fill.added ? [`Added ${fill.added} more of your own bullets, word for word, so the page can be filled with the most relevant.`] : [];
+  if (fill.added) result = validateResume(fill.doc, master, checkOpts);
   const comments = followUpComments(result, input);
-  if (comments.length === 0) return { result, notes: [], calls: 1 };
+  if (comments.length === 0) return { result, notes: filledNote, calls: 1 };
 
-  let notes: string[] = [];
+  let notes: string[] = [...filledNote];
   const draft = result;
   input.onDraft?.(draft);
   try {
@@ -204,12 +209,12 @@ export async function tailorResume(input: TailorInput): Promise<TailorOutput> {
       .join(", ")
       .replace(/, ([^,]*)$/, " and $1");
     result = revised;
-    notes = [`Polished automatically: ${what} in one extra pass.`, ...changes];
+    notes = [`Polished automatically: ${what} in one extra pass.`, ...filledNote, ...changes];
   } catch (e) {
     // Her Cancel stops the whole run, unless the draft is already on screen: then Cancel only skips
     // the polish and the draft stays. Any other failure leaves the first draft standing too.
     if (input.signal?.aborted && !input.onDraft) throw e;
-    return { result: draft, notes: [], calls: 2 };
+    return { result: draft, notes: filledNote, calls: 2 };
   }
   return { result, notes, calls: 2 };
 }

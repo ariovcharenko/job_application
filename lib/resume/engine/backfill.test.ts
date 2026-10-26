@@ -61,3 +61,13 @@ describe("autoBold", () => {
     expect((out.match(/\*\*/g) ?? []).length / 2).toBeLessThanOrEqual(4);
   });
 });
+
+describe("covers", () => {
+  it("asks whether the page says most of the source bullet, not whether two bullets share a few words", async () => {
+    const { covers } = await import("./backfill");
+    const page = "Built a config-driven registration wizard with React hooks.";
+    const source = "Led a large-scale UI migration of the registration, invite, and RSVP flows onto a shared design system, tracking delivery in Jira.";
+    expect(covers(page, source)).toBeLessThan(0.5);
+    expect(covers("Led a UI migration of registration, invite and RSVP flows onto a shared design system in Jira", source)).toBeGreaterThanOrEqual(0.5);
+  });
+});

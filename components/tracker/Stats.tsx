@@ -6,9 +6,9 @@ import { withGoal, type GoalPeriod } from "@/lib/tracker/weeklyGoal";
 import { Button, inputClass, panelClass, textButtonClass } from "@/components/ui";
 
 /** One figure in the stats row. The row is a single panel split by hairlines, not separate boxes. */
-export function Stat({ label, value, title, action, children }: { label: string; value: React.ReactNode; title?: string; action?: React.ReactNode; children?: React.ReactNode }) {
+export function Stat({ label, value, title, action, className = "", children }: { label: string; value: React.ReactNode; title?: string; action?: React.ReactNode; className?: string; children?: React.ReactNode }) {
   return (
-    <div className="min-w-0 px-4 py-4 sm:px-6" title={title}>
+    <div className={`min-w-0 px-4 py-4 sm:px-6 ${className}`} title={title}>
       <div className="flex items-center justify-between gap-2">
         <dt className="truncate text-[12px] text-muted sm:text-[13px]">{label}</dt>
         {action}
@@ -19,6 +19,10 @@ export function Stat({ label, value, title, action, children }: { label: string;
   );
 }
 
+/** The goal tile is tinted so it stands out from the plain counts: soft purple, green once reached. */
+const GOAL_TILE = "rounded-l-[22px] bg-accent-soft";
+const GOAL_TILE_DONE = "rounded-l-[22px] bg-good-soft";
+
 const smallLink = "shrink-0 rounded-full text-[12px] font-medium text-accent hover:text-accent-deep hover:underline underline-offset-2 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent/25 sm:text-[13px]";
 
 /**
@@ -28,7 +32,7 @@ const smallLink = "shrink-0 rounded-full text-[12px] font-medium text-accent hov
 export function GoalStat({ done, goal, per, onEdit }: { done: number; goal: number | null; per: GoalPeriod; onEdit: () => void }) {
   if (!goal) {
     return (
-      <Stat label="Daily goal" value={<button type="button" onClick={onEdit} className={`${textButtonClass} -ml-2 text-[17px]`}>Set a goal</button>}>
+      <Stat label="Daily goal" className={GOAL_TILE} value={<button type="button" onClick={onEdit} className={`${textButtonClass} -ml-2 text-[17px]`}>Set a goal</button>}>
         <p className="mt-1.5 truncate text-[12px] text-muted">Optional reminder</p>
       </Stat>
     );
@@ -38,6 +42,7 @@ export function GoalStat({ done, goal, per, onEdit }: { done: number; goal: numb
   const when = per === "day" ? "today" : "this week";
   return (
     <Stat
+      className={done >= goal ? GOAL_TILE_DONE : GOAL_TILE}
       label={per === "day" ? "Today" : "This week"}
       title={`${done} of your goal of ${goal} applications ${per === "day" ? "today" : "this week, Monday to Sunday"}`}
       action={<button type="button" onClick={onEdit} className={smallLink}>Edit</button>}
@@ -49,14 +54,14 @@ export function GoalStat({ done, goal, per, onEdit }: { done: number; goal: numb
       }
     >
       <div
-        className="mt-2 h-1 overflow-hidden rounded-full bg-black/[0.06]"
+        className="mt-2 h-1 overflow-hidden rounded-full bg-white/70"
         role="progressbar"
         aria-valuemin={0}
         aria-valuemax={goal}
         aria-valuenow={Math.min(done, goal)}
         aria-label={per === "day" ? "Daily goal progress" : "Weekly goal progress"}
       >
-        <div className={`h-full rounded-full ${done >= goal ? "bg-accent" : "bg-black/30"}`} style={{ width: `${pct}%` }} />
+        <div className={`h-full rounded-full ${done >= goal ? "bg-good" : "bg-accent"}`} style={{ width: `${pct}%` }} />
       </div>
       <p className="mt-1.5 truncate text-[12px] text-muted">{left > 0 ? `${left} to go ${when}` : `Goal reached ${when}`}</p>
     </Stat>

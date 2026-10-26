@@ -37,6 +37,15 @@ export function openaiUsage(model: string, usage: unknown): UsageReport {
  * except the "-chat" variants. A model this misjudges still works: the 400 is caught and the
  * call retried without effort.
  */
+/**
+ * The app's effort for OpenAI. gpt-5's "low" still thought 25 to 50 seconds before writing a resume
+ * (live, 2026-10-25); its "minimal" is the fast setting, and the code checks plus the one follow-up
+ * call carry the quality. Other reasoning models (o-series) have no "minimal".
+ */
+export function openAIEffort(effort: "low" | "medium" | "high", model: string): string {
+  return effort === "low" && /^gpt-5/i.test(model) ? "minimal" : effort;
+}
+
 export function supportsReasoningEffort(model: string): boolean {
   const m = model.toLowerCase();
   if (/-chat(-|$)/.test(m)) return false;
@@ -86,7 +95,7 @@ export function buildRequest(model: string, opts: CompleteOptions, format: Forma
   ];
   const body: Record<string, unknown> = { model, messages };
   if (flags.maxTokens) body.max_completion_tokens = opts.maxTokens ?? 16000;
-  if (flags.effort && opts.effort && supportsReasoningEffort(model)) body.reasoning_effort = opts.effort;
+  if (flags.effort && opts.effort && supportsReasoningEffort(model)) body.reasoning_effort = openAIEffort(opts.effort, model);
   if (format) {
     body.response_format = { type: "json_schema", json_schema: { name: "response", strict: flags.strict, schema: format.schema } };
   }

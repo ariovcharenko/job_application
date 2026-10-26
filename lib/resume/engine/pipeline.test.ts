@@ -5,7 +5,7 @@ import { demoFocus, skillLines } from "../../demo/seed";
 import { parseMasterExperiences } from "../master/experiences";
 import { estimatePageFill, planPage } from "./budget";
 import { GENERATE_EFFORT } from "./index";
-import { followUpComments, keywordComments, MIN_SHORT_LINES, tailorResume, type TailorProgress } from "./pipeline";
+import { followUpComments, keywordComments, tailorResume, type TailorProgress } from "./pipeline";
 import type { ResumeDoc } from "./schema";
 import { validateResume } from "./validate";
 import { applyConfirmations, confirmedForPrompt, placeChoices } from "../gaps";
@@ -18,7 +18,7 @@ const focus = demoFocus(job);
 const jobSkills = [...job.signals.mustHaveSkills, ...job.signals.niceToHaveSkills];
 
 /** A page as a model following the plan would write it, from her own lines. */
-function plannedPage(opts: { dropSkill?: string; bulletsPerRole?: number } = {}): ResumeDoc {
+function plannedPage(opts: { dropSkill?: string; bulletsPerRole?: number; firstPerson?: boolean } = {}): ResumeDoc {
   const plan = planPage(DEMO_EXPERIENCE, focus);
   const entries = parseMasterExperiences(DEMO_EXPERIENCE);
   const linesOf = (company: string) =>
@@ -33,7 +33,9 @@ function plannedPage(opts: { dropSkill?: string; bulletsPerRole?: number } = {})
   };
   return {
     education: [{ school: "University of Washington", location: "Seattle, WA", degree: "B.S. Computer Science", dates: "Jun 2026", bullets: ["GPA: 3.8/4.0"] }],
-    experience: plan.roles.map(entry),
+    // firstPerson: one bullet in the first person, a writing issue only the model can fix, so the
+    // follow-up call runs (a short page no longer triggers it: code fills that from her bullets).
+    experience: plan.roles.map(entry).map((e, i) => (opts.firstPerson && i === 0 ? { ...e, bullets: [`I ${e.bullets[0][0].toLowerCase()}${e.bullets[0].slice(1)}`, ...e.bullets.slice(1)] } : e)),
     projects: plan.projects.map(entry),
     skills: skillLines(DEMO_EXPERIENCE).map((l) => ({ ...l, items: l.items.filter((i) => i !== opts.dropSkill) })),
     leadership: [{ role: "ACM Student Chapter, Vice President", dates: "Sep 2024 - Present" }],
@@ -74,51 +76,55 @@ describe("tailorResume", () => {
     expect(out.result.flags).toEqual([]);
   });
 
-  it("asks once for the missing lines when the page ends short, and uses the answer", async () => {
+  it("fills a short page from her own bullets, word for word, with no extra call", async () => {
     const short = plannedPage({ bulletsPerRole: 2 });
-    const full = plannedPage();
-    const { provider, calls } = fakeProvider(short, full);
+    const { provider, calls } = fakeProvider(short);
     const out = await run(provider, estimatePageFill);
-    expect(calls).toHaveLength(2);
-    expect(out.calls).toBe(2);
-    expect(calls[1].prompt).toMatch(/lines short of a full page/);
-    expect(calls[1].effort).toBe("low");
+    expect(calls).toHaveLength(1);
+    expect(out.calls).toBe(1);
     expect(out.result.doc.experience[0].bullets.length).toBeGreaterThan(2);
-    expect(out.notes[0]).toMatch(/filled the rest of the page/);
+    expect(out.result.flags).toEqual([]);
+    expect(out.notes.join(" ")).toMatch(/word for word/);
   });
 
-  it("keeps the first draft when the follow-up call fails", async () => {
-    const short = plannedPage({ bulletsPerRole: 2 });
-    const { provider } = fakeProvider(short, new Error("overloaded"));
+  it("sends a writing fix back once at low effort, and keeps the first draft when that call fails", async () => {
+    const fixed = await (async () => {
+      const { provider, calls } = fakeProvider(plannedPage({ firstPerson: true }), plannedPage());
+      const out = await run(provider, estimatePageFill);
+      expect(calls).toHaveLength(2);
+      expect(calls[1].effort).toBe("low");
+      return out;
+    })();
+    expect(fixed.result.doc.experience[0].bullets[0]).not.toMatch(/^I /);
+    const { provider } = fakeProvider(plannedPage({ firstPerson: true }), new Error("overloaded"));
     const out = await run(provider, estimatePageFill);
     expect(out.calls).toBe(2);
-    expect(out.notes).toEqual([]);
-    expect(out.result.doc.experience[0].bullets).toHaveLength(2);
+    expect(out.result.doc.experience[0].bullets[0]).toMatch(/^I /);
   });
 
   it("hands over the draft before polishing, and only when a polish follows", async () => {
-    const drafts: number[] = [];
-    const onDraft = (r: { doc: ResumeDoc }) => drafts.push(r.doc.experience[0].bullets.length);
+    const drafts: string[] = [];
+    const onDraft = (r: { doc: ResumeDoc }) => drafts.push(r.doc.experience[0].bullets[0].slice(0, 2));
     const base = { master: DEMO_EXPERIENCE, company: job.signals.company, jdText: job.jd, jobSkills, requiredSkills: job.signals.mustHaveSkills, focus, onDraft };
     await tailorResume({ ...base, provider: fakeProvider(plannedPage()).provider, measure: () => 0.965 });
     expect(drafts).toEqual([]);
-    const out = await tailorResume({ ...base, provider: fakeProvider(plannedPage({ bulletsPerRole: 2 }), plannedPage()).provider, measure: estimatePageFill });
-    expect(drafts).toEqual([2]);
-    expect(out.result.doc.experience[0].bullets.length).toBeGreaterThan(2);
+    const out = await tailorResume({ ...base, provider: fakeProvider(plannedPage({ firstPerson: true }), plannedPage()).provider, measure: estimatePageFill });
+    expect(drafts).toEqual(["I "]);
+    expect(out.result.doc.experience[0].bullets[0]).not.toMatch(/^I /);
   });
 
   it("Cancel during the polish keeps the draft that is already on screen", async () => {
     const ctrl = new AbortController();
     const cancelled = new Error("cancelled");
-    const { provider } = fakeProvider(plannedPage({ bulletsPerRole: 2 }), cancelled);
+    const { provider } = fakeProvider(plannedPage({ firstPerson: true }), cancelled);
     const out = await tailorResume({
       provider, master: DEMO_EXPERIENCE, company: job.signals.company, jdText: job.jd, jobSkills, focus, measure: estimatePageFill, signal: ctrl.signal,
       onDraft: () => ctrl.abort(),
     });
-    expect(out.result.doc.experience[0].bullets).toHaveLength(2);
+    expect(out.result.doc.experience[0].bullets[0]).toMatch(/^I /);
     // Without a draft on screen, Cancel still stops the whole run.
     const ctrl2 = new AbortController();
-    const p2 = fakeProvider(plannedPage({ bulletsPerRole: 2 }), cancelled);
+    const p2 = fakeProvider(plannedPage({ firstPerson: true }), cancelled);
     const origin = p2.provider.completeJson;
     let n = 0;
     p2.provider.completeJson = (async (o: JsonOptions<unknown>) => {
@@ -159,11 +165,11 @@ describe("tailorResume with skills she confirmed before tailoring", () => {
 });
 
 describe("followUpComments", () => {
-  it("asks for lines only when the page is at least MIN_SHORT_LINES short", () => {
+  it("never sends a short page back (code fills it from her own bullets)", () => {
     const checked = validateResume(plannedPage(), DEMO_EXPERIENCE, { jobSkills, focus });
     const input = { jobSkills, requiredSkills: [], master: DEMO_EXPERIENCE };
-    expect(followUpComments(checked, { ...input, measure: () => 0.965 - (MIN_SHORT_LINES - 1) / 64.5 })).toEqual([]);
-    expect(followUpComments(checked, { ...input, measure: () => 0.8 }).map((c) => c.id)).toEqual(["fill"]);
+    expect(followUpComments(checked, { ...input, measure: () => 0.965 })).toEqual([]);
+    expect(followUpComments(checked, { ...input, measure: () => 0.6 })).toEqual([]);
   });
 
   it("sends a writing fix code found back to the model, on its spot", () => {
@@ -208,7 +214,7 @@ describe("keywordComments", () => {
 
 describe("tailorResume progress", () => {
   it("reports the writing step, then the polishing step when a follow-up runs", async () => {
-    const { provider } = fakeProvider(plannedPage({ bulletsPerRole: 2 }), plannedPage());
+    const { provider } = fakeProvider(plannedPage({ firstPerson: true }), plannedPage());
     const steps: TailorProgress["step"][] = [];
     await tailorResume({ provider, master: DEMO_EXPERIENCE, company: job.signals.company, jdText: job.jd, jobSkills, focus, measure: estimatePageFill, onProgress: (p) => steps.push(p.step) });
     expect(steps[0]).toBe("writing");

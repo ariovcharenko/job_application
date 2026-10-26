@@ -213,3 +213,15 @@ describe("addMissingJobSkills", () => {
     expect(added.notes.join(" ")).toMatch(/Added Go to your skills/);
   });
 });
+
+describe("items that aren't skills", () => {
+  it("leave every skills line, and an emptied line goes", async () => {
+    const { tidySkillLines } = await import("./polish");
+    const r = tidySkillLines([
+      { category: "Cloud & DevOps", items: ["AWS", "Docker", "infrastructure"] },
+      { category: "Areas", items: ["frontend", "backend"] },
+    ]);
+    expect(r.skills).toEqual([{ category: "Cloud & DevOps", items: ["AWS", "Docker"] }]);
+    expect(r.notes.join(" ")).toMatch(/"infrastructure"/);
+  });
+});

@@ -430,3 +430,18 @@ describe("validateResume: confirmed skills with usage notes", () => {
     expect(validateResume(d, notListed).flags.filter((f) => f.target.section === "skills")).toEqual([expect.objectContaining({ severity: "block" })]);
   });
 });
+
+describe("a bold pair of two of her skills", () => {
+  it("is checked half by half, so JavaScript/TypeScript isn't flagged when she has both", async () => {
+    const { splitPair } = await import("./validate");
+    expect(splitPair("JavaScript/TypeScript")).toEqual(["JavaScript", "TypeScript"]);
+    expect(splitPair("CI/CD")).toEqual(["CI/CD"]);
+    expect(splitPair("TCP/IP")).toEqual(["TCP/IP"]);
+    const d = doc();
+    d.experience[0].bullets = ["Shipped **6 production features** with **TypeScript/React**"];
+    const flags = validateResume(d, MASTER).flags.filter((f) => f.kind === "skill");
+    // Both halves are hers: nothing is blocked as "not in your experience" (at most a "this role?" note).
+    expect(flags.filter((f) => f.severity === "block")).toEqual([]);
+    expect(flags.some((f) => /TypeScript\/React/.test(f.message))).toBe(false);
+  });
+});

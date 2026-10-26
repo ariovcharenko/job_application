@@ -305,3 +305,13 @@ describe("resume schemas work with OpenAI strict structured outputs", () => {
     expect(checkStrict(RESUME_REVISION_JSON_SCHEMA)).toEqual([]);
   });
 });
+
+describe("openAIEffort", () => {
+  it("uses gpt-5's fast setting for the app's low effort, and leaves the rest alone", async () => {
+    const { openAIEffort } = await import("./openai");
+    expect(openAIEffort("low", "gpt-5")).toBe("minimal");
+    expect(openAIEffort("low", "gpt-5-mini")).toBe("minimal");
+    expect(openAIEffort("medium", "gpt-5")).toBe("medium");
+    expect(openAIEffort("low", "o4-mini")).toBe("low");
+  });
+});

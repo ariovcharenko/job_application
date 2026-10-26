@@ -254,9 +254,19 @@ export function unknownClaims(bullet: string, block: string): string[] {
  *  - `elsewhere`: in her experience, but not in this role's own text (or a usage note placing it
  *    there). True, so it stays; she gets a note to check it belongs in this role.
  */
+/** Pairs that are one name ("CI/CD", "TCP/IP"); any other "A/B" is checked as A and B. */
+const ONE_NAME_PAIR = /^(?:ci\/cd|tcp\/ip|ui\/ux|ux\/ui|i\/o|a\/b(?: test\w*)?|pl\/sql|pub\/sub|client\/server|c\/c\+\+)$/i;
+
+/** "JavaScript/TypeScript" -> ["JavaScript", "TypeScript"]: each half is her skill or not on its own (found live 2026-10-25). */
+export function splitPair(span: string): string[] {
+  if (!span.includes("/") || ONE_NAME_PAIR.test(span)) return [span];
+  const parts = span.split("/").map((p) => p.trim());
+  return parts.every((p) => p.length > 0 && p.length <= 30) ? parts : [span];
+}
+
 export function classifyTools(bullet: string, block: string, inventory: string[], master: string): { missing: string[]; elsewhere: string[] } {
   const text = plain(bullet);
-  const spans = [...bullet.matchAll(/\*\*(.+?)\*\*/g)].map((m) => m[1].trim()).filter(looksLikeTool);
+  const spans = [...bullet.matchAll(/\*\*(.+?)\*\*/g)].map((m) => m[1].trim()).flatMap(splitPair).filter(looksLikeTool);
   const terms = TECH_TERMS.filter(
     (t) => mentionsTerm(text, t, { exactCase: !t.includes(" ") }) && !spans.some((s) => mentionsTerm(s, t)),
   );

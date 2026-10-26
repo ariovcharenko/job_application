@@ -124,7 +124,8 @@ export function boldOnlyTechAndNumbers(text: string, inventory: string[]): { tex
 
 /**
  * Skills lines named like soft skills ("Collaboration", "Soft skills") go, but any technical item on
- * them moves to Tools; an "Additional"/"Other" line merges into Tools. No technical skill is lost.
+ * them moves to Tools; an "Additional"/"Other" line merges into Tools; items that aren't tools or
+ * technologies ("infrastructure") leave every line. No technical skill is lost.
  */
 export function tidySkillLines(skills: ResumeDoc["skills"]): { skills: ResumeDoc["skills"]; notes: string[] } {
   const notes: string[] = [];
@@ -145,6 +146,14 @@ export function tidySkillLines(skills: ResumeDoc["skills"]): { skills: ResumeDoc
     if (tools >= 0) out = out.map((l, i) => (i === tools ? { ...l, items: [...l.items, ...items] } : l));
     else out = [...out, { category: "Tools", items }];
     if (extra.length) notes.push(`Moved the "${extra[0].category}" skills into ${tools >= 0 ? out[tools].category : "Tools"}.`);
+  }
+  // Items that aren't skills a resume can show ("infrastructure", "communication") leave every line,
+  // even when her experience lists them: the model is told to keep every listed skill, so it never
+  // drops them itself, and each run spent a follow-up call refusing to (found live 2026-10-25).
+  const notSkills = out.flatMap((l) => l.items.filter((i) => isSoftSkill(i)));
+  if (notSkills.length) {
+    out = out.map((l) => ({ ...l, items: l.items.filter((i) => !isSoftSkill(i)) })).filter((l) => l.items.length > 0);
+    notes.push(`Left ${notSkills.map((i) => `"${i}"`).join(", ")} off the skills lines (not a tool or technology).`);
   }
   return { skills: out, notes };
 }

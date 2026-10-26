@@ -20,7 +20,7 @@ const focus = demoFocus(job);
 const jobSkills = [...job.signals.mustHaveSkills, ...job.signals.niceToHaveSkills];
 const header = { name: "Alex Rivera", location: "Austin, TX", links: [] };
 
-function plannedPage(opts: { bulletsPerRole?: number } = {}): ResumeDoc {
+function plannedPage(opts: { bulletsPerRole?: number; firstPerson?: boolean } = {}): ResumeDoc {
   const plan = planPage(DEMO_EXPERIENCE, focus);
   const entries = parseMasterExperiences(DEMO_EXPERIENCE);
   const linesOf = (company: string) =>
@@ -35,7 +35,9 @@ function plannedPage(opts: { bulletsPerRole?: number } = {}): ResumeDoc {
   };
   return {
     education: [{ school: "University of Washington", location: "Seattle, WA", degree: "B.S. Computer Science", dates: "Jun 2026", bullets: ["GPA: 3.8/4.0"] }],
-    experience: plan.roles.map(entry),
+    // firstPerson: one bullet in the first person, a writing issue only the model can fix, so the
+    // follow-up call runs (a short page no longer triggers it: code fills that from her bullets).
+    experience: plan.roles.map(entry).map((e, i) => (opts.firstPerson && i === 0 ? { ...e, bullets: [`I ${e.bullets[0][0].toLowerCase()}${e.bullets[0].slice(1)}`, ...e.bullets.slice(1)] } : e)),
     projects: plan.projects.map(entry),
     skills: skillLines(DEMO_EXPERIENCE),
     leadership: [{ role: "ACM Student Chapter, Vice President", dates: "Sep 2024 - Present" }],
@@ -191,18 +193,18 @@ describe("the automatic follow-up never makes things worse", () => {
   });
 
   it("keeps the first draft when the follow-up comes back with no experience", async () => {
-    const short = plannedPage({ bulletsPerRole: 2 });
+    const short = plannedPage({ firstPerson: true });
     const { provider } = scripted(short, { ...plannedPage(), experience: [], projects: [] });
     const out = await tailorResume(base(provider));
     expect(out.result.doc.experience.length).toBe(short.experience.length);
-    expect(out.notes).toEqual([]);
+    expect(out.notes.join(" ")).not.toMatch(/Polished/);
   });
 
   it("keeps the first draft when the follow-up fails in any way but a cancel", async () => {
     for (const err of [new AIError("invalid_output", "bad json"), new AIError("truncated", "cut"), new AIError("rate_limit", "slow down"), new Error("boom")]) {
-      const short = plannedPage({ bulletsPerRole: 2 });
+      const short = plannedPage({ firstPerson: true });
       const out = await tailorResume(base(scripted(short, err).provider));
-      expect(out.result.doc.experience[0].bullets).toHaveLength(2);
+      expect(out.result.doc.experience[0].bullets[0]).toMatch(/^I /);
     }
   });
 });
@@ -239,7 +241,7 @@ describe("cancel and closing the dialog", () => {
   it("Cancel during the follow-up stops the whole run (the first draft is not stored behind her back)", async () => {
     const appId = await db.applications.add({ ...blankApplication(), company: "Cobalt Payments" });
     const c = new AbortController();
-    const run = tailorAndSave(base(hanging(plannedPage({ bulletsPerRole: 2 })), { signal: c.signal }), { applicationId: appId, header, fitOpts: {} });
+    const run = tailorAndSave(base(hanging(plannedPage({ firstPerson: true })), { signal: c.signal }), { applicationId: appId, header, fitOpts: {} });
     await new Promise((r) => setTimeout(r, 20));
     c.abort();
     await expect(run).rejects.toMatchObject({ kind: "cancelled" });

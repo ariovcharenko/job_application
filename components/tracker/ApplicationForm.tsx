@@ -285,6 +285,12 @@ export default function ApplicationForm({ initial, onClose }: { initial: Applica
                       <Button variant="danger-quiet" onClick={removeOwn}>
                         {resume ? "Use the tailored one" : "Remove"}
                       </Button>
+                      {/* Her own file never hides tailoring: a job could only be tailored with no file attached. */}
+                      {app.jdText.trim() && (
+                        <button type="button" className={textButtonClass} onClick={() => setTailoring(true)}>
+                          {resume ? "Open the tailored one" : "Tailor one for this job"}
+                        </button>
+                      )}
                     </>
                   ) : resume ? (
                     <>

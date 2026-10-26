@@ -29,7 +29,21 @@ export function overlap(a: string, b: string): number {
   return shared / Math.min(A.size, B.size);
 }
 
-/** A page bullet already covers this source bullet when they share most of their content words. */
+/**
+ * Share of the source bullet's content words the page bullet also has: "does the page already say
+ * this?" Dividing by the smaller bullet instead made every short page bullet "cover" long source
+ * bullets that share a few words, so a short page stayed short (live run, 2026-10-25).
+ */
+export function covers(pageBullet: string, source: string): number {
+  const S = words(source);
+  const B = words(pageBullet);
+  if (S.size === 0) return 1;
+  let shared = 0;
+  for (const w of S) if (B.has(w)) shared++;
+  return shared / S.size;
+}
+
+/** A page bullet already covers this source bullet when it has most of its content words. */
 export const ALREADY_SAID = 0.5;
 const MAX_BOLD = 3;
 
@@ -110,7 +124,7 @@ export function backfillFromExperience(
     const source = sourceBullets(entry);
     const everything = doc.experience.flatMap((x) => x.bullets);
     const unused = source
-      .filter((s) => !everything.some((b) => overlap(b, s) >= ALREADY_SAID))
+      .filter((s) => !everything.some((b) => covers(b, s) >= ALREADY_SAID))
       .sort((a, b) => relevance(b) - relevance(a))
       .map((s) => autoBold(s, inventory, master));
     added += unused.length;
