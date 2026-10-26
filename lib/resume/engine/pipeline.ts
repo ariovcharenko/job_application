@@ -10,7 +10,7 @@ import { DEFAULT_LAYOUT } from "./layout";
 import { FOLLOW_UP_EFFORT, reviseResume, type ResumeComment } from "./revise";
 import type { ResumeDoc } from "./schema";
 import { fitToPage, toPoolTarget, type MeasureFn } from "./trim";
-import { notesForRole, validateResume, type ValidationResult } from "./validate";
+import { notesForRole, skillInBlock, validateResume, type ValidationResult } from "./validate";
 import type { Target } from "./edit";
 
 // One tailoring run, start to finish, at most two AI calls:
@@ -100,8 +100,12 @@ export function keywordComments(doc: ResumeDoc, master: string, skills: string[]
   let count = 0;
   for (const skill of wanted) {
     if (count >= MAX_KEYWORD_ASKS) break;
-    if (onPage.some((e) => hasSkill(skill, [], e.bullets))) continue;
-    const home = onPage.find((e) => e.source && hasSkill(skill, [], e.source));
+    // The validator's matcher (skillInBlock), so a bullet the checks already accept as naming the
+    // skill ("Ruby on Rails" for "Ruby") is never asked about again. Without the inventory: a
+    // "Snowflake" bullet implies SQL for honesty, but a recruiter's keyword scan still wants "SQL".
+    const shows = (text: string) => skillInBlock(skill, text, []);
+    if (onPage.some((e) => shows(e.bullets))) continue;
+    const home = onPage.find((e) => e.source && shows(e.source));
     if (!home) continue;
     const key = `${home.section}:${home.entry}`;
     const ask = asks.get(key) ?? { target: { section: home.section, entry: home.entry }, label: home.label, skills: [] };
