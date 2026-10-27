@@ -54,7 +54,7 @@ export function GoalStat({ done, goal, per, onEdit }: { done: number; goal: numb
       }
     >
       <div
-        className="mt-2 h-1 overflow-hidden rounded-full bg-white/70"
+        className={`mt-2 h-1 overflow-hidden rounded-full ${done >= goal ? "bg-good/20" : "bg-accent/20"}`}
         role="progressbar"
         aria-valuemin={0}
         aria-valuemax={goal}
